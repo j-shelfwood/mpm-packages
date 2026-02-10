@@ -33,6 +33,17 @@ this = {
     run = function()
         local config = mpm('displays/Config').load()
 
+        if #config == 0 then
+            print("No displays configured. Starting setup...")
+            mpm('displays/Installer').run()
+            config = mpm('displays/Config').load()
+
+            if #config == 0 then
+                print("No displays configured. Exiting.")
+                return
+            end
+        end
+
         local tasks = {}
         for _, display in ipairs(config) do
             table.insert(tasks, function()
