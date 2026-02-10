@@ -1,6 +1,7 @@
 {
   "name": "views",
   "description": "Views package - Display modules for various types of data visualization",
+  "dependencies": ["utils", "peripherals"],
   "files": [
     "ChestDisplay.lua",
     "FluidMonitor.lua",

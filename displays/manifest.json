@@ -1,6 +1,7 @@
 {
   "name": "displays",
   "description": "Display management package - Configure and manage multiple monitors to show information from peripherals",
+  "dependencies": ["views"],
   "files": [
     "setup.lua",
     "start.lua",
