@@ -31,7 +31,7 @@ this = {
     end,
 
     run = function()
-        local config = textutils.unserialize(fs.open("displays.config", "r").readAll())
+        local config = mpm('displays/Config').load()
 
         local tasks = {}
         for _, display in ipairs(config) do
