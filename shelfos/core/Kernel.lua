@@ -187,17 +187,12 @@ end
 -- Per-monitor render loop
 function Kernel:monitorLoop(monitor)
     while self.running do
-        -- Handle touch events and render
         local event, p1, p2, p3 = os.pullEvent()
 
         if event == "monitor_touch" then
             monitor:handleTouch(p1, p2, p3)
         elseif event == "timer" then
-            -- Check if this is our render timer
-            if monitor:isRenderTimer(p1) then
-                monitor:render()
-                monitor:scheduleRender()
-            end
+            monitor:handleTimer(p1)
         end
     end
 end

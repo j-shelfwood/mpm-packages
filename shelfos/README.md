@@ -14,7 +14,7 @@ That's it. ShelfOS auto-discovers connected monitors and assigns appropriate vie
 ## Features
 
 - **Zero-touch setup** - Automatically detects monitors and peripherals
-- **Touch controls** - Cycle views by touching left/right halves of monitors
+- **Touch controls** - Tap to reveal settings button, tap again to open view selector
 - **Smart view assignment** - Assigns relevant views based on connected peripherals
 - **Network swarm** - Link multiple computers into a unified system
 - **Secure networking** - HMAC-signed messages for multiplayer servers
@@ -70,19 +70,33 @@ Current: StorageCapacityDisplay
 
 ## Touch Controls
 
-On advanced monitors:
+On advanced monitors, ShelfOS uses a settings-button pattern:
+
+1. **Touch anywhere** on the monitor to reveal the settings button `[*]`
+2. **Tap the `[*]` button** (bottom-right corner) to open the view selector
+3. The button auto-hides after 3 seconds if not tapped
+
+### View Selector (On-Monitor)
+
+When you tap `[*]`, a menu appears directly on the monitor:
 
 ```
-+-------------------+-------------------+
-|                   |                   |
-|   Touch left      |   Touch right     |
-|   = Previous      |   = Next view     |
-|     view          |                   |
-|                   |                   |
-+-------------------+-------------------+
-|        Touch bottom = Config mode     |
-+---------------------------------------+
++----------------------------------+
+|         Select View              |  <- Blue title bar
++----------------------------------+
+|  > StorageCapacityDisplay        |  <- Current view (highlighted)
+|    InventoryDisplay              |
+|    FluidMonitor                  |
+|    WeatherClock                  |
++----------------------------------+
+|            Cancel                |  <- Red cancel bar
++----------------------------------+
 ```
+
+- **Tap a view name** to switch to it
+- **Tap Cancel** to close without changing
+
+This allows view changes directly from the monitor without using the terminal.
 
 ## Auto-Discovery
 
@@ -149,10 +163,7 @@ shelfos/
 ├── view/
 │   └── Manager.lua     # View loading (re-exports views/Manager)
 ├── input/
-│   ├── Menu.lua        # Terminal menu UI
-│   ├── Touch.lua       # Touch handling
-│   ├── ConfigMode.lua  # Configuration overlay
-│   └── Remote.lua      # Remote input handling
+│   └── Menu.lua        # Terminal menu UI
 ├── pocket/
 │   ├── start.lua       # Pocket computer entry
 │   ├── App.lua         # Pocket UI
