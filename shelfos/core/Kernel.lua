@@ -159,130 +159,141 @@ function Kernel:run()
 
     self.running = true
 
-    -- Create parallel tasks
-    local tasks = {}
-
-    -- Monitor render tasks
+    -- Initial render for all monitors
     for _, monitor in ipairs(self.monitors) do
-        table.insert(tasks, function()
-            self:monitorLoop(monitor)
-        end)
+        monitor:render()
     end
 
-    -- Menu handler
-    table.insert(tasks, function()
-        self:menuLoop()
-    end)
-
-    -- Network task (if available)
+    -- Run single event loop (with optional network task in parallel)
     if self.channel then
-        table.insert(tasks, function()
-            self:networkLoop()
-        end)
+        parallel.waitForAny(
+            function() self:eventLoop() end,
+            function() self:networkLoop() end
+        )
+    else
+        self:eventLoop()
     end
-
-    -- Run all tasks
-    parallel.waitForAny(table.unpack(tasks))
 
     self:shutdown()
 end
 
--- Per-monitor render loop
-function Kernel:monitorLoop(monitor)
+-- Single event loop - dispatches events to all monitors
+-- This replaces the problematic per-monitor parallel loops
+function Kernel:eventLoop()
     while self.running do
         local event, p1, p2, p3 = os.pullEvent()
 
-        if event == "monitor_touch" then
-            monitor:handleTouch(p1, p2, p3)
-        elseif event == "timer" then
-            monitor:handleTimer(p1)
-        elseif event == "monitor_resize" then
-            -- p1 is the monitor name/side that was resized
-            if p1 == monitor:getPeripheralName() then
-                monitor:handleResize()
+        if event == "timer" then
+            -- Dispatch timer to all monitors (each checks its own timer ID)
+            for _, monitor in ipairs(self.monitors) do
+                monitor:handleTimer(p1)
             end
+
+        elseif event == "monitor_touch" then
+            -- Find and dispatch to the touched monitor
+            local target = self:getMonitorByPeripheral(p1)
+            if target then
+                target:handleTouch(p1, p2, p3)
+            end
+
+        elseif event == "monitor_resize" then
+            -- Find and dispatch to the resized monitor
+            local target = self:getMonitorByPeripheral(p1)
+            if target then
+                target:handleResize()
+            end
+
+        elseif event == "key" then
+            -- Handle menu keys
+            self:handleMenuKey(p1)
         end
     end
 end
 
--- Menu handler loop
-function Kernel:menuLoop()
-    while self.running do
-        local event, key = os.pullEvent("key")
+-- Get monitor by peripheral name
+function Kernel:getMonitorByPeripheral(peripheralName)
+    for _, monitor in ipairs(self.monitors) do
+        if monitor:getPeripheralName() == peripheralName then
+            return monitor
+        end
+    end
+    return nil
+end
 
-        local action = Menu.handleKey(key)
+-- Handle menu key press
+function Kernel:handleMenuKey(key)
+    local action = Menu.handleKey(key)
 
-        if action == "quit" then
+    if action == "quit" then
+        self.running = false
+        return
+
+    elseif action == "status" then
+        Terminal.showDialog(function()
+            Menu.showStatus(self.config)
+        end)
+        Terminal.clearLog()
+        self:drawMenu()
+
+    elseif action == "reset" then
+        local confirmed = Terminal.showDialog(function()
+            return Menu.showReset()
+        end)
+
+        if confirmed then
+            -- Delete config and quit
+            fs.delete(Config.getPath())
+            Terminal.clearLog()
+            print("[ShelfOS] Configuration deleted.")
+            print("[ShelfOS] Restart to auto-configure.")
+            sleep(1)
             self.running = false
             return
-
-        elseif action == "status" then
-            Terminal.showDialog(function()
-                Menu.showStatus(self.config)
-            end)
+        else
             Terminal.clearLog()
-            self:drawMenu()
-
-        elseif action == "reset" then
-            local confirmed = Terminal.showDialog(function()
-                return Menu.showReset()
-            end)
-
-            if confirmed then
-                -- Delete config and quit
-                fs.delete(Config.getPath())
-                Terminal.clearLog()
-                print("[ShelfOS] Configuration deleted.")
-                print("[ShelfOS] Restart to auto-configure.")
-                sleep(1)
-                self.running = false
-                return
-            else
-                Terminal.clearLog()
-                self:drawMenu()
-            end
-
-        elseif action == "link" then
-            local result, code = Terminal.showDialog(function()
-                return Menu.showLink(self.config)
-            end)
-
-            Terminal.clearLog()
-
-            if result == "link_new" then
-                self:createNetwork()
-            elseif result == "link_join" and code then
-                self:joinNetwork(code)
-            elseif result == "link_disconnect" then
-                self.config.network.enabled = false
-                self.config.network.secret = nil
-                Config.save(self.config)
-                print("[ShelfOS] Disconnected from network.")
-                sleep(1)
-            end
-
-            self:drawMenu()
-
-        elseif action == "monitors" then
-            local availableViews = ViewManager.getMountableViews()
-
-            local result, monitorIndex, newView = Terminal.showDialog(function()
-                return Menu.showMonitors(self.monitors, availableViews)
-            end)
-
-            Terminal.clearLog()
-
-            if result == "change_view" and monitorIndex and newView then
-                local monitor = self.monitors[monitorIndex]
-                if monitor then
-                    monitor:loadView(newView)
-                    self:persistViewChange(monitor:getPeripheralName(), newView)
-                    print("[ShelfOS] " .. monitor:getName() .. " -> " .. newView)
-                end
-            end
-
             self:drawMenu()
         end
+
+    elseif action == "link" then
+        local result, code = Terminal.showDialog(function()
+            return Menu.showLink(self.config)
+        end)
+
+        Terminal.clearLog()
+
+        if result == "link_new" then
+            self:createNetwork()
+        elseif result == "link_join" and code then
+            self:joinNetwork(code)
+        elseif result == "link_disconnect" then
+            self.config.network.enabled = false
+            self.config.network.secret = nil
+            Config.save(self.config)
+            print("[ShelfOS] Disconnected from network.")
+            sleep(1)
+        end
+
+        self:drawMenu()
+
+    elseif action == "monitors" then
+        local availableViews = ViewManager.getMountableViews()
+
+        local result, monitorIndex, newView = Terminal.showDialog(function()
+            return Menu.showMonitors(self.monitors, availableViews)
+        end)
+
+        Terminal.clearLog()
+
+        if result == "change_view" and monitorIndex and newView then
+            local monitor = self.monitors[monitorIndex]
+            if monitor then
+                monitor:loadView(newView)
+                self:persistViewChange(monitor:getPeripheralName(), newView)
+                print("[ShelfOS] " .. monitor:getName() .. " -> " .. newView)
+            end
+        end
+
+        self:drawMenu()
     end
 end
 

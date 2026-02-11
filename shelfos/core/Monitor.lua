@@ -152,8 +152,9 @@ function Monitor:loadView(viewName)
         return false
     end
 
-    -- Clear and schedule render
+    -- Clear, render immediately, then schedule next render
     self.peripheral.clear()
+    self:render()
     self:scheduleRender()
 
     return true
