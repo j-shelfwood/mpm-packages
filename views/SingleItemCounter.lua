@@ -3,31 +3,10 @@
 -- Configurable: item to monitor, warning threshold
 
 local AEInterface = mpm('peripherals/AEInterface')
+local Text = mpm('utils/Text')
+local MonitorHelpers = mpm('utils/MonitorHelpers')
 
 local module
-
--- Prettify item name for display
-local function prettifyName(id)
-    if not id then return "No Item" end
-    local _, _, name = string.find(id, ":(.+)")
-    if name then
-        name = name:gsub("_", " ")
-        return name:gsub("^%l", string.upper)
-    end
-    return id
-end
-
--- Format count with K/M suffix
-local function formatCount(count)
-    if not count then return "0" end
-    if count >= 1000000 then
-        return string.format("%.1fM", count / 1000000)
-    elseif count >= 1000 then
-        return string.format("%.1fK", count / 1000)
-    else
-        return tostring(math.floor(count))
-    end
-end
 
 module = {
     sleepTime = 1,
@@ -156,30 +135,22 @@ module = {
         self.monitor.clear()
 
         -- Row 1: Item name
-        local name = prettifyName(self.itemId)
-        if #name > self.width then
-            name = name:sub(1, self.width - 3) .. "..."
-        end
-        self.monitor.setTextColor(colors.white)
-        local nameX = math.floor((self.width - #name) / 2) + 1
-        self.monitor.setCursorPos(nameX, 1)
-        self.monitor.write(name)
+        local name = Text.truncateMiddle(Text.prettifyName(self.itemId), self.width)
+        MonitorHelpers.writeCentered(self.monitor, 1, name, colors.white)
 
         -- Center area: Large count
-        local countStr = formatCount(count)
+        local countStr = Text.formatNumber(count, 0)
         local centerY = math.floor(self.height / 2)
 
-        self.monitor.setTextColor(countColor)
-        local countX = math.floor((self.width - #countStr) / 2) + 1
-        self.monitor.setCursorPos(countX, centerY)
-        self.monitor.write(countStr)
+        MonitorHelpers.writeCentered(self.monitor, centerY, countStr, countColor)
 
-        -- Change indicator
+        -- Change indicator (draw after centered count)
         if self.changeIndicator ~= "" then
             local indicatorColor = self.changeIndicator == "+" and colors.green or colors.red
-            self.monitor.setTextColor(indicatorColor)
-            self.monitor.setCursorPos(countX + #countStr + 1, centerY)
+            local countX = math.floor((self.width - #countStr) / 2) + 1
             if countX + #countStr + 1 <= self.width then
+                self.monitor.setTextColor(indicatorColor)
+                self.monitor.setCursorPos(countX + #countStr + 1, centerY)
                 self.monitor.write(self.changeIndicator)
             end
         end
@@ -188,15 +159,9 @@ module = {
         local statusY = centerY + 2
         if statusY <= self.height - 1 then
             if isWarning then
-                self.monitor.setTextColor(colors.red)
-                local warnText = "LOW STOCK!"
-                self.monitor.setCursorPos(math.floor((self.width - #warnText) / 2) + 1, statusY)
-                self.monitor.write(warnText)
+                MonitorHelpers.writeCentered(self.monitor, statusY, "LOW STOCK!", colors.red)
             elseif isCraftable then
-                self.monitor.setTextColor(colors.lime)
-                local craftText = "[Craftable]"
-                self.monitor.setCursorPos(math.floor((self.width - #craftText) / 2) + 1, statusY)
-                self.monitor.write(craftText)
+                MonitorHelpers.writeCentered(self.monitor, statusY, "[Craftable]", colors.lime)
             end
         end
 

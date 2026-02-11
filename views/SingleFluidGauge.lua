@@ -3,32 +3,10 @@
 -- Configurable: fluid to monitor, warning threshold
 
 local AEInterface = mpm('peripherals/AEInterface')
+local Text = mpm('utils/Text')
+local MonitorHelpers = mpm('utils/MonitorHelpers')
 
 local module
-
--- Prettify fluid name for display
-local function prettifyName(id)
-    if not id then return "No Fluid" end
-    local _, _, name = string.find(id, ":(.+)")
-    if name then
-        name = name:gsub("_", " ")
-        return name:gsub("^%l", string.upper)
-    end
-    return id
-end
-
--- Format fluid amount (buckets)
-local function formatAmount(mB)
-    if not mB then return "0B" end
-    local buckets = mB / 1000
-    if buckets >= 1000000 then
-        return string.format("%.1fM", buckets / 1000000)
-    elseif buckets >= 1000 then
-        return string.format("%.1fK", buckets / 1000)
-    else
-        return string.format("%.0f", buckets) .. "B"
-    end
-end
 
 module = {
     sleepTime = 1,
@@ -149,28 +127,16 @@ module = {
         self.monitor.clear()
 
         -- Row 1: Fluid name
-        local name = prettifyName(self.fluidId)
-        if #name > self.width then
-            name = name:sub(1, self.width - 3) .. "..."
-        end
-        self.monitor.setTextColor(colors.white)
-        local nameX = math.floor((self.width - #name) / 2) + 1
-        self.monitor.setCursorPos(nameX, 1)
-        self.monitor.write(name)
+        local name = Text.truncateMiddle(Text.prettifyName(self.fluidId), self.width)
+        MonitorHelpers.writeCentered(self.monitor, 1, name, colors.white)
 
-        -- Row 2: Amount (large, centered)
-        local amountStr = formatAmount(amount)
-        self.monitor.setTextColor(gaugeColor)
-        local amountX = math.floor((self.width - #amountStr) / 2) + 1
-        self.monitor.setCursorPos(amountX, 3)
-        self.monitor.write(amountStr)
+        -- Row 3: Amount (large, centered)
+        local amountStr = Text.formatNumber(buckets, 0) .. "B"
+        MonitorHelpers.writeCentered(self.monitor, 3, amountStr, gaugeColor)
 
         -- Warning indicator
         if isWarning then
-            self.monitor.setTextColor(colors.red)
-            local warnText = "LOW!"
-            self.monitor.setCursorPos(math.floor((self.width - #warnText) / 2) + 1, 4)
-            self.monitor.write(warnText)
+            MonitorHelpers.writeCentered(self.monitor, 4, "LOW!", colors.red)
         end
 
         -- Vertical gauge bar (if room)

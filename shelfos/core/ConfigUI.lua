@@ -1,8 +1,11 @@
 -- ConfigUI.lua
 -- Renders configuration menus on monitors for view setup
--- Handles different config field types: number, item:id, fluid:id, select
+-- Handles different config field types: number, item:id, fluid:id, select, peripheral
+-- Uses shared utils for drawing and text formatting
 
 local AEInterface = mpm('peripherals/AEInterface')
+local Text = mpm('utils/Text')
+local MonitorHelpers = mpm('utils/MonitorHelpers')
 
 local ConfigUI = {}
 
@@ -11,7 +14,9 @@ local function getAE2Items()
     local ok, exists = pcall(AEInterface.exists)
     if not ok or not exists then return {} end
 
-    local interface = AEInterface.new()
+    local okNew, interface = pcall(AEInterface.new)
+    if not okNew or not interface then return {} end
+
     local itemsOk, items = pcall(AEInterface.items, interface)
     if not itemsOk or not items then return {} end
 
@@ -28,7 +33,9 @@ local function getAE2Fluids()
     local ok, exists = pcall(AEInterface.exists)
     if not ok or not exists then return {} end
 
-    local interface = AEInterface.new()
+    local okNew, interface = pcall(AEInterface.new)
+    if not okNew or not interface then return {} end
+
     local fluidsOk, fluids = pcall(AEInterface.fluids, interface)
     if not fluidsOk or not fluids then return {} end
 
@@ -55,17 +62,6 @@ local function getPeripherals(filterType)
     end
 
     return result
-end
-
--- Prettify an item/fluid name for display
-local function prettifyName(id)
-    if not id then return "None" end
-    local _, _, name = string.find(id, ":(.+)")
-    if name then
-        name = name:gsub("_", " ")
-        return name:gsub("^%l", string.upper)
-    end
-    return id
 end
 
 -- Draw a picker list (items, fluids, or options)
@@ -100,9 +96,7 @@ function ConfigUI.drawPicker(monitor, title, options, currentValue, formatFn)
         monitor.setTextColor(colors.white)
         monitor.setCursorPos(1, 1)
         monitor.write(string.rep(" ", width))
-        local titleX = math.floor((width - #title) / 2) + 1
-        monitor.setCursorPos(titleX, 1)
-        monitor.write(title)
+        MonitorHelpers.writeCentered(monitor, 1, title)
 
         -- Options list
         monitor.setBackgroundColor(colors.black)
@@ -118,7 +112,7 @@ function ConfigUI.drawPicker(monitor, title, options, currentValue, formatFn)
 
                 -- Truncate if too long
                 if #label > width - 4 then
-                    label = label:sub(1, width - 7) .. "..."
+                    label = Text.truncateMiddle(label, width - 4)
                 end
 
                 if value == currentValue then
@@ -157,9 +151,7 @@ function ConfigUI.drawPicker(monitor, title, options, currentValue, formatFn)
         monitor.setTextColor(colors.white)
         monitor.setCursorPos(1, cancelY)
         monitor.write(string.rep(" ", width))
-        local cancelText = "Cancel"
-        monitor.setCursorPos(math.floor((width - #cancelText) / 2) + 1, cancelY)
-        monitor.write(cancelText)
+        MonitorHelpers.writeCentered(monitor, cancelY, "Cancel", colors.white)
 
         -- Wait for touch
         local event, side, x, y = os.pullEvent("monitor_touch")
@@ -204,16 +196,13 @@ function ConfigUI.drawNumberInput(monitor, title, currentValue, min, max, preset
         monitor.setTextColor(colors.white)
         monitor.setCursorPos(1, 1)
         monitor.write(string.rep(" ", width))
-        local titleX = math.floor((width - #title) / 2) + 1
-        monitor.setCursorPos(titleX, 1)
-        monitor.write(title)
+        MonitorHelpers.writeCentered(monitor, 1, title)
 
         -- Current value display
         monitor.setBackgroundColor(colors.black)
         monitor.setTextColor(colors.white)
-        local valueStr = tostring(value)
-        monitor.setCursorPos(math.floor((width - #valueStr) / 2) + 1, 3)
-        monitor.write(valueStr)
+        local valueStr = Text.formatNumber(value, 0)
+        MonitorHelpers.writeCentered(monitor, 3, valueStr)
 
         -- Preset buttons
         monitor.setTextColor(colors.lightGray)
@@ -225,7 +214,7 @@ function ConfigUI.drawNumberInput(monitor, title, currentValue, min, max, preset
         local presetBounds = {}
 
         for i, preset in ipairs(presets) do
-            local label = tostring(preset)
+            local label = Text.formatNumber(preset, 0)
             if btnX + #label + 2 > width - 1 then
                 btnY = btnY + 1
                 btnX = 2
@@ -256,14 +245,12 @@ function ConfigUI.drawNumberInput(monitor, title, currentValue, min, max, preset
         monitor.setTextColor(colors.white)
         monitor.setCursorPos(1, saveY)
         monitor.write(string.rep(" ", width))
-        monitor.setCursorPos(math.floor((width - 4) / 2) + 1, saveY)
-        monitor.write("Save")
+        MonitorHelpers.writeCentered(monitor, saveY, "Save", colors.white)
 
         monitor.setBackgroundColor(colors.red)
         monitor.setCursorPos(1, cancelY)
         monitor.write(string.rep(" ", width))
-        monitor.setCursorPos(math.floor((width - 6) / 2) + 1, cancelY)
-        monitor.write("Cancel")
+        MonitorHelpers.writeCentered(monitor, cancelY, "Cancel", colors.white)
 
         -- Wait for touch
         local event, side, x, y = os.pullEvent("monitor_touch")
@@ -315,18 +302,13 @@ function ConfigUI.drawConfigMenu(monitor, viewName, schema, currentConfig)
         monitor.setTextColor(colors.white)
         monitor.setCursorPos(1, 1)
         monitor.write(string.rep(" ", width))
-        local title = "Configure"
-        monitor.setCursorPos(math.floor((width - #title) / 2) + 1, 1)
-        monitor.write(title)
+        MonitorHelpers.writeCentered(monitor, 1, "Configure")
 
         -- View name
         monitor.setBackgroundColor(colors.black)
         monitor.setTextColor(colors.lightGray)
+        local nameDisplay = Text.truncateMiddle(viewName, width - 4)
         monitor.setCursorPos(2, 2)
-        local nameDisplay = viewName
-        if #nameDisplay > width - 4 then
-            nameDisplay = nameDisplay:sub(1, width - 7) .. "..."
-        end
         monitor.write(nameDisplay)
 
         -- Config fields
@@ -349,9 +331,9 @@ function ConfigUI.drawConfigMenu(monitor, viewName, schema, currentConfig)
             if config[field.key] ~= nil then
                 valueColor = colors.lime
                 if field.type == "item:id" or field.type == "fluid:id" then
-                    valueDisplay = prettifyName(config[field.key])
+                    valueDisplay = Text.prettifyName(config[field.key])
                 elseif field.type == "number" then
-                    valueDisplay = tostring(config[field.key])
+                    valueDisplay = Text.formatNumber(config[field.key], 0)
                 elseif field.type == "peripheral" then
                     valueDisplay = config[field.key]
                 else
@@ -361,9 +343,7 @@ function ConfigUI.drawConfigMenu(monitor, viewName, schema, currentConfig)
 
             -- Truncate if needed
             local maxValueLen = width - 6
-            if #valueDisplay > maxValueLen then
-                valueDisplay = valueDisplay:sub(1, maxValueLen - 3) .. "..."
-            end
+            valueDisplay = Text.truncateMiddle(valueDisplay, maxValueLen)
 
             monitor.setTextColor(valueColor)
             monitor.setCursorPos(2, y + 1)
@@ -385,14 +365,12 @@ function ConfigUI.drawConfigMenu(monitor, viewName, schema, currentConfig)
         monitor.setTextColor(colors.white)
         monitor.setCursorPos(1, saveY)
         monitor.write(string.rep(" ", width))
-        monitor.setCursorPos(math.floor((width - 4) / 2) + 1, saveY)
-        monitor.write("Save")
+        MonitorHelpers.writeCentered(monitor, saveY, "Save", colors.white)
 
         monitor.setBackgroundColor(colors.red)
         monitor.setCursorPos(1, cancelY)
         monitor.write(string.rep(" ", width))
-        monitor.setCursorPos(math.floor((width - 6) / 2) + 1, cancelY)
-        monitor.write("Cancel")
+        MonitorHelpers.writeCentered(monitor, cancelY, "Cancel", colors.white)
 
         -- Wait for touch
         local event, side, x, y = os.pullEvent("monitor_touch")
@@ -419,7 +397,7 @@ function ConfigUI.drawConfigMenu(monitor, viewName, schema, currentConfig)
                     for _, item in ipairs(items) do
                         table.insert(options, {
                             value = item.name,
-                            label = prettifyName(item.name) .. " (" .. (item.count or 0) .. ")"
+                            label = Text.prettifyName(item.name) .. " (" .. Text.formatNumber(item.count or 0, 0) .. ")"
                         })
                     end
                     newValue = ConfigUI.drawPicker(monitor, "Select Item", options, config[field.key], function(opt)
@@ -430,9 +408,10 @@ function ConfigUI.drawConfigMenu(monitor, viewName, schema, currentConfig)
                     local fluids = getAE2Fluids()
                     local options = {}
                     for _, fluid in ipairs(fluids) do
+                        local buckets = math.floor((fluid.amount or 0) / 1000)
                         table.insert(options, {
                             value = fluid.name,
-                            label = prettifyName(fluid.name) .. " (" .. math.floor((fluid.amount or 0) / 1000) .. "B)"
+                            label = Text.prettifyName(fluid.name) .. " (" .. Text.formatNumber(buckets, 0) .. "B)"
                         })
                     end
                     newValue = ConfigUI.drawPicker(monitor, "Select Fluid", options, config[field.key], function(opt)

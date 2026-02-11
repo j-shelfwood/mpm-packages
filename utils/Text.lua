@@ -1,5 +1,57 @@
 local Text = {}
 
+-- Format a number with K/M/G suffixes
+-- @param num Number to format
+-- @param decimals Decimal places (default: 1)
+-- @return Formatted string like "1.5K", "2.3M"
+function Text.formatNumber(num, decimals)
+    if not num then return "0" end
+    decimals = decimals or 1
+    local fmt = "%." .. decimals .. "f"
+
+    local absNum = math.abs(num)
+    local sign = num < 0 and "-" or ""
+
+    if absNum >= 1000000000 then
+        return sign .. string.format(fmt .. "G", absNum / 1000000000)
+    elseif absNum >= 1000000 then
+        return sign .. string.format(fmt .. "M", absNum / 1000000)
+    elseif absNum >= 1000 then
+        return sign .. string.format(fmt .. "K", absNum / 1000)
+    else
+        return sign .. tostring(math.floor(absNum))
+    end
+end
+
+-- Prettify a namespaced ID (minecraft:diamond_ore -> Diamond Ore)
+-- @param id Namespaced ID like "minecraft:diamond_ore"
+-- @return Pretty name like "Diamond Ore"
+function Text.prettifyName(id)
+    if not id then return "Unknown" end
+    local _, _, name = string.find(id, ":(.+)")
+    if name then
+        -- Replace underscores with spaces, capitalize first letter
+        name = name:gsub("_", " ")
+        return name:gsub("^%l", string.upper)
+    end
+    return id
+end
+
+-- Truncate text with ellipsis in the middle
+-- @param text Text to truncate
+-- @param maxLength Maximum length
+-- @return Truncated text like "lon...ing"
+function Text.truncateMiddle(text, maxLength)
+    if not text then return "" end
+    text = tostring(text)
+    if #text <= maxLength then return text end
+    if maxLength <= 3 then return text:sub(1, maxLength) end
+
+    local prefixLen = math.floor((maxLength - 3) / 2)
+    local suffixLen = maxLength - 3 - prefixLen
+    return text:sub(1, prefixLen) .. "..." .. text:sub(-suffixLen)
+end
+
 function Text.formatFluidAmount(amount_mB)
     local absAmount_mB = math.abs(amount_mB)
     local absAmount_B = absAmount_mB / 1000
@@ -22,19 +74,6 @@ function Text.formatFluidAmount(amount_mB)
 
     -- Million B
     return string.format("%.2fM B", absAmount_B / 1000000)
-end
-
--- Function to prettify an item identifier (minecraft:chest -> Chest)
-function Text.prettifyItemIdentifier(itemIdentifier)
-    -- Remove everything before : (including other values than minecraft:)
-    local name = itemIdentifier:match(":(.+)$")
-    if name then
-        -- Capitalize the first letter and return
-        return name:gsub("^%l", string.upper)
-    else
-        -- If no colon is found, return the original identifier
-        return itemIdentifier
-    end
 end
 
 -- Function to shorten item names if they're too long
@@ -107,5 +146,8 @@ function Text.simpleBlit(text, fg, bg, totalWidth)
 
     return text, fgStr, bgStr
 end
+
+-- Alias for backwards compatibility
+Text.prettifyItemIdentifier = Text.prettifyName
 
 return Text
