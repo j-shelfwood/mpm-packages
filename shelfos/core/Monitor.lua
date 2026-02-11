@@ -9,13 +9,15 @@ Monitor.__index = Monitor
 
 -- Create a new monitor manager
 -- @param config Monitor configuration from shelfos.config
-function Monitor.new(config)
+-- @param onViewChange Optional callback when view changes: function(peripheralName, viewName)
+function Monitor.new(config, onViewChange)
     local self = setmetatable({}, Monitor)
 
     self.peripheralName = config.peripheral
     self.label = config.label or config.peripheral
     self.viewName = config.view
     self.viewConfig = config.viewConfig or {}
+    self.onViewChange = onViewChange
 
     -- Try to connect
     self.peripheral = peripheral.wrap(self.peripheralName)
@@ -123,8 +125,14 @@ function Monitor:nextView()
         nextIndex = 1
     end
 
-    self:loadView(views[nextIndex])
+    local newViewName = views[nextIndex]
+    self:loadView(newViewName)
     self:showIndicator()
+
+    -- Notify kernel to persist change
+    if self.onViewChange then
+        self.onViewChange(self.peripheralName, newViewName)
+    end
 end
 
 -- Cycle to previous view
@@ -145,8 +153,14 @@ function Monitor:previousView()
         prevIndex = #views
     end
 
-    self:loadView(views[prevIndex])
+    local newViewName = views[prevIndex]
+    self:loadView(newViewName)
     self:showIndicator()
+
+    -- Notify kernel to persist change
+    if self.onViewChange then
+        self.onViewChange(self.peripheralName, newViewName)
+    end
 end
 
 -- Show view name indicator briefly

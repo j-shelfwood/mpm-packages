@@ -38,13 +38,14 @@ function Kernel:boot()
             return false
         end
 
+        -- Generate pairing code for network linking
+        self.config.network.pairingCode = Config.generatePairingCode()
+
         -- Save the auto-generated config
         Config.save(self.config)
         print("[ShelfOS] Auto-configured " .. self.discoveredCount .. " monitor(s)")
-
-        -- Generate pairing code for network
-        self.pairingCode = Config.generatePairingCode()
-        print("[ShelfOS] Pairing code: " .. self.pairingCode)
+        print("[ShelfOS] Pairing code: " .. self.config.network.pairingCode)
+        print("  (view anytime with: mpm run shelfos status)")
         print("")
     end
 
@@ -76,8 +77,13 @@ end
 function Kernel:initializeMonitors()
     self.monitors = {}
 
+    -- Create callback for view change persistence
+    local function onViewChange(peripheralName, viewName)
+        self:persistViewChange(peripheralName, viewName)
+    end
+
     for _, monitorConfig in ipairs(self.config.monitors or {}) do
-        local monitor = Monitor.new(monitorConfig)
+        local monitor = Monitor.new(monitorConfig, onViewChange)
 
         if monitor:isConnected() then
             table.insert(self.monitors, monitor)
@@ -85,6 +91,13 @@ function Kernel:initializeMonitors()
         else
             print("  [-] " .. monitorConfig.peripheral .. " (not connected)")
         end
+    end
+end
+
+-- Persist view change to config
+function Kernel:persistViewChange(peripheralName, viewName)
+    if Config.setMonitorView(self.config, peripheralName, viewName) then
+        Config.save(self.config)
     end
 end
 

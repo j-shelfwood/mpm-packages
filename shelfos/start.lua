@@ -29,10 +29,16 @@ elseif command == "status" then
     print("  Zone: " .. (config.zone.name or "Unknown"))
     print("  Zone ID: " .. (config.zone.id or "N/A"))
     print("  Monitors: " .. #(config.monitors or {}))
-    print("  Network: " .. (config.network.enabled and "enabled" or "disabled"))
 
     for _, m in ipairs(config.monitors or {}) do
         print("    - " .. m.peripheral .. " -> " .. m.view)
+    end
+
+    print("")
+    print("  Network: " .. (config.network.enabled and "enabled" or "standalone"))
+
+    if config.network.pairingCode then
+        print("  Pairing code: " .. config.network.pairingCode)
     end
 
 elseif command == "reset" then
