@@ -17,7 +17,8 @@ module = {
             width = width,
             height = height,
             history = {},
-            maxHistory = width
+            maxHistory = width,
+            initialized = false
         }
 
         -- Try to create interface
@@ -47,23 +48,47 @@ module = {
         end
     end,
 
+    -- Clear a single line by overwriting with spaces
+    clearLine = function(self, y)
+        self.monitor.setCursorPos(1, y)
+        self.monitor.write(string.rep(" ", self.width))
+    end,
+
+    -- Write text at position, padding to clear old content
+    writeAt = function(self, x, y, text, padWidth)
+        self.monitor.setCursorPos(x, y)
+        if padWidth then
+            text = text .. string.rep(" ", math.max(0, padWidth - #text))
+        end
+        self.monitor.write(text)
+    end,
+
     render = function(self)
-        self.monitor.clear()
+        -- One-time initialization (clear screen once)
+        if not self.initialized then
+            self.monitor.clear()
+            self.initialized = true
+        end
+
+        self.monitor.setBackgroundColor(colors.black)
 
         -- Check if interface exists
         if not self.interface then
-            self.monitor.setCursorPos(1, math.floor(self.height / 2) - 1)
-            self.monitor.write("Energy Status")
-            self.monitor.setCursorPos(1, math.floor(self.height / 2) + 1)
-            self.monitor.write("No ME Bridge found")
+            module.clearLine(self, math.floor(self.height / 2) - 1)
+            module.clearLine(self, math.floor(self.height / 2))
+            module.clearLine(self, math.floor(self.height / 2) + 1)
+            self.monitor.setTextColor(colors.white)
+            module.writeAt(self, 1, math.floor(self.height / 2) - 1, "Energy Status")
+            module.writeAt(self, 1, math.floor(self.height / 2) + 1, "No ME Bridge found")
             return
         end
 
         -- Get energy data
         local ok, energy = pcall(AEInterface.energy, self.interface)
         if not ok or not energy then
-            self.monitor.setCursorPos(1, 1)
-            self.monitor.write("Error fetching energy")
+            module.clearLine(self, 1)
+            self.monitor.setTextColor(colors.red)
+            module.writeAt(self, 1, 1, "Error fetching energy", self.width)
             return
         end
 
@@ -78,94 +103,96 @@ module = {
             table.remove(self.history, 1)
         end
 
-        -- Title
-        self.monitor.setTextColor(colors.white)
-        self.monitor.setCursorPos(1, 1)
-        self.monitor.write("AE2 Energy Status")
-
-        -- Percentage with color
-        local pctStr = string.format("%.1f%%", percentage)
-        self.monitor.setCursorPos(self.width - #pctStr + 1, 1)
-        if percentage > 75 then
-            self.monitor.setTextColor(colors.green)
-        elseif percentage > 25 then
-            self.monitor.setTextColor(colors.yellow)
-        else
-            self.monitor.setTextColor(colors.red)
+        -- Determine color based on percentage
+        local barColor = colors.green
+        if percentage <= 25 then
+            barColor = colors.red
+        elseif percentage <= 75 then
+            barColor = colors.yellow
         end
-        self.monitor.write(pctStr)
 
-        -- Stats line
+        -- Row 1: Title and percentage
+        self.monitor.setTextColor(colors.white)
+        module.writeAt(self, 1, 1, "AE2 Energy Status", 20)
+
+        local pctStr = string.format("%.1f%%", percentage)
+        self.monitor.setTextColor(barColor)
+        module.writeAt(self, self.width - #pctStr + 1, 1, pctStr)
+
+        -- Row 2: Stats
         self.monitor.setTextColor(colors.lightGray)
-        self.monitor.setCursorPos(1, 2)
-        self.monitor.write(module.formatNumber(stored) .. " / " .. module.formatNumber(capacity) .. " AE")
+        local statsStr = module.formatNumber(stored) .. " / " .. module.formatNumber(capacity) .. " AE"
+        module.writeAt(self, 1, 2, statsStr, self.width)
 
-        -- Usage
-        self.monitor.setCursorPos(1, 3)
+        -- Row 3: Usage
         self.monitor.setTextColor(colors.orange)
-        self.monitor.write("Using: " .. module.formatNumber(usage) .. " AE/t")
+        local usageStr = "Using: " .. module.formatNumber(usage) .. " AE/t"
+        module.writeAt(self, 1, 3, usageStr, self.width)
 
-        -- Draw energy bar (row 5)
+        -- Row 5: Energy bar
         local barWidth = self.width - 2
         local filledWidth = math.floor(barWidth * percentage / 100)
 
         self.monitor.setCursorPos(1, 5)
+        self.monitor.setTextColor(colors.white)
+        self.monitor.setBackgroundColor(colors.black)
         self.monitor.write("[")
 
         -- Filled portion
-        if percentage > 75 then
-            self.monitor.setBackgroundColor(colors.green)
-        elseif percentage > 25 then
-            self.monitor.setBackgroundColor(colors.yellow)
-        else
-            self.monitor.setBackgroundColor(colors.red)
-        end
-
-        for i = 1, filledWidth do
-            self.monitor.write(" ")
-        end
+        self.monitor.setBackgroundColor(barColor)
+        self.monitor.write(string.rep(" ", filledWidth))
 
         -- Empty portion
         self.monitor.setBackgroundColor(colors.gray)
-        for i = filledWidth + 1, barWidth do
-            self.monitor.write(" ")
-        end
+        self.monitor.write(string.rep(" ", barWidth - filledWidth))
 
         self.monitor.setBackgroundColor(colors.black)
         self.monitor.write("]")
 
-        -- Draw history graph if we have room
+        -- History graph (if room)
         if self.height > 7 then
+            -- Row 7: Label
             self.monitor.setTextColor(colors.lightGray)
-            self.monitor.setCursorPos(1, 7)
-            self.monitor.write("History:")
+            self.monitor.setBackgroundColor(colors.black)
+            module.writeAt(self, 1, 7, "History:", self.width)
 
             local graphHeight = self.height - 8
             local graphStartY = 8
 
-            for x, pct in ipairs(self.history) do
-                local barHeight = math.floor(graphHeight * pct / 100)
-                local xPos = self.width - #self.history + x
+            -- Clear graph area first (only the columns we'll use)
+            for y = graphStartY, self.height do
+                self.monitor.setBackgroundColor(colors.black)
+                module.clearLine(self, y)
+            end
 
-                if xPos >= 1 then
-                    -- Color based on percentage
-                    if pct > 75 then
-                        self.monitor.setBackgroundColor(colors.green)
-                    elseif pct > 25 then
-                        self.monitor.setBackgroundColor(colors.yellow)
-                    else
-                        self.monitor.setBackgroundColor(colors.red)
+            -- Draw graph bars
+            for i, pct in ipairs(self.history) do
+                local barHeight = math.max(0, math.floor(graphHeight * pct / 100))
+                local xPos = self.width - #self.history + i
+
+                if xPos >= 1 and barHeight > 0 then
+                    -- Determine bar color
+                    local histColor = colors.green
+                    if pct <= 25 then
+                        histColor = colors.red
+                    elseif pct <= 75 then
+                        histColor = colors.yellow
                     end
 
+                    self.monitor.setBackgroundColor(histColor)
                     for y = 0, barHeight - 1 do
-                        self.monitor.setCursorPos(xPos, self.height - y)
-                        self.monitor.write(" ")
+                        local yPos = self.height - y
+                        if yPos >= graphStartY then
+                            self.monitor.setCursorPos(xPos, yPos)
+                            self.monitor.write(" ")
+                        end
                     end
                 end
             end
-            self.monitor.setBackgroundColor(colors.black)
         end
 
+        -- Reset colors
+        self.monitor.setBackgroundColor(colors.black)
         self.monitor.setTextColor(colors.white)
     end
 }
