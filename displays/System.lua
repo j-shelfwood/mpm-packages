@@ -2,6 +2,9 @@
 -- Core system responsible for running displays with touch-based view cycling
 -- Touch left side of monitor to go to previous view
 -- Touch right side of monitor to go to next view
+-- View selections are persisted to displays.config
+
+local Config = mpm('displays/Config')
 
 local this
 
@@ -74,8 +77,8 @@ this = {
         local viewInstance = nil
         local currentViewName = nil
 
-        -- Load a view by index
-        local function loadView(index)
+        -- Load a view by index (persist=true saves to config)
+        local function loadView(index, persist)
             -- Wrap index
             if index < 1 then
                 index = #availableViews
@@ -101,10 +104,14 @@ this = {
             currentViewName = viewName
 
             -- Create new instance with default config
-            local config = getDefaultConfig(ViewClass)
-            local instanceOk, newInstance = pcall(ViewClass.new, monitor, config)
+            local viewConfig = getDefaultConfig(ViewClass)
+            local instanceOk, newInstance = pcall(ViewClass.new, monitor, viewConfig)
             if instanceOk then
                 viewInstance = newInstance
+                -- Persist view selection to config (only on user-initiated changes)
+                if persist then
+                    Config.updateDisplayView(monitorName, viewName)
+                end
             else
                 print("Error creating view instance: " .. tostring(newInstance))
                 viewInstance = nil
@@ -114,8 +121,8 @@ this = {
             monitor.clear()
         end
 
-        -- Initial load
-        loadView(currentIndex)
+        -- Initial load (don't persist - just loading from config)
+        loadView(currentIndex, false)
 
         -- Show brief indicator of current view
         local function showViewIndicator()
@@ -171,11 +178,11 @@ this = {
                     os.cancelTimer(timer)
 
                     if touchX <= halfWidth then
-                        -- Left side - previous view
-                        loadView(currentIndex - 1)
+                        -- Left side - previous view (persist selection)
+                        loadView(currentIndex - 1, true)
                     else
-                        -- Right side - next view
-                        loadView(currentIndex + 1)
+                        -- Right side - next view (persist selection)
+                        loadView(currentIndex + 1, true)
                     end
 
                     -- Show indicator briefly
