@@ -14,11 +14,6 @@
     "description": "Secure networking primitives - crypto signing, protocols, discovery for rednet"
   },
   {
-    "name": "displays",
-    "description": "(Legacy) Simple display management - Use 'shelfos' for full features",
-    "dependencies": ["views"]
-  },
-  {
     "name": "views",
     "description": "Display modules for various types of data visualization (AE2 storage, fluids, machines)",
     "dependencies": ["utils", "peripherals"]

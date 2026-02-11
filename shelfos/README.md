@@ -171,7 +171,7 @@ shelfos/
 └── tools/
     ├── setup.lua       # Configuration wizard
     ├── link.lua        # Network pairing
-    └── migrate.lua     # Legacy displays migration
+    └── migrate.lua     # displays.config → shelfos.config migration
 ```
 
 ## Configuration File

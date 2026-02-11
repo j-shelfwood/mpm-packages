@@ -245,6 +245,7 @@ end
 -- Display data in a grid layout
 -- @param data - Array of items to display
 -- @param format_callback - Function(item) returning {lines={...}, colors={...}}
+--   colors can be per-line (array) or per-character (array of arrays)
 -- @param center_text - Whether to center text in cells (default: true)
 function GridDisplay:display(data, format_callback, center_text)
     if center_text == nil then
@@ -275,6 +276,10 @@ function GridDisplay:display(data, format_callback, center_text)
     local content_area = self.cell_width - (self.cell_padding * 2)
     content_area = math.max(1, content_area)
 
+    -- Get background color for blit
+    local bgColor = self.monitor.getBackgroundColor()
+    local bgHex = colors.toBlit(bgColor)
+
     for i, item in ipairs(data) do
         if i > maxItems then
             break
@@ -297,7 +302,7 @@ function GridDisplay:display(data, format_callback, center_text)
         formatted.lines = formatted.lines or {}
         formatted.colors = formatted.colors or {}
 
-        -- Render each line
+        -- Render each line using blit for efficiency
         for line_idx, line_content in ipairs(formatted.lines) do
             if line_idx > self.cell_height then
                 break
@@ -305,10 +310,6 @@ function GridDisplay:display(data, format_callback, center_text)
 
             local y_pos = cell_y + line_idx - 1
             local x_pos = cell_x + self.cell_padding
-
-            -- Set color
-            local color = formatted.colors[line_idx] or colors.white
-            self.monitor.setTextColor(color)
 
             -- Truncate content
             local content = self:truncateText(line_content, content_area)
@@ -323,13 +324,30 @@ function GridDisplay:display(data, format_callback, center_text)
             x_pos = math.max(1, x_pos)
             y_pos = math.max(1, y_pos)
 
+            -- Build blit strings
+            local fgStr, bgStr
+            local lineColor = formatted.colors[line_idx]
+
+            if type(lineColor) == "table" then
+                -- Per-character colors: lineColor is array of color constants
+                fgStr = ""
+                for j = 1, #content do
+                    local charColor = lineColor[j] or colors.white
+                    fgStr = fgStr .. colors.toBlit(charColor)
+                end
+            else
+                -- Single color for entire line
+                local fgHex = colors.toBlit(lineColor or colors.white)
+                fgStr = string.rep(fgHex, #content)
+            end
+
+            bgStr = string.rep(bgHex, #content)
+
+            -- Render with blit (single call vs setTextColor + write)
             self.monitor.setCursorPos(x_pos, y_pos)
-            self.monitor.write(content)
+            self.monitor.blit(content, fgStr, bgStr)
         end
     end
-
-    -- Reset text color
-    self.monitor.setTextColor(colors.white)
 end
 
 -- Display a simple message centered on the monitor
@@ -338,13 +356,14 @@ function GridDisplay:displayMessage(message, color)
     self.monitor.clear()
 
     local width, height = self.monitor.getSize()
-    self.monitor.setTextColor(color or colors.white)
+    local fgHex = colors.toBlit(color or colors.white)
+    local bgHex = colors.toBlit(self.monitor.getBackgroundColor())
 
     local x = math.max(1, math.floor((width - #message) / 2) + 1)
     local y = math.max(1, math.floor(height / 2))
 
     self.monitor.setCursorPos(x, y)
-    self.monitor.write(message)
+    self.monitor.blit(message, string.rep(fgHex, #message), string.rep(bgHex, #message))
 end
 
 -- Get the current layout parameters

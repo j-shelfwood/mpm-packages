@@ -1,6 +1,5 @@
 -- Manager.lua
--- View loading and lifecycle management
--- Shared by both displays and shelfos packages
+-- View loading and lifecycle management for ShelfOS
 
 local Manager = {}
 
