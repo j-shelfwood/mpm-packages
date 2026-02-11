@@ -12,6 +12,8 @@
     "InventoryDisplay.lua",
     "LowStockAlert.lua",
     "MachineActivityDisplay.lua",
+    "SingleFluidGauge.lua",
+    "SingleItemCounter.lua",
     "StorageCapacityDisplay.lua",
     "WeatherClock.lua"
   ]

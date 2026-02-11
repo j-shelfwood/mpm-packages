@@ -4,15 +4,56 @@
 
 local module
 
+-- Get available machine types from connected peripherals
+local function getMachineTypes()
+    local types = {}
+    local seen = {}
+    local names = peripheral.getNames()
+
+    for _, name in ipairs(names) do
+        local pType = peripheral.getType(name)
+        -- Filter out common non-machine types
+        if pType and not seen[pType] then
+            -- Check if peripheral has isBusy method (indicates a machine)
+            local p = peripheral.wrap(name)
+            if p and type(p.isBusy) == "function" then
+                seen[pType] = true
+                -- Prettify for display
+                local _, _, shortName = string.find(pType, ":(.+)")
+                local label = shortName or pType
+                label = label:gsub("_", " "):gsub("^%l", string.upper)
+                table.insert(types, {
+                    value = pType,
+                    label = label .. " (" .. pType .. ")"
+                })
+            end
+        end
+    end
+
+    return types
+end
+
 module = {
     sleepTime = 1,
+
+    -- Configuration schema for this view
+    configSchema = {
+        {
+            key = "machine_type",
+            type = "select",
+            label = "Machine Type",
+            options = getMachineTypes,
+            default = nil,
+            required = true
+        }
+    },
 
     new = function(monitor, config)
         config = config or {}
         local width, height = monitor.getSize()
         local self = {
             monitor = monitor,
-            machine_type = config.machine_type or "modern_industrialization:electrolyzer",
+            machine_type = config.machine_type,
             bar_width = 7,
             bar_height = 4,
             width = width,
@@ -22,21 +63,23 @@ module = {
             initialized = false
         }
 
-        -- Extract machine type name for display
-        local _, _, machineTypeName = string.find(self.machine_type, ":(.+)")
+        if self.machine_type then
+            -- Extract machine type name for display
+            local _, _, machineTypeName = string.find(self.machine_type, ":(.+)")
 
-        if not machineTypeName then
-            machineTypeName = self.machine_type
-        end
+            if not machineTypeName then
+                machineTypeName = self.machine_type
+            end
 
-        machineTypeName = machineTypeName:gsub("_", " ") -- Replace underscores with spaces
-        self.title = string.upper(string.sub(machineTypeName, 1, 1)) .. string.sub(machineTypeName, 2)
+            machineTypeName = machineTypeName:gsub("_", " ") -- Replace underscores with spaces
+            self.title = string.upper(string.sub(machineTypeName, 1, 1)) .. string.sub(machineTypeName, 2)
 
-        -- Find all peripherals of the specified machine type
-        local names = peripheral.getNames()
-        for _, name in ipairs(names) do
-            if peripheral.getType(name) == self.machine_type then
-                table.insert(self.peripherals, peripheral.wrap(name))
+            -- Find all peripherals of the specified machine type
+            local names = peripheral.getNames()
+            for _, name in ipairs(names) do
+                if peripheral.getType(name) == self.machine_type then
+                    table.insert(self.peripherals, peripheral.wrap(name))
+                end
             end
         end
 
@@ -46,14 +89,6 @@ module = {
     mount = function()
         -- Always allow mount - will show empty if no machines found
         return true
-    end,
-
-    configure = function()
-        print("Enter the machine type (e.g., modern_industrialization:electrolyzer):")
-        local machine_type = read()
-        return {
-            machine_type = machine_type
-        }
     end,
 
     -- Clear a single line by overwriting with spaces
@@ -76,9 +111,17 @@ module = {
             self.initialized = true
         end
 
-        self.monitor.setTextScale(1)
         self.monitor.setBackgroundColor(colors.black)
         self.monitor.setTextColor(colors.white)
+
+        -- Check if machine type is configured
+        if not self.machine_type then
+            module.clearLine(self, math.floor(self.height / 2) - 1)
+            module.writeAt(self, 1, math.floor(self.height / 2) - 1, "Machine Activity")
+            module.clearLine(self, math.floor(self.height / 2) + 1)
+            module.writeAt(self, 1, math.floor(self.height / 2) + 1, "Configure to select type")
+            return
+        end
 
         module.displayMachineStatus(self)
     end,

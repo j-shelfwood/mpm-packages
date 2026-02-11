@@ -93,13 +93,16 @@ end
 function Kernel:initializeMonitors()
     self.monitors = {}
 
-    -- Create callback for view change persistence
-    local function onViewChange(peripheralName, viewName)
-        self:persistViewChange(peripheralName, viewName)
+    -- Create callback for view change persistence (with optional config)
+    local function onViewChange(peripheralName, viewName, viewConfig)
+        self:persistViewChange(peripheralName, viewName, viewConfig)
     end
 
+    -- Get settings for theme etc.
+    local settings = self.config.settings or {}
+
     for _, monitorConfig in ipairs(self.config.monitors or {}) do
-        local monitor = Monitor.new(monitorConfig, onViewChange)
+        local monitor = Monitor.new(monitorConfig, onViewChange, settings)
 
         if monitor:isConnected() then
             table.insert(self.monitors, monitor)
@@ -110,9 +113,9 @@ function Kernel:initializeMonitors()
     end
 end
 
--- Persist view change to config
-function Kernel:persistViewChange(peripheralName, viewName)
-    if Config.setMonitorView(self.config, peripheralName, viewName) then
+-- Persist view change to config (with optional viewConfig)
+function Kernel:persistViewChange(peripheralName, viewName, viewConfig)
+    if Config.setMonitorView(self.config, peripheralName, viewName, viewConfig) then
         Config.save(self.config)
     end
 end
@@ -193,6 +196,11 @@ function Kernel:monitorLoop(monitor)
             monitor:handleTouch(p1, p2, p3)
         elseif event == "timer" then
             monitor:handleTimer(p1)
+        elseif event == "monitor_resize" then
+            -- p1 is the monitor name/side that was resized
+            if p1 == monitor:getPeripheralName() then
+                monitor:handleResize()
+            end
         end
     end
 end

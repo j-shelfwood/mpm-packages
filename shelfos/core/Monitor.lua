@@ -1,8 +1,11 @@
 -- Monitor.lua
 -- Single monitor management with settings-button pattern
 -- Touch to show settings, click to open view selector
+-- Supports view configuration via configSchema
 
 local ViewManager = mpm('shelfos/view/Manager')
+local ConfigUI = mpm('shelfos/core/ConfigUI')
+local Theme = mpm('utils/Theme')
 
 local Monitor = {}
 Monitor.__index = Monitor
@@ -28,7 +31,7 @@ local function calculateTextScale(width, height)
 end
 
 -- Create a new monitor manager
-function Monitor.new(config, onViewChange)
+function Monitor.new(config, onViewChange, settings)
     local self = setmetatable({}, Monitor)
 
     self.peripheralName = config.peripheral
@@ -36,6 +39,7 @@ function Monitor.new(config, onViewChange)
     self.viewName = config.view
     self.viewConfig = config.viewConfig or {}
     self.onViewChange = onViewChange
+    self.themeName = (settings and settings.theme) or "default"
 
     -- Try to connect
     self.peripheral = peripheral.wrap(self.peripheralName)
@@ -73,6 +77,9 @@ function Monitor:initialize()
     -- Re-get size after scale change (dimensions change with scale)
     width, height = self.peripheral.getSize()
 
+    -- Apply theme palette
+    Theme.apply(self.peripheral, self.themeName)
+
     -- Get available views
     self.availableViews = ViewManager.getMountableViews()
 
@@ -86,6 +93,27 @@ function Monitor:initialize()
 
     -- Load initial view
     self:loadView(self.viewName)
+end
+
+-- Handle monitor resize event (blocks added/removed)
+function Monitor:handleResize()
+    if not self.connected then return end
+
+    -- Recalculate optimal text scale
+    local width, height = self.peripheral.getSize()
+    local scale = calculateTextScale(width, height)
+    self.peripheral.setTextScale(scale)
+
+    -- Reapply theme (palette persists but good practice)
+    Theme.apply(self.peripheral, self.themeName)
+
+    -- Clear and re-render
+    self.peripheral.clear()
+
+    -- Reload view to recalculate layout
+    if self.viewName then
+        self:loadView(self.viewName)
+    end
 end
 
 -- Load a view by name
@@ -332,12 +360,39 @@ function Monitor:handleTouch(monitorName, x, y)
         if result == "cancel" then
             self:closeConfigMenu()
         elseif result then
-            -- Selected a view
-            if self.onViewChange then
-                self.onViewChange(self.peripheralName, result)
+            -- Selected a view - check if it has configSchema
+            local View = ViewManager.load(result)
+
+            if View and View.configSchema and #View.configSchema > 0 then
+                -- Show config menu for this view
+                local newConfig = ConfigUI.drawConfigMenu(
+                    self.peripheral,
+                    result,
+                    View.configSchema,
+                    self.viewConfig
+                )
+
+                if newConfig then
+                    -- User saved config
+                    self.viewConfig = newConfig
+                    if self.onViewChange then
+                        self.onViewChange(self.peripheralName, result, newConfig)
+                    end
+                    self:loadView(result)
+                    self:closeConfigMenu()
+                else
+                    -- User cancelled config - go back to view list
+                    self:drawConfigMenu()
+                end
+            else
+                -- No config needed - just load view
+                self.viewConfig = {}
+                if self.onViewChange then
+                    self.onViewChange(self.peripheralName, result, {})
+                end
+                self:loadView(result)
+                self:closeConfigMenu()
             end
-            self:loadView(result)
-            self:closeConfigMenu()
         end
 
         return true
@@ -424,6 +479,23 @@ function Monitor:reconnect()
     end
 
     return self.connected
+end
+
+-- Set theme for this monitor
+function Monitor:setTheme(themeName)
+    self.themeName = themeName or "default"
+    if self.connected then
+        Theme.apply(self.peripheral, self.themeName)
+        -- Re-render to show updated colors
+        if not self.inConfigMenu and self.viewInstance then
+            self:render()
+        end
+    end
+end
+
+-- Get current theme name
+function Monitor:getTheme()
+    return self.themeName
 end
 
 return Monitor

@@ -6,6 +6,7 @@
     "start.lua",
     "core/Kernel.lua",
     "core/Config.lua",
+    "core/ConfigUI.lua",
     "core/Monitor.lua",
     "core/Zone.lua",
     "core/Terminal.lua",
