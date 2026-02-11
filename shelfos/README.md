@@ -24,15 +24,49 @@ That's it. ShelfOS auto-discovers connected monitors and assigns appropriate vie
 While running, ShelfOS displays a menu at the bottom of the terminal:
 
 ```
-[S] Status  [L] Link  [R] Reset  [Q] Quit
+[M] Monitors  [S] Status  [L] Link  [R] Reset  [Q] Quit
 ```
 
 | Key | Action |
 |-----|--------|
+| `M` | Monitor overview - view and change monitor views |
 | `S` | Show current configuration (zone, monitors, network) |
 | `L` | Network linking menu (create/join network) |
 | `R` | Reset configuration (delete and restart fresh) |
 | `Q` | Quit ShelfOS |
+
+### Monitors Menu
+
+Press `M` to open the monitors overview:
+
+```
+=== Monitors ===
+
+[1] monitor_0
+    View: StorageCapacityDisplay
+[2] monitor_1
+    View: InventoryDisplay
+
+Commands:
+  [1-2] Select monitor to cycle view
+  [B] Back to main menu
+```
+
+Select a monitor number to change its view:
+
+```
+=== Select View ===
+
+Monitor: monitor_0
+Current: StorageCapacityDisplay
+
+[1] StorageCapacityDisplay <--
+[2] InventoryDisplay
+[3] FluidMonitor
+[4] WeatherClock
+
+[N] Next view  [P] Previous view  [B] Back
+```
 
 ## Touch Controls
 

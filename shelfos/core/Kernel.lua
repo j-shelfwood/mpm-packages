@@ -6,6 +6,7 @@ local Monitor = mpm('shelfos/core/Monitor')
 local Zone = mpm('shelfos/core/Zone')
 local Terminal = mpm('shelfos/core/Terminal')
 local Menu = mpm('shelfos/input/Menu')
+local ViewManager = mpm('views/Manager')
 
 local Kernel = {}
 Kernel.__index = Kernel
@@ -80,6 +81,7 @@ end
 -- Draw the menu bar
 function Kernel:drawMenu()
     Terminal.drawMenu({
+        { key = "m", label = "Monitors" },
         { key = "s", label = "Status" },
         { key = "l", label = "Link" },
         { key = "r", label = "Reset" },
@@ -254,6 +256,26 @@ function Kernel:menuLoop()
                 Config.save(self.config)
                 print("[ShelfOS] Disconnected from network.")
                 sleep(1)
+            end
+
+            self:drawMenu()
+
+        elseif action == "monitors" then
+            local availableViews = ViewManager.getMountableViews()
+
+            local result, monitorIndex, newView = Terminal.showDialog(function()
+                return Menu.showMonitors(self.monitors, availableViews)
+            end)
+
+            Terminal.clearLog()
+
+            if result == "change_view" and monitorIndex and newView then
+                local monitor = self.monitors[monitorIndex]
+                if monitor then
+                    monitor:loadView(newView)
+                    self:persistViewChange(monitor:getPeripheralName(), newView)
+                    print("[ShelfOS] " .. monitor:getName() .. " -> " .. newView)
+                end
             end
 
             self:drawMenu()

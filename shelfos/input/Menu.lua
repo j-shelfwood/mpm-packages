@@ -5,6 +5,7 @@ local Menu = {}
 
 -- Menu key mappings
 local menuKeys = {
+    m = "monitors",
     s = "status",
     l = "link",
     r = "reset",
@@ -41,6 +42,129 @@ function Menu.showStatus(config)
     print("")
     print("Press any key to continue...")
     os.pullEvent("key")
+end
+
+-- Show monitors overview dialog
+-- Returns: action, monitorIndex (e.g., "cycle_next", 1)
+function Menu.showMonitors(monitors, availableViews)
+    while true do
+        term.clear()
+        term.setCursorPos(1, 1)
+
+        print("=== Monitors ===")
+        print("")
+
+        if #monitors == 0 then
+            print("No monitors connected.")
+            print("")
+            print("Press any key to go back...")
+            os.pullEvent("key")
+            return nil
+        end
+
+        -- List monitors with numbers
+        for i, monitor in ipairs(monitors) do
+            local status = monitor:isConnected() and "" or " (disconnected)"
+            print(string.format("[%d] %s", i, monitor:getName() .. status))
+            print(string.format("    View: %s", monitor:getViewName()))
+        end
+
+        print("")
+        print("Commands:")
+        print("  [1-" .. #monitors .. "] Select monitor to cycle view")
+        print("  [B] Back to main menu")
+        print("")
+        write("Choice: ")
+
+        local event, key = os.pullEvent("key")
+
+        -- Check for back
+        if key == keys.b then
+            return nil
+        end
+
+        -- Check for number keys
+        local keyName = keys.getName(key)
+        if keyName then
+            local num = tonumber(keyName)
+            if num and num >= 1 and num <= #monitors then
+                -- Show view selection for this monitor
+                local result = Menu.showViewSelect(monitors[num], availableViews)
+                if result then
+                    return "change_view", num, result
+                end
+            end
+        end
+    end
+end
+
+-- Show view selection for a specific monitor
+function Menu.showViewSelect(monitor, availableViews)
+    term.clear()
+    term.setCursorPos(1, 1)
+
+    print("=== Select View ===")
+    print("")
+    print("Monitor: " .. monitor:getName())
+    print("Current: " .. monitor:getViewName())
+    print("")
+
+    if #availableViews == 0 then
+        print("No views available.")
+        print("")
+        print("Press any key to go back...")
+        os.pullEvent("key")
+        return nil
+    end
+
+    -- Find current view index
+    local currentIndex = 1
+    for i, view in ipairs(availableViews) do
+        if view == monitor:getViewName() then
+            currentIndex = i
+            break
+        end
+    end
+
+    -- List views with numbers
+    for i, view in ipairs(availableViews) do
+        local marker = (i == currentIndex) and " <--" or ""
+        print(string.format("[%d] %s%s", i, view, marker))
+    end
+
+    print("")
+    print("[N] Next view  [P] Previous view  [B] Back")
+    print("")
+    write("Choice: ")
+
+    local event, key = os.pullEvent("key")
+
+    -- Check for back
+    if key == keys.b then
+        return nil
+    end
+
+    -- Check for next/prev
+    if key == keys.n then
+        local nextIndex = currentIndex + 1
+        if nextIndex > #availableViews then nextIndex = 1 end
+        return availableViews[nextIndex]
+    elseif key == keys.p then
+        local prevIndex = currentIndex - 1
+        if prevIndex < 1 then prevIndex = #availableViews end
+        return availableViews[prevIndex]
+    end
+
+    -- Check for number keys
+    local keyName = keys.getName(key)
+    if keyName then
+        local num = tonumber(keyName)
+        if num and num >= 1 and num <= #availableViews then
+            return availableViews[num]
+        end
+    end
+
+    return nil
 end
 
 -- Show reset confirmation dialog
