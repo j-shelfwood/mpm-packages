@@ -1,87 +1,213 @@
-local this
+-- Installer.lua
+-- Setup wizard for displays package
+-- Refactored to use shared view management
 
-this = {
-    run = function()
-        local existingConfig = mpm('displays/Config').load()
-        local file = fs.open("/mpm/Packages/views/manifest.json", "r")
-        local views = textutils.unserialiseJSON(file.readAll()).files
-        file.close()
+local Config = mpm('displays/Config')
+local ViewManager = mpm('views/Manager')
 
-        local peripherals = peripheral.getNames()
+local Installer = {}
 
-        local configuredMonitors = {}
-        for _, entry in ipairs(existingConfig) do
-            configuredMonitors[entry.monitor] = true
-        end
+-- Show monitor identifiers on all connected monitors
+local function showMonitorIdentifiers()
+    local names = peripheral.getNames()
 
-        this.renderIdentifiers()
-
-        local newConfig = {}
-        for i, name in ipairs(peripherals) do
-            if peripheral.getType(name) == "monitor" and not configuredMonitors[name] then
-                print("Configuring monitor: " .. name)
-                local selectedView = this.selectView(views)
-                if not selectedView then
-                    print("No view selected. Skipping monitor: " .. name)
-                    goto continue
-                end
-
-                local ViewClass = mpm('views/' .. selectedView)
-                local viewConfig = {}
-                if ViewClass.configure then
-                    viewConfig = ViewClass.configure()
-                end
-
-                table.insert(newConfig, {
-                    view = selectedView,
-                    monitor = name,
-                    config = viewConfig
-                })
-                print("Configured " .. selectedView .. " on " .. name)
-            end
-            ::continue::
-        end
-
-        -- Merge new configuration with existing
-        for _, entry in ipairs(newConfig) do
-            table.insert(existingConfig, entry)
-        end
-
-        -- Save updated configuration to displays.config
-        local file = fs.open("displays.config", "w")
-        file.write(textutils.serialize(existingConfig))
-        file.close()
-
-        -- Generate or update startup.lua
-        local startup = [[shell.run('mpm run displays/start')]]
-        local startupFile = fs.open("startup.lua", "w")
-        startupFile.write(startup)
-        startupFile.close()
-
-        print("Setup complete. Configuration updated and saved to displays.config. startup.lua generated.")
-    end,
-    selectView = function(views)
-        print("Select a view:")
-        for i, view in ipairs(views) do
-            local ViewClass = mpm('views/' .. view)
-            if ViewClass.mount() then
-                print(i .. ". " .. view)
-            end
-        end
-        local choice = tonumber(read())
-        return views[choice]
-    end,
-    renderIdentifiers = function()
-        local monitors = peripheral.getNames()
-        for i, name in ipairs(monitors) do
-            if peripheral.getType(name) == "monitor" then
-                local monitor = peripheral.wrap(name)
+    for _, name in ipairs(names) do
+        if peripheral.hasType(name, "monitor") then
+            local monitor = peripheral.wrap(name)
+            if monitor then
+                monitor.setTextScale(1)
+                monitor.setBackgroundColor(colors.blue)
                 monitor.clear()
-                monitor.setCursorPos(1, 1)
-                monitor.write("Monitor: " .. name)
+                monitor.setTextColor(colors.white)
+
+                local width, height = monitor.getSize()
+                local centerY = math.floor(height / 2)
+
+                -- Display name
+                local displayName = name
+                if #displayName > width - 2 then
+                    displayName = displayName:sub(1, width - 5) .. "..."
+                end
+
+                local x = math.floor((width - #displayName) / 2) + 1
+                monitor.setCursorPos(x, centerY)
+                monitor.write(displayName)
+
+                monitor.setBackgroundColor(colors.black)
             end
         end
     end
-}
+end
 
-return this
+-- Clear all monitor identifiers
+local function clearMonitorIdentifiers()
+    local names = peripheral.getNames()
+
+    for _, name in ipairs(names) do
+        if peripheral.hasType(name, "monitor") then
+            local monitor = peripheral.wrap(name)
+            if monitor then
+                monitor.setBackgroundColor(colors.black)
+                monitor.clear()
+            end
+        end
+    end
+end
+
+-- Get list of unconfigured monitors
+local function getUnconfiguredMonitors(existingConfig)
+    local configured = {}
+    for _, entry in ipairs(existingConfig) do
+        configured[entry.monitor] = true
+    end
+
+    local unconfigured = {}
+    local names = peripheral.getNames()
+
+    for _, name in ipairs(names) do
+        if peripheral.hasType(name, "monitor") and not configured[name] then
+            table.insert(unconfigured, name)
+        end
+    end
+
+    return unconfigured
+end
+
+-- Let user select a view
+local function selectView(views)
+    print("")
+    print("Available views:")
+
+    for i, viewName in ipairs(views) do
+        print("  " .. i .. ". " .. viewName)
+    end
+
+    print("  0. Skip this monitor")
+    print("")
+    write("Select (0-" .. #views .. "): ")
+
+    local input = read()
+    local choice = tonumber(input)
+
+    if not choice or choice < 0 or choice > #views then
+        return nil
+    end
+
+    if choice == 0 then
+        return nil
+    end
+
+    return views[choice]
+end
+
+-- Run the installer
+function Installer.run()
+    term.clear()
+    term.setCursorPos(1, 1)
+
+    print("================================")
+    print("  Displays Setup Wizard")
+    print("================================")
+    print("")
+
+    -- Load existing config
+    local config = Config.load()
+    print("[*] Existing displays: " .. #config)
+
+    -- Find unconfigured monitors
+    local unconfigured = getUnconfiguredMonitors(config)
+
+    if #unconfigured == 0 then
+        print("[*] All monitors already configured")
+        print("")
+        print("To reconfigure, delete displays.config")
+        return
+    end
+
+    print("[*] New monitors found: " .. #unconfigured)
+    print("")
+
+    -- Show identifiers
+    print("Monitor names are now displayed on each screen.")
+    showMonitorIdentifiers()
+
+    -- Get mountable views
+    local views = ViewManager.getMountableViews()
+
+    if #views == 0 then
+        print("")
+        print("[!] No views available")
+        print("    Check peripheral connections")
+        clearMonitorIdentifiers()
+        return
+    end
+
+    -- Configure each monitor
+    local newDisplays = {}
+
+    for _, monitorName in ipairs(unconfigured) do
+        print("")
+        print("=== " .. monitorName .. " ===")
+
+        local viewName = selectView(views)
+
+        if viewName then
+            -- Get view config if view has configure()
+            local viewConfig = {}
+            local View = ViewManager.load(viewName)
+
+            if View and View.configure then
+                print("")
+                print("Configure " .. viewName .. ":")
+                local ok, cfg = pcall(View.configure)
+                if ok and cfg then
+                    viewConfig = cfg
+                end
+            end
+
+            table.insert(newDisplays, {
+                monitor = monitorName,
+                view = viewName,
+                config = viewConfig
+            })
+
+            print("[+] " .. monitorName .. " -> " .. viewName)
+        else
+            print("[-] " .. monitorName .. " skipped")
+        end
+    end
+
+    -- Clear identifiers
+    clearMonitorIdentifiers()
+
+    -- Merge with existing config
+    for _, display in ipairs(newDisplays) do
+        table.insert(config, display)
+    end
+
+    -- Save
+    if #newDisplays > 0 then
+        Config.save(config)
+        print("")
+        print("[*] Configuration saved to " .. Config.getPath())
+    end
+
+    -- Offer to create startup
+    print("")
+    print("Create startup.lua to auto-run displays? (y/n)")
+    write("> ")
+
+    if read():lower() == "y" then
+        local file = fs.open("startup.lua", "w")
+        file.write("shell.run('mpm run displays')")
+        file.close()
+        print("[*] startup.lua created")
+    end
+
+    print("")
+    print("=== Setup Complete ===")
+    print("")
+    print("Run displays with: mpm run displays")
+end
+
+return Installer

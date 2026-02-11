@@ -1,10 +1,10 @@
 {
   "name": "displays",
-  "description": "Display management package - Configure and manage multiple monitors to show information from peripherals",
-  "dependencies": ["views"],
+  "description": "Simple display management - Configure and cycle views on multiple monitors with touch",
+  "dependencies": ["views", "ui"],
   "files": [
-    "setup.lua",
     "start.lua",
+    "setup.lua",
     "Config.lua",
     "Installer.lua",
     "System.lua"

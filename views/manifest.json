@@ -1,8 +1,9 @@
 {
   "name": "views",
-  "description": "Views package - Display modules for various types of data visualization",
+  "description": "Display modules for various types of data visualization",
   "dependencies": ["utils", "peripherals"],
   "files": [
+    "Manager.lua",
     "ChestDisplay.lua",
     "CraftingQueueDisplay.lua",
     "EnergyStatusDisplay.lua",
