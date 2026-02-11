@@ -155,48 +155,59 @@ local function createDisplayManager(display, availableViews)
         return true
     end
 
-    -- Draw overlay bar on row 1 of the REAL monitor
+    -- Draw overlay: top info bar + bottom navigation bar
     local function drawOverlay()
-        local width = state.monitor.getSize()
+        local width, height = state.monitor.getSize()
         local name = state.currentViewName or "Unknown"
         local viewNum = state.currentIndex .. "/" .. #availableViews
-        local indicator = "< " .. name .. " >"
 
-        -- Draw overlay bar at row 1 (real monitor)
+        -- === TOP BAR (row 1): View name centered, count on right ===
         state.monitor.setBackgroundColor(colors.blue)
         state.monitor.setTextColor(colors.white)
         state.monitor.setCursorPos(1, 1)
         state.monitor.write(string.rep(" ", width))
 
-        -- Left arrow hint
-        state.monitor.setCursorPos(1, 1)
-        state.monitor.write(" <")
-
-        -- Right arrow hint
-        state.monitor.setCursorPos(width - 1, 1)
-        state.monitor.write("> ")
-
         -- Centered view name
-        local startX = math.floor((width - #indicator) / 2) + 1
-        state.monitor.setCursorPos(startX, 1)
-        state.monitor.write(indicator)
+        local startX = math.floor((width - #name) / 2) + 1
+        state.monitor.setCursorPos(math.max(1, startX), 1)
+        state.monitor.write(name)
 
-        -- View count on right (if room)
-        if width > #indicator + 10 then
-            state.monitor.setCursorPos(width - #viewNum, 1)
-            state.monitor.write(viewNum)
-        end
+        -- View count on right
+        state.monitor.setCursorPos(math.max(1, width - #viewNum + 1), 1)
+        state.monitor.write(viewNum)
+
+        -- === BOTTOM BAR (last row): Navigation buttons ===
+        state.monitor.setBackgroundColor(colors.gray)
+        state.monitor.setTextColor(colors.white)
+        state.monitor.setCursorPos(1, height)
+        state.monitor.write(string.rep(" ", width))
+
+        -- Left: "< Prev"
+        state.monitor.setCursorPos(1, height)
+        state.monitor.write("< Prev")
+
+        -- Right: "Next >"
+        local nextText = "Next >"
+        state.monitor.setCursorPos(math.max(1, width - #nextText + 1), height)
+        state.monitor.write(nextText)
 
         -- Reset colors
         state.monitor.setBackgroundColor(colors.black)
         state.monitor.setTextColor(colors.white)
     end
 
-    -- Clear overlay bar (row 1)
+    -- Clear overlay (top and bottom bars)
     local function clearOverlay()
-        local width = state.monitor.getSize()
+        local width, height = state.monitor.getSize()
         state.monitor.setBackgroundColor(colors.black)
+        state.monitor.setTextColor(colors.white)
+
+        -- Clear top bar (row 1)
         state.monitor.setCursorPos(1, 1)
+        state.monitor.write(string.rep(" ", width))
+
+        -- Clear bottom bar (last row)
+        state.monitor.setCursorPos(1, height)
         state.monitor.write(string.rep(" ", width))
     end
 
