@@ -11,8 +11,8 @@ local System = {}
 -- Overlay timeout in seconds
 local OVERLAY_TIMEOUT = 3
 
--- Create a wrapped monitor that reserves row 1 for overlay
--- Views render to rows 2+ but think they're rendering to row 1+
+-- Create a wrapped monitor that reserves row 1 (top) and row H (bottom) for overlay
+-- Views render to rows 2 to H-1 but think they're rendering to row 1+
 local function createViewMonitor(monitor)
     local width, height = monitor.getSize()
 
@@ -26,13 +26,13 @@ local function createViewMonitor(monitor)
         end
     end
 
-    -- Override size to hide row 1
+    -- Override size to hide row 1 and last row
     function viewMonitor.getSize()
         local w, h = monitor.getSize()
-        return w, math.max(1, h - 1)
+        return w, math.max(1, h - 2)  -- Reserve top and bottom rows
     end
 
-    -- Override cursor position to offset Y
+    -- Override cursor position to offset Y by 1
     function viewMonitor.setCursorPos(x, y)
         monitor.setCursorPos(x, y + 1)
     end
@@ -42,12 +42,12 @@ local function createViewMonitor(monitor)
         return x, math.max(1, y - 1)
     end
 
-    -- Override clear to only clear rows 2+
+    -- Override clear to only clear rows 2 to H-1
     function viewMonitor.clear()
         local w, h = monitor.getSize()
         local bg = monitor.getBackgroundColor()
         monitor.setBackgroundColor(colors.black)
-        for row = 2, h do
+        for row = 2, h - 1 do
             monitor.setCursorPos(1, row)
             monitor.write(string.rep(" ", w))
         end
@@ -63,7 +63,7 @@ local function createViewMonitor(monitor)
         monitor.setCursorPos(x, y)
     end
 
-    -- Override scroll to only affect rows 2+
+    -- Override scroll to only affect view area
     function viewMonitor.scroll(n)
         -- For simplicity, just clear the view area
         viewMonitor.clear()

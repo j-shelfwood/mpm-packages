@@ -4,6 +4,7 @@
 local Config = mpm('shelfos/core/Config')
 local Monitor = mpm('shelfos/core/Monitor')
 local Zone = mpm('shelfos/core/Zone')
+local Terminal = mpm('shelfos/core/Terminal')
 local Menu = mpm('shelfos/input/Menu')
 
 local Kernel = {}
@@ -23,6 +24,10 @@ end
 
 -- Boot the system
 function Kernel:boot()
+    -- Initialize terminal windows (log area + menu bar)
+    Terminal.init()
+    Terminal.clearAll()
+
     print("[ShelfOS] Booting...")
 
     -- Load configuration
@@ -66,11 +71,20 @@ function Kernel:boot()
         return false
     end
 
-    -- Draw initial UI
-    Menu.drawHeader(self.zone, #self.monitors)
-    Menu.draw()
+    -- Draw menu bar
+    self:drawMenu()
 
     return true
+end
+
+-- Draw the menu bar
+function Kernel:drawMenu()
+    Terminal.drawMenu({
+        { key = "s", label = "Status" },
+        { key = "l", label = "Link" },
+        { key = "r", label = "Reset" },
+        { key = "q", label = "Quit" }
+    })
 end
 
 -- Initialize all configured monitors
@@ -198,26 +212,37 @@ function Kernel:menuLoop()
             return
 
         elseif action == "status" then
-            Menu.showStatus(self.config)
-            Menu.drawHeader(self.zone, #self.monitors)
-            Menu.draw()
+            Terminal.showDialog(function()
+                Menu.showStatus(self.config)
+            end)
+            Terminal.clearLog()
+            self:drawMenu()
 
         elseif action == "reset" then
-            if Menu.showReset() then
+            local confirmed = Terminal.showDialog(function()
+                return Menu.showReset()
+            end)
+
+            if confirmed then
                 -- Delete config and quit
                 fs.delete(Config.getPath())
-                print("")
+                Terminal.clearLog()
                 print("[ShelfOS] Configuration deleted.")
                 print("[ShelfOS] Restart to auto-configure.")
+                sleep(1)
                 self.running = false
                 return
             else
-                Menu.drawHeader(self.zone, #self.monitors)
-                Menu.draw()
+                Terminal.clearLog()
+                self:drawMenu()
             end
 
         elseif action == "link" then
-            local result, code = Menu.showLink(self.config)
+            local result, code = Terminal.showDialog(function()
+                return Menu.showLink(self.config)
+            end)
+
+            Terminal.clearLog()
 
             if result == "link_new" then
                 self:createNetwork()
@@ -227,13 +252,11 @@ function Kernel:menuLoop()
                 self.config.network.enabled = false
                 self.config.network.secret = nil
                 Config.save(self.config)
-                print("")
                 print("[ShelfOS] Disconnected from network.")
                 sleep(1)
             end
 
-            Menu.drawHeader(self.zone, #self.monitors)
-            Menu.draw()
+            self:drawMenu()
         end
     end
 end
@@ -343,6 +366,11 @@ end
 
 -- Shutdown the system
 function Kernel:shutdown()
+    -- Restore native terminal
+    term.redirect(term.native())
+    term.clear()
+    term.setCursorPos(1, 1)
+
     print("[ShelfOS] Shutting down...")
 
     -- Save config

@@ -8,6 +8,7 @@
     "core/Config.lua",
     "core/Monitor.lua",
     "core/Zone.lua",
+    "core/Terminal.lua",
     "view/Manager.lua",
     "view/Registry.lua",
     "view/ConfigSchema.lua",

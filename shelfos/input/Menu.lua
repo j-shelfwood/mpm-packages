@@ -1,41 +1,29 @@
 -- Menu.lua
--- Interactive terminal menu for ShelfOS
+-- Menu dialogs and key handling for ShelfOS
 
 local Menu = {}
 
--- Menu items definition
-local menuItems = {
-    { key = "s", label = "Status", action = "status" },
-    { key = "l", label = "Link", action = "link" },
-    { key = "r", label = "Reset", action = "reset" },
-    { key = "q", label = "Quit", action = "quit" }
+-- Menu key mappings
+local menuKeys = {
+    s = "status",
+    l = "link",
+    r = "reset",
+    q = "quit"
 }
 
--- Draw the menu bar at current cursor position
-function Menu.draw()
-    local w, h = term.getSize()
+-- Handle a keypress, return action or nil
+function Menu.handleKey(key)
+    local keyName = keys.getName(key)
 
-    -- Build menu string
-    local parts = {}
-    for _, item in ipairs(menuItems) do
-        table.insert(parts, "[" .. item.key:upper() .. "] " .. item.label)
+    if not keyName then
+        return nil
     end
-    local menuStr = table.concat(parts, "  ")
 
-    -- Center it
-    local x = math.floor((w - #menuStr) / 2) + 1
-
-    term.setTextColor(colors.lightGray)
-    term.setCursorPos(x, h)
-    term.write(menuStr)
-    term.setTextColor(colors.white)
+    return menuKeys[keyName:lower()]
 end
 
--- Show status info
+-- Show status dialog (called within Terminal.showDialog)
 function Menu.showStatus(config)
-    term.clear()
-    term.setCursorPos(1, 1)
-
     print("=== ShelfOS Status ===")
     print("")
     print("Zone: " .. (config.zone.name or "Unknown"))
@@ -55,11 +43,22 @@ function Menu.showStatus(config)
     os.pullEvent("key")
 end
 
--- Show link menu
-function Menu.showLink(config)
-    term.clear()
-    term.setCursorPos(1, 1)
+-- Show reset confirmation dialog
+function Menu.showReset()
+    print("=== Reset ShelfOS ===")
+    print("")
+    print("This will delete your configuration.")
+    print("ShelfOS will auto-configure on next boot.")
+    print("")
+    print("Are you sure? (y/n)")
 
+    local event, key = os.pullEvent("key")
+
+    return key == keys.y
+end
+
+-- Show link menu dialog
+function Menu.showLink(config)
     print("=== Network Link ===")
     print("")
 
@@ -85,15 +84,16 @@ function Menu.showLink(config)
     write("Choice: ")
 
     local event, key = os.pullEvent("key")
+    print("")
 
     if key == keys.one then
         if config.network.enabled then
             -- Show pairing code
-            print("")
             print("Pairing code: " .. (config.network.pairingCode or "N/A"))
             print("")
             print("Press any key...")
             os.pullEvent("key")
+            return nil
         else
             -- Create new network
             return "link_new"
@@ -109,64 +109,14 @@ function Menu.showLink(config)
             local code = read()
             if code and #code >= 8 then
                 return "link_join", code
+            else
+                print("Invalid code")
+                sleep(1)
             end
         end
     end
 
     return nil
-end
-
--- Show reset confirmation
-function Menu.showReset()
-    term.clear()
-    term.setCursorPos(1, 1)
-
-    print("=== Reset ShelfOS ===")
-    print("")
-    print("This will delete your configuration.")
-    print("ShelfOS will auto-configure on next boot.")
-    print("")
-    print("Are you sure? (y/n)")
-
-    local event, key = os.pullEvent("key")
-
-    if key == keys.y then
-        return true
-    end
-
-    return false
-end
-
--- Handle a keypress, return action or nil
-function Menu.handleKey(key)
-    local keyName = keys.getName(key)
-
-    if not keyName then
-        return nil
-    end
-
-    keyName = keyName:lower()
-
-    for _, item in ipairs(menuItems) do
-        if item.key == keyName then
-            return item.action
-        end
-    end
-
-    return nil
-end
-
--- Redraw terminal header with zone info
-function Menu.drawHeader(zone, monitorCount)
-    term.clear()
-    term.setCursorPos(1, 1)
-
-    term.setTextColor(colors.cyan)
-    print("ShelfOS - " .. (zone and zone:getName() or "Unknown Zone"))
-    term.setTextColor(colors.lightGray)
-    print(monitorCount .. " monitor(s) active | Touch monitors to cycle views")
-    term.setTextColor(colors.white)
-    print("")
 end
 
 return Menu
