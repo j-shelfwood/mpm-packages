@@ -4,6 +4,7 @@
 local Config = mpm('shelfos/core/Config')
 local Monitor = mpm('shelfos/core/Monitor')
 local Zone = mpm('shelfos/core/Zone')
+local Menu = mpm('shelfos/input/Menu')
 
 local Kernel = {}
 Kernel.__index = Kernel
@@ -65,10 +66,9 @@ function Kernel:boot()
         return false
     end
 
-    print("[ShelfOS] Boot complete. " .. #self.monitors .. " monitor(s) active.")
-    print("[ShelfOS] Touch left/right to cycle views")
-    print("[ShelfOS] Press 'q' to quit")
-    print("")
+    -- Draw initial UI
+    Menu.drawHeader(self.zone, #self.monitors)
+    Menu.draw()
 
     return true
 end
@@ -150,9 +150,9 @@ function Kernel:run()
         end)
     end
 
-    -- Key listener (quit on 'q')
+    -- Menu handler
     table.insert(tasks, function()
-        self:keyListener()
+        self:menuLoop()
     end)
 
     -- Network task (if available)
@@ -186,17 +186,136 @@ function Kernel:monitorLoop(monitor)
     end
 end
 
--- Keyboard listener
-function Kernel:keyListener()
+-- Menu handler loop
+function Kernel:menuLoop()
     while self.running do
         local event, key = os.pullEvent("key")
 
-        if key == keys.q then
-            print("[ShelfOS] Quit requested")
+        local action = Menu.handleKey(key)
+
+        if action == "quit" then
             self.running = false
             return
+
+        elseif action == "status" then
+            Menu.showStatus(self.config)
+            Menu.drawHeader(self.zone, #self.monitors)
+            Menu.draw()
+
+        elseif action == "reset" then
+            if Menu.showReset() then
+                -- Delete config and quit
+                fs.delete(Config.getPath())
+                print("")
+                print("[ShelfOS] Configuration deleted.")
+                print("[ShelfOS] Restart to auto-configure.")
+                self.running = false
+                return
+            else
+                Menu.drawHeader(self.zone, #self.monitors)
+                Menu.draw()
+            end
+
+        elseif action == "link" then
+            local result, code = Menu.showLink(self.config)
+
+            if result == "link_new" then
+                self:createNetwork()
+            elseif result == "link_join" and code then
+                self:joinNetwork(code)
+            elseif result == "link_disconnect" then
+                self.config.network.enabled = false
+                self.config.network.secret = nil
+                Config.save(self.config)
+                print("")
+                print("[ShelfOS] Disconnected from network.")
+                sleep(1)
+            end
+
+            Menu.drawHeader(self.zone, #self.monitors)
+            Menu.draw()
         end
     end
+end
+
+-- Create a new network
+function Kernel:createNetwork()
+    local Crypto = mpm('net/Crypto')
+
+    -- Check for modem
+    local modem = peripheral.find("modem")
+    if not modem then
+        print("")
+        print("[!] No modem found")
+        print("    Attach a wireless or ender modem")
+        sleep(2)
+        return
+    end
+
+    -- Generate secret
+    local secret = Crypto.generateSecret()
+    Config.setNetworkSecret(self.config, secret)
+
+    -- Generate pairing code if not exists
+    if not self.config.network.pairingCode then
+        self.config.network.pairingCode = Config.generatePairingCode()
+    end
+
+    Config.save(self.config)
+
+    print("")
+    print("=================================")
+    print("  PAIRING CODE: " .. self.config.network.pairingCode)
+    print("=================================")
+    print("")
+    print("Share this code with other computers.")
+    print("Press any key to continue...")
+    os.pullEvent("key")
+end
+
+-- Join an existing network
+function Kernel:joinNetwork(code)
+    -- Check for modem
+    local modem = peripheral.find("modem")
+    if not modem then
+        print("")
+        print("[!] No modem found")
+        sleep(2)
+        return
+    end
+
+    print("")
+    print("[*] Searching for network host...")
+
+    local modemName = peripheral.getName(modem)
+    rednet.open(modemName)
+
+    local PROTOCOL = "shelfos_pair"
+    rednet.broadcast({ type = "pair_request", code = code }, PROTOCOL)
+
+    local senderId, response = rednet.receive(PROTOCOL, 10)
+
+    if not response then
+        print("[!] No response from network host")
+        rednet.close(modemName)
+        sleep(2)
+        return
+    end
+
+    if response.type == "pair_response" and response.success then
+        Config.setNetworkSecret(self.config, response.secret)
+        self.config.zone.id = response.zoneId or self.config.zone.id
+        Config.save(self.config)
+
+        print("[*] Successfully joined network!")
+        print("    Zone: " .. (response.zoneName or "Unknown"))
+        sleep(2)
+    else
+        print("[!] Pairing failed: " .. (response.error or "Unknown error"))
+        sleep(2)
+    end
+
+    rednet.close(modemName)
 end
 
 -- Network event loop

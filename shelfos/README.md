@@ -19,16 +19,20 @@ That's it. ShelfOS auto-discovers connected monitors and assigns appropriate vie
 - **Network swarm** - Link multiple computers into a unified system
 - **Secure networking** - HMAC-signed messages for multiplayer servers
 
-## Commands
+## Terminal Menu
 
-| Command | Description |
-|---------|-------------|
-| `mpm run shelfos` | Start ShelfOS (auto-configures on first run) |
-| `mpm run shelfos setup` | Manual configuration wizard |
-| `mpm run shelfos status` | Show current configuration |
-| `mpm run shelfos reset` | Delete configuration and start fresh |
-| `mpm run shelfos link new` | Create a new network swarm |
-| `mpm run shelfos link <CODE>` | Join an existing network |
+While running, ShelfOS displays a menu at the bottom of the terminal:
+
+```
+[S] Status  [L] Link  [R] Reset  [Q] Quit
+```
+
+| Key | Action |
+|-----|--------|
+| `S` | Show current configuration (zone, monitors, network) |
+| `L` | Network linking menu (create/join network) |
+| `R` | Reset configuration (delete and restart fresh) |
+| `Q` | Quit ShelfOS |
 
 ## Touch Controls
 
@@ -73,9 +77,9 @@ Link multiple computers to work as a unified system.
 
 ### Creating a Network (Host Computer)
 
-```
-mpm run shelfos link new
-```
+1. Press `L` to open the Link menu
+2. Select "Create new network"
+3. Note the pairing code displayed
 
 This generates:
 - A shared secret for secure communication
@@ -83,11 +87,11 @@ This generates:
 
 ### Joining a Network (Other Computers)
 
-```
-mpm run shelfos link ABCD-EFGH
-```
+1. Press `L` to open the Link menu
+2. Select "Join existing network"
+3. Enter the pairing code from the host
 
-Enter the pairing code from the host. The computer will:
+The computer will:
 1. Contact the host over rednet
 2. Receive the shared secret
 3. Join the network
@@ -111,6 +115,7 @@ shelfos/
 ├── view/
 │   └── Manager.lua     # View loading (re-exports views/Manager)
 ├── input/
+│   ├── Menu.lua        # Terminal menu UI
 │   ├── Touch.lua       # Touch handling
 │   ├── ConfigMode.lua  # Configuration overlay
 │   └── Remote.lua      # Remote input handling
@@ -217,6 +222,6 @@ This imports your `displays.config` into ShelfOS format.
 - Check that the pairing code matches exactly
 
 ### Views not rendering
-- Press 'q' to quit and check for error messages
+- Press `Q` to quit and check for error messages
 - Verify peripheral connections
-- Try `mpm run shelfos reset` and restart
+- Press `R` to reset configuration, then restart

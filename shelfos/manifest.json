@@ -14,6 +14,7 @@
     "input/Touch.lua",
     "input/ConfigMode.lua",
     "input/Remote.lua",
+    "input/Menu.lua",
     "pocket/start.lua",
     "pocket/App.lua",
     "pocket/Notifications.lua",
