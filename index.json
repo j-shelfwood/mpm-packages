@@ -1,0 +1,40 @@
+[
+  {
+    "name": "displays",
+    "description": "Display management - Configure and manage multiple monitors to show information from peripherals",
+    "dependencies": ["views"]
+  },
+  {
+    "name": "views",
+    "description": "Display modules for various types of data visualization (AE2 storage, fluids, machines)",
+    "dependencies": ["utils", "peripherals"]
+  },
+  {
+    "name": "peripherals",
+    "description": "Peripheral adapters - Unified interface for AE2/ME Bridge and other peripherals"
+  },
+  {
+    "name": "utils",
+    "description": "Utility scripts - Text formatting, grid display helpers, and more"
+  },
+  {
+    "name": "tools",
+    "description": "Utility scripts for inspecting and reporting on peripherals"
+  },
+  {
+    "name": "wpp",
+    "description": "Wireless Peripheral Protocol - Connect and call functions from peripherals remotely over Rednet"
+  },
+  {
+    "name": "forcefield",
+    "description": "Forcefield system for use with the Reality Forger and Reality anchors"
+  },
+  {
+    "name": "reality",
+    "description": "Reality management - Interact with Reality Forger virtual world"
+  },
+  {
+    "name": "tests",
+    "description": "Test scripts for validating functionality"
+  }
+]
