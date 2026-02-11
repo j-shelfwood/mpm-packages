@@ -1,14 +1,13 @@
 -- System.lua
--- Display management system - rewritten to follow shelfos patterns
--- Uses timer-based rendering and proper touch zone handling
+-- Display management with simple settings button pattern
+-- Touch to show settings icon, click icon to configure
 
 local Config = mpm('displays/Config')
-local TouchZones = mpm('ui/TouchZones')
 local ViewManager = mpm('views/Manager')
 
 local System = {}
 
--- Display class (similar to shelfos/core/Monitor)
+-- Display class
 local Display = {}
 Display.__index = Display
 
@@ -17,9 +16,8 @@ function Display.new(config, availableViews)
 
     self.peripheralName = config.monitor
     self.peripheral = peripheral.wrap(self.peripheralName)
-    self.connected = self.peripheral ~= nil
 
-    if not self.connected then
+    if not self.peripheral then
         return nil
     end
 
@@ -30,10 +28,10 @@ function Display.new(config, availableViews)
 
     self.view = nil
     self.viewInstance = nil
-    self.touchZones = nil
     self.renderTimer = nil
-    self.indicatorTimer = nil
-    self.showingIndicator = false
+    self.settingsTimer = nil
+    self.showingSettings = false
+    self.inConfigMenu = false
 
     -- Find initial view index
     for i, name in ipairs(availableViews) do
@@ -43,32 +41,10 @@ function Display.new(config, availableViews)
         end
     end
 
-    -- Initialize
-    self:setup()
-
-    return self
-end
-
--- Set up touch zones and load initial view
-function Display:setup()
-    local width, height = self.peripheral.getSize()
-    local halfWidth = math.floor(width / 2)
-
-    -- Create touch zones
-    self.touchZones = TouchZones.new(self.peripheral)
-
-    -- Left half: previous view
-    self.touchZones:addZone("prev", 1, 1, halfWidth, height, function()
-        self:previousView()
-    end)
-
-    -- Right half: next view
-    self.touchZones:addZone("next", halfWidth + 1, 1, width, height, function()
-        self:nextView()
-    end)
-
     -- Load initial view
     self:loadView(self.viewName)
+
+    return self
 end
 
 -- Load a view by name
@@ -81,6 +57,14 @@ function Display:loadView(viewName)
 
     self.view = View
     self.viewName = viewName
+
+    -- Update index
+    for i, name in ipairs(self.availableViews) do
+        if name == viewName then
+            self.currentIndex = i
+            break
+        end
+    end
 
     -- Create view instance
     local ok, instance = pcall(View.new, self.peripheral, self.viewConfig)
@@ -99,89 +83,148 @@ function Display:loadView(viewName)
     return true
 end
 
--- Go to next view
-function Display:nextView()
-    self.currentIndex = self.currentIndex + 1
-    if self.currentIndex > #self.availableViews then
-        self.currentIndex = 1
-    end
-
-    local newView = self.availableViews[self.currentIndex]
-    print("[*] " .. self.peripheralName .. " -> " .. newView)
-
-    self:loadView(newView)
-    self:showIndicator()
-
-    -- Persist change
-    Config.updateDisplayView(self.peripheralName, newView)
-end
-
--- Go to previous view
-function Display:previousView()
-    self.currentIndex = self.currentIndex - 1
-    if self.currentIndex < 1 then
-        self.currentIndex = #self.availableViews
-    end
-
-    local newView = self.availableViews[self.currentIndex]
-    print("[*] " .. self.peripheralName .. " -> " .. newView)
-
-    self:loadView(newView)
-    self:showIndicator()
-
-    -- Persist change
-    Config.updateDisplayView(self.peripheralName, newView)
-end
-
--- Show indicator bar briefly
-function Display:showIndicator()
-    self.showingIndicator = true
-
+-- Draw settings button in bottom-right corner
+function Display:drawSettingsButton()
     local width, height = self.peripheral.getSize()
-    local viewNum = self.currentIndex .. "/" .. #self.availableViews
 
-    -- Top bar: view name centered
+    -- Save cursor
+    local oldX, oldY = self.peripheral.getCursorPos()
+    local oldBg = self.peripheral.getBackgroundColor()
+    local oldFg = self.peripheral.getTextColor()
+
+    -- Draw button: [*] in bottom-right
+    self.peripheral.setBackgroundColor(colors.gray)
+    self.peripheral.setTextColor(colors.white)
+    self.peripheral.setCursorPos(width - 2, height)
+    self.peripheral.write("[*]")
+
+    -- Restore
+    self.peripheral.setBackgroundColor(oldBg)
+    self.peripheral.setTextColor(oldFg)
+    self.peripheral.setCursorPos(oldX, oldY)
+
+    self.showingSettings = true
+    self.settingsTimer = os.startTimer(3)
+end
+
+-- Hide settings button by re-rendering view
+function Display:hideSettingsButton()
+    self.showingSettings = false
+    self.settingsTimer = nil
+    -- Just let next render cycle handle it
+end
+
+-- Check if touch is on settings button
+function Display:isSettingsButtonTouch(x, y)
+    local width, height = self.peripheral.getSize()
+    return y == height and x >= width - 2
+end
+
+-- Draw the configuration menu
+function Display:drawConfigMenu()
+    local width, height = self.peripheral.getSize()
+
+    self.peripheral.setBackgroundColor(colors.black)
+    self.peripheral.clear()
+
+    -- Title
     self.peripheral.setBackgroundColor(colors.blue)
     self.peripheral.setTextColor(colors.white)
     self.peripheral.setCursorPos(1, 1)
     self.peripheral.write(string.rep(" ", width))
+    local title = "Select View"
+    self.peripheral.setCursorPos(math.floor((width - #title) / 2) + 1, 1)
+    self.peripheral.write(title)
 
-    local startX = math.floor((width - #self.viewName) / 2) + 1
-    self.peripheral.setCursorPos(math.max(1, startX), 1)
-    self.peripheral.write(self.viewName)
+    -- View list
+    self.peripheral.setBackgroundColor(colors.black)
+    local startY = 3
+    local maxItems = height - 4  -- Leave room for title and cancel
 
-    -- View count on right
-    self.peripheral.setCursorPos(math.max(1, width - #viewNum + 1), 1)
-    self.peripheral.write(viewNum)
+    for i, viewName in ipairs(self.availableViews) do
+        if i <= maxItems then
+            local y = startY + i - 1
 
-    -- Bottom bar: navigation hints
-    self.peripheral.setBackgroundColor(colors.gray)
+            if i == self.currentIndex then
+                -- Highlighted (current)
+                self.peripheral.setBackgroundColor(colors.gray)
+                self.peripheral.setTextColor(colors.white)
+                self.peripheral.setCursorPos(1, y)
+                self.peripheral.write(string.rep(" ", width))
+                self.peripheral.setCursorPos(2, y)
+                self.peripheral.write("> " .. viewName)
+            else
+                self.peripheral.setBackgroundColor(colors.black)
+                self.peripheral.setTextColor(colors.lightGray)
+                self.peripheral.setCursorPos(2, y)
+                self.peripheral.write("  " .. viewName)
+            end
+        end
+    end
+
+    -- Cancel button at bottom
+    self.peripheral.setBackgroundColor(colors.red)
+    self.peripheral.setTextColor(colors.white)
     self.peripheral.setCursorPos(1, height)
     self.peripheral.write(string.rep(" ", width))
-    self.peripheral.setCursorPos(1, height)
-    self.peripheral.write("< Prev")
-    self.peripheral.setCursorPos(width - 5, height)
-    self.peripheral.write("Next >")
+    local cancelText = "[ Cancel ]"
+    self.peripheral.setCursorPos(math.floor((width - #cancelText) / 2) + 1, height)
+    self.peripheral.write(cancelText)
 
-    -- Reset colors
     self.peripheral.setBackgroundColor(colors.black)
     self.peripheral.setTextColor(colors.white)
-
-    -- Auto-hide after 2 seconds
-    self.indicatorTimer = os.startTimer(2)
 end
 
--- Hide indicator and render view
-function Display:hideIndicator()
-    self.showingIndicator = false
-    self.indicatorTimer = nil
+-- Handle touch in config menu
+-- Returns: nil (stay in menu), "cancel", or view name
+function Display:handleConfigMenuTouch(x, y)
+    local width, height = self.peripheral.getSize()
+
+    -- Cancel button (bottom row)
+    if y == height then
+        return "cancel"
+    end
+
+    -- View selection (rows 3 to height-1)
+    local startY = 3
+    local maxItems = height - 4
+    local touchedIndex = y - startY + 1
+
+    if touchedIndex >= 1 and touchedIndex <= #self.availableViews and touchedIndex <= maxItems then
+        return self.availableViews[touchedIndex]
+    end
+
+    return nil
+end
+
+-- Open config menu
+function Display:openConfigMenu()
+    self.inConfigMenu = true
+    self.showingSettings = false
+
+    -- Cancel any pending timers
+    if self.renderTimer then
+        os.cancelTimer(self.renderTimer)
+        self.renderTimer = nil
+    end
+    if self.settingsTimer then
+        os.cancelTimer(self.settingsTimer)
+        self.settingsTimer = nil
+    end
+
+    self:drawConfigMenu()
+end
+
+-- Close config menu and resume view
+function Display:closeConfigMenu()
+    self.inConfigMenu = false
     self.peripheral.clear()
-    self:render()
+    self:scheduleRender()
 end
 
 -- Render the view
 function Display:render()
-    if not self.viewInstance or self.showingIndicator then
+    if self.inConfigMenu or not self.viewInstance then
         return
     end
 
@@ -192,10 +235,16 @@ function Display:render()
         self.peripheral.write("Error: " .. tostring(err):sub(1, 20))
         self.peripheral.setTextColor(colors.white)
     end
+
+    -- Redraw settings button if showing
+    if self.showingSettings then
+        self:drawSettingsButton()
+    end
 end
 
 -- Schedule next render
 function Display:scheduleRender()
+    if self.inConfigMenu then return end
     local sleepTime = (self.view and self.view.sleepTime) or 1
     self.renderTimer = os.startTimer(sleepTime)
 end
@@ -206,20 +255,38 @@ function Display:handleTouch(monitorName, x, y)
         return false
     end
 
-    -- If indicator showing, hide it on touch
-    if self.showingIndicator then
-        self:hideIndicator()
+    -- Config menu mode
+    if self.inConfigMenu then
+        local result = self:handleConfigMenuTouch(x, y)
+
+        if result == "cancel" then
+            self:closeConfigMenu()
+        elseif result then
+            -- Selected a view
+            print("[*] " .. self.peripheralName .. " -> " .. result)
+            Config.updateDisplayView(self.peripheralName, result)
+            self:loadView(result)
+            self:closeConfigMenu()
+        end
+
         return true
     end
 
-    -- Route to touch zones
-    return self.touchZones:handleTouch(monitorName, x, y)
+    -- Normal mode: check for settings button click
+    if self.showingSettings and self:isSettingsButtonTouch(x, y) then
+        self:openConfigMenu()
+        return true
+    end
+
+    -- Any other touch: show settings button
+    self:drawSettingsButton()
+    return true
 end
 
 -- Handle timer event
 function Display:handleTimer(timerId)
-    if timerId == self.indicatorTimer then
-        self:hideIndicator()
+    if timerId == self.settingsTimer then
+        self:hideSettingsButton()
         return true
     elseif timerId == self.renderTimer then
         self:render()
@@ -273,7 +340,7 @@ function System.run()
     end
 
     print("")
-    print("[*] Touch left/right to switch views")
+    print("[*] Touch monitor to show settings")
     print("[*] Press 'q' to quit")
     print("")
 
