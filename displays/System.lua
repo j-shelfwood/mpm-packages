@@ -1,6 +1,6 @@
 -- System.lua
--- Display management system with touch-based view cycling
--- Refactored to use shared ui/ and view management components
+-- Display management system - rewritten to follow shelfos patterns
+-- Uses timer-based rendering and proper touch zone handling
 
 local Config = mpm('displays/Config')
 local TouchZones = mpm('ui/TouchZones')
@@ -8,350 +8,234 @@ local ViewManager = mpm('views/Manager')
 
 local System = {}
 
--- Overlay timeout in seconds
-local OVERLAY_TIMEOUT = 3
+-- Display class (similar to shelfos/core/Monitor)
+local Display = {}
+Display.__index = Display
 
--- Create a wrapped monitor that reserves row 1 (top) and row H (bottom) for overlay
--- Views render to rows 2 to H-1 but think they're rendering to row 1+
-local function createViewMonitor(monitor)
-    local width, height = monitor.getSize()
+function Display.new(config, availableViews)
+    local self = setmetatable({}, Display)
 
-    -- Create a proxy that offsets Y coordinates by 1
-    local viewMonitor = {}
+    self.peripheralName = config.monitor
+    self.peripheral = peripheral.wrap(self.peripheralName)
+    self.connected = self.peripheral ~= nil
 
-    -- Pass through most methods directly
-    for key, value in pairs(monitor) do
-        if type(value) == "function" then
-            viewMonitor[key] = value
-        end
-    end
-
-    -- Override size to hide row 1 and last row
-    function viewMonitor.getSize()
-        local w, h = monitor.getSize()
-        return w, math.max(1, h - 2)  -- Reserve top and bottom rows
-    end
-
-    -- Override cursor position to offset Y by 1
-    function viewMonitor.setCursorPos(x, y)
-        monitor.setCursorPos(x, y + 1)
-    end
-
-    function viewMonitor.getCursorPos()
-        local x, y = monitor.getCursorPos()
-        return x, math.max(1, y - 1)
-    end
-
-    -- Override clear to only clear rows 2 to H-1
-    function viewMonitor.clear()
-        local w, h = monitor.getSize()
-        local bg = monitor.getBackgroundColor()
-        monitor.setBackgroundColor(colors.black)
-        for row = 2, h - 1 do
-            monitor.setCursorPos(1, row)
-            monitor.write(string.rep(" ", w))
-        end
-        monitor.setBackgroundColor(bg)
-    end
-
-    -- Override clearLine to offset Y
-    function viewMonitor.clearLine()
-        local x, y = monitor.getCursorPos()
-        local w = monitor.getSize()
-        monitor.setCursorPos(1, y)
-        monitor.write(string.rep(" ", w))
-        monitor.setCursorPos(x, y)
-    end
-
-    -- Override scroll to only affect view area
-    function viewMonitor.scroll(n)
-        -- For simplicity, just clear the view area
-        viewMonitor.clear()
-    end
-
-    return viewMonitor
-end
-
--- Create a display manager for a single monitor
-local function createDisplayManager(display, availableViews)
-    local monitorName = display.monitor
-    local monitor = peripheral.wrap(monitorName)
-
-    if not monitor then
-        print("[!] Monitor not found: " .. monitorName)
+    if not self.connected then
         return nil
     end
 
-    -- Create view monitor (reserves row 1 for overlay)
-    local viewMonitor = createViewMonitor(monitor)
+    self.availableViews = availableViews
+    self.currentIndex = 1
+    self.viewName = config.view
+    self.viewConfig = config.config or {}
 
-    -- State
-    local state = {
-        monitor = monitor,           -- Real monitor (for overlay)
-        viewMonitor = viewMonitor,   -- Offset monitor (for views)
-        monitorName = monitorName,
-        currentIndex = 1,
-        currentViewName = nil,
-        viewClass = nil,
-        viewInstance = nil,
-        touchZones = TouchZones.new(monitor),
-        overlayVisible = false,
-        overlayTimer = nil,
-        lastInteraction = 0
-    }
+    self.view = nil
+    self.viewInstance = nil
+    self.touchZones = nil
+    self.renderTimer = nil
+    self.indicatorTimer = nil
+    self.showingIndicator = false
 
-    -- Find current view index
-    for i, viewName in ipairs(availableViews) do
-        if viewName == display.view then
-            state.currentIndex = i
+    -- Find initial view index
+    for i, name in ipairs(availableViews) do
+        if name == self.viewName then
+            self.currentIndex = i
             break
         end
     end
 
-    -- Load a view by index
-    local function loadView(index, persist)
-        -- Wrap index
-        if index < 1 then
-            index = #availableViews
-        elseif index > #availableViews then
-            index = 1
-        end
-        state.currentIndex = index
+    -- Initialize
+    self:setup()
 
-        local viewName = availableViews[index]
-        if viewName == state.currentViewName and state.viewInstance then
-            return true
-        end
+    return self
+end
 
-        print("[*] " .. monitorName .. " -> " .. viewName)
+-- Set up touch zones and load initial view
+function Display:setup()
+    local width, height = self.peripheral.getSize()
+    local halfWidth = math.floor(width / 2)
 
-        -- Load view using ViewManager
-        local View = ViewManager.load(viewName)
-        if not View then
-            print("[!] Failed to load: " .. viewName)
-            return false
-        end
+    -- Create touch zones
+    self.touchZones = TouchZones.new(self.peripheral)
 
-        state.viewClass = View
-        state.currentViewName = viewName
+    -- Left half: previous view
+    self.touchZones:addZone("prev", 1, 1, halfWidth, height, function()
+        self:previousView()
+    end)
 
-        -- Create instance with viewMonitor (offset by 1 row for overlay)
-        local config = display.config or {}
-        local ok, instance = pcall(View.new, state.viewMonitor, config)
+    -- Right half: next view
+    self.touchZones:addZone("next", halfWidth + 1, 1, width, height, function()
+        self:nextView()
+    end)
 
-        if ok then
-            state.viewInstance = instance
+    -- Load initial view
+    self:loadView(self.viewName)
+end
 
-            -- Persist if requested
-            if persist then
-                Config.updateDisplayView(monitorName, viewName)
-            end
-        else
-            print("[!] Instance error: " .. tostring(instance))
-            state.viewInstance = nil
-            return false
-        end
-
-        return true
-    end
-
-    -- Draw overlay: top info bar + bottom navigation bar
-    local function drawOverlay()
-        local width, height = state.monitor.getSize()
-        local name = state.currentViewName or "Unknown"
-        local viewNum = state.currentIndex .. "/" .. #availableViews
-
-        -- === TOP BAR (row 1): View name centered, count on right ===
-        state.monitor.setBackgroundColor(colors.blue)
-        state.monitor.setTextColor(colors.white)
-        state.monitor.setCursorPos(1, 1)
-        state.monitor.write(string.rep(" ", width))
-
-        -- Centered view name
-        local startX = math.floor((width - #name) / 2) + 1
-        state.monitor.setCursorPos(math.max(1, startX), 1)
-        state.monitor.write(name)
-
-        -- View count on right
-        state.monitor.setCursorPos(math.max(1, width - #viewNum + 1), 1)
-        state.monitor.write(viewNum)
-
-        -- === BOTTOM BAR (last row): Navigation buttons ===
-        state.monitor.setBackgroundColor(colors.gray)
-        state.monitor.setTextColor(colors.white)
-        state.monitor.setCursorPos(1, height)
-        state.monitor.write(string.rep(" ", width))
-
-        -- Left: "< Prev"
-        state.monitor.setCursorPos(1, height)
-        state.monitor.write("< Prev")
-
-        -- Right: "Next >"
-        local nextText = "Next >"
-        state.monitor.setCursorPos(math.max(1, width - #nextText + 1), height)
-        state.monitor.write(nextText)
-
-        -- Reset colors
-        state.monitor.setBackgroundColor(colors.black)
-        state.monitor.setTextColor(colors.white)
-    end
-
-    -- Clear overlay (top and bottom bars)
-    local function clearOverlay()
-        local width, height = state.monitor.getSize()
-        state.monitor.setBackgroundColor(colors.black)
-        state.monitor.setTextColor(colors.white)
-
-        -- Clear top bar (row 1)
-        state.monitor.setCursorPos(1, 1)
-        state.monitor.write(string.rep(" ", width))
-
-        -- Clear bottom bar (last row)
-        state.monitor.setCursorPos(1, height)
-        state.monitor.write(string.rep(" ", width))
-    end
-
-    -- Show overlay and start/reset timeout
-    local function showOverlay()
-        state.overlayVisible = true
-        state.lastInteraction = os.epoch("utc")
-    end
-
-    -- Hide overlay
-    local function hideOverlay()
-        state.overlayVisible = false
-        clearOverlay()
-    end
-
-    -- Check if overlay should auto-hide
-    local function checkOverlayTimeout()
-        if state.overlayVisible then
-            local elapsed = (os.epoch("utc") - state.lastInteraction) / 1000
-            if elapsed >= OVERLAY_TIMEOUT then
-                hideOverlay()
-                return true  -- Overlay was hidden
-            end
-        end
+-- Load a view by name
+function Display:loadView(viewName)
+    local View = ViewManager.load(viewName)
+    if not View then
+        print("[!] Failed to load: " .. viewName)
         return false
     end
 
-    -- Set up touch zones for navigation
-    local width, height = monitor.getSize()
-    local halfWidth = math.floor(width / 2)
+    self.view = View
+    self.viewName = viewName
 
-    state.touchZones:addZone("prev", 1, 1, halfWidth, height, function()
-        loadView(state.currentIndex - 1, true)
-        showOverlay()  -- Keep/refresh overlay after switch
-    end)
+    -- Create view instance
+    local ok, instance = pcall(View.new, self.peripheral, self.viewConfig)
+    if ok then
+        self.viewInstance = instance
+    else
+        print("[!] View error: " .. tostring(instance))
+        self.viewInstance = nil
+        return false
+    end
 
-    state.touchZones:addZone("next", halfWidth + 1, 1, width, height, function()
-        loadView(state.currentIndex + 1, true)
-        showOverlay()  -- Keep/refresh overlay after switch
-    end)
+    -- Clear and schedule render
+    self.peripheral.clear()
+    self:scheduleRender()
 
-    -- Initial setup: clear screen and load first view
-    state.monitor.clear()
-    loadView(state.currentIndex, false)
-
-    -- Return manager interface
-    return {
-        state = state,
-
-        render = function()
-            -- Draw overlay first if visible (on row 1 of real monitor)
-            -- This ensures it's always present even if view has issues
-            if state.overlayVisible then
-                drawOverlay()
-            end
-
-            -- Render view content (uses viewMonitor which is offset to row 2+)
-            if state.viewInstance and state.viewClass and state.viewClass.render then
-                local ok, err = pcall(state.viewClass.render, state.viewInstance)
-                if not ok then
-                    print("[!] Render error: " .. tostring(err))
-                end
-            end
-
-            -- Redraw overlay after view render to ensure it's on top
-            -- (view's clear() only affects rows 2+ now, but just in case)
-            if state.overlayVisible then
-                drawOverlay()
-            end
-        end,
-
-        handleTouch = function(touchMonitor, x, y)
-            if touchMonitor ~= monitorName then
-                return false
-            end
-
-            -- First touch when overlay not visible: just show overlay
-            if not state.overlayVisible then
-                showOverlay()
-                return true
-            end
-
-            -- Overlay is visible: process touch zones (left/right navigation)
-            state.lastInteraction = os.epoch("utc")
-            return state.touchZones:handleTouch(touchMonitor, x, y)
-        end,
-
-        checkTimeout = function()
-            return checkOverlayTimeout()
-        end,
-
-        getSleepTime = function()
-            -- Use shorter sleep when overlay visible for responsive timeout
-            if state.overlayVisible then
-                return 0.5
-            end
-            return (state.viewClass and state.viewClass.sleepTime) or 1
-        end,
-
-        getMonitorName = function()
-            return monitorName
-        end
-    }
+    return true
 end
 
--- Run a single display (blocking)
-local function runDisplay(manager)
-    while true do
-        manager.render()
+-- Go to next view
+function Display:nextView()
+    self.currentIndex = self.currentIndex + 1
+    if self.currentIndex > #self.availableViews then
+        self.currentIndex = 1
+    end
 
-        -- Check overlay timeout
-        manager.checkTimeout()
+    local newView = self.availableViews[self.currentIndex]
+    print("[*] " .. self.peripheralName .. " -> " .. newView)
 
-        local sleepTime = manager.getSleepTime()
-        local timer = os.startTimer(sleepTime)
+    self:loadView(newView)
+    self:showIndicator()
 
-        while true do
-            local event, p1, p2, p3 = os.pullEvent()
+    -- Persist change
+    Config.updateDisplayView(self.peripheralName, newView)
+end
 
-            if event == "timer" and p1 == timer then
-                break
-            elseif event == "monitor_touch" then
-                if manager.handleTouch(p1, p2, p3) then
-                    os.cancelTimer(timer)
-                    break
-                end
-            end
-        end
+-- Go to previous view
+function Display:previousView()
+    self.currentIndex = self.currentIndex - 1
+    if self.currentIndex < 1 then
+        self.currentIndex = #self.availableViews
+    end
+
+    local newView = self.availableViews[self.currentIndex]
+    print("[*] " .. self.peripheralName .. " -> " .. newView)
+
+    self:loadView(newView)
+    self:showIndicator()
+
+    -- Persist change
+    Config.updateDisplayView(self.peripheralName, newView)
+end
+
+-- Show indicator bar briefly
+function Display:showIndicator()
+    self.showingIndicator = true
+
+    local width, height = self.peripheral.getSize()
+    local viewNum = self.currentIndex .. "/" .. #self.availableViews
+
+    -- Top bar: view name centered
+    self.peripheral.setBackgroundColor(colors.blue)
+    self.peripheral.setTextColor(colors.white)
+    self.peripheral.setCursorPos(1, 1)
+    self.peripheral.write(string.rep(" ", width))
+
+    local startX = math.floor((width - #self.viewName) / 2) + 1
+    self.peripheral.setCursorPos(math.max(1, startX), 1)
+    self.peripheral.write(self.viewName)
+
+    -- View count on right
+    self.peripheral.setCursorPos(math.max(1, width - #viewNum + 1), 1)
+    self.peripheral.write(viewNum)
+
+    -- Bottom bar: navigation hints
+    self.peripheral.setBackgroundColor(colors.gray)
+    self.peripheral.setCursorPos(1, height)
+    self.peripheral.write(string.rep(" ", width))
+    self.peripheral.setCursorPos(1, height)
+    self.peripheral.write("< Prev")
+    self.peripheral.setCursorPos(width - 5, height)
+    self.peripheral.write("Next >")
+
+    -- Reset colors
+    self.peripheral.setBackgroundColor(colors.black)
+    self.peripheral.setTextColor(colors.white)
+
+    -- Auto-hide after 2 seconds
+    self.indicatorTimer = os.startTimer(2)
+end
+
+-- Hide indicator and render view
+function Display:hideIndicator()
+    self.showingIndicator = false
+    self.indicatorTimer = nil
+    self.peripheral.clear()
+    self:render()
+end
+
+-- Render the view
+function Display:render()
+    if not self.viewInstance or self.showingIndicator then
+        return
+    end
+
+    local ok, err = pcall(self.view.render, self.viewInstance)
+    if not ok then
+        self.peripheral.setCursorPos(1, 1)
+        self.peripheral.setTextColor(colors.red)
+        self.peripheral.write("Error: " .. tostring(err):sub(1, 20))
+        self.peripheral.setTextColor(colors.white)
     end
 end
 
--- Listen for quit key
-local function listenForQuit()
-    while true do
-        local event, key = os.pullEvent("key")
-        if key == keys.q then
-            print("")
-            print("[*] Quit requested")
-            return
-        end
-    end
+-- Schedule next render
+function Display:scheduleRender()
+    local sleepTime = (self.view and self.view.sleepTime) or 1
+    self.renderTimer = os.startTimer(sleepTime)
 end
 
--- Main run function
+-- Handle touch event
+function Display:handleTouch(monitorName, x, y)
+    if monitorName ~= self.peripheralName then
+        return false
+    end
+
+    -- If indicator showing, hide it on touch
+    if self.showingIndicator then
+        self:hideIndicator()
+        return true
+    end
+
+    -- Route to touch zones
+    return self.touchZones:handleTouch(monitorName, x, y)
+end
+
+-- Handle timer event
+function Display:handleTimer(timerId)
+    if timerId == self.indicatorTimer then
+        self:hideIndicator()
+        return true
+    elseif timerId == self.renderTimer then
+        self:render()
+        self:scheduleRender()
+        return true
+    end
+    return false
+end
+
+-- Clear the display
+function Display:clear()
+    self.peripheral.setBackgroundColor(colors.black)
+    self.peripheral.clear()
+end
+
+-- Main system run function
 function System.run()
     local config = Config.load()
 
@@ -361,83 +245,66 @@ function System.run()
         return
     end
 
-    -- Get mountable views
+    -- Get available views
     print("[*] Scanning views...")
-
-    -- Debug: show all views and their mount status
-    local allViews = ViewManager.getAvailableViews()
-    print("[*] Found " .. #allViews .. " views in manifest")
-
-    for _, viewName in ipairs(allViews) do
-        local View = ViewManager.load(viewName)
-        if not View then
-            print("    [!] " .. viewName .. ": LOAD FAILED")
-        elseif not View.mount then
-            print("    [+] " .. viewName .. ": OK (no mount check)")
-        else
-            local ok, canMount = pcall(View.mount)
-            if not ok then
-                print("    [!] " .. viewName .. ": MOUNT ERROR - " .. tostring(canMount))
-            elseif canMount then
-                print("    [+] " .. viewName .. ": OK")
-            else
-                print("    [-] " .. viewName .. ": skipped (peripheral missing)")
-            end
-        end
-    end
-
     local availableViews = ViewManager.getMountableViews()
 
     if #availableViews == 0 then
         print("[!] No views available")
-        print("    Check peripheral connections")
         return
     end
 
-    print("")
-    print("[*] Active: " .. table.concat(availableViews, ", "))
+    print("[*] Views: " .. table.concat(availableViews, ", "))
     print("")
 
-    -- Create display managers
-    local managers = {}
-    for _, display in ipairs(config) do
-        local manager = createDisplayManager(display, availableViews)
-        if manager then
-            table.insert(managers, manager)
+    -- Create displays
+    local displays = {}
+    for _, displayConfig in ipairs(config) do
+        local display = Display.new(displayConfig, availableViews)
+        if display then
+            table.insert(displays, display)
+            print("[+] " .. display.peripheralName .. " -> " .. display.viewName)
         end
     end
 
-    if #managers == 0 then
+    if #displays == 0 then
         print("[!] No monitors connected")
         return
     end
 
     print("")
-    print("[*] Touch left/right to cycle views")
+    print("[*] Touch left/right to switch views")
     print("[*] Press 'q' to quit")
     print("")
 
-    -- Create parallel tasks
-    local tasks = {}
+    -- Main event loop
+    local running = true
 
-    for _, manager in ipairs(managers) do
-        table.insert(tasks, function()
-            runDisplay(manager)
-        end)
+    while running do
+        local event, p1, p2, p3 = os.pullEvent()
+
+        if event == "key" and p1 == keys.q then
+            running = false
+
+        elseif event == "monitor_touch" then
+            for _, display in ipairs(displays) do
+                if display:handleTouch(p1, p2, p3) then
+                    break
+                end
+            end
+
+        elseif event == "timer" then
+            for _, display in ipairs(displays) do
+                if display:handleTimer(p1) then
+                    break
+                end
+            end
+        end
     end
 
-    table.insert(tasks, listenForQuit)
-
-    -- Run until quit
-    parallel.waitForAny(table.unpack(tasks))
-
     -- Cleanup
-    for _, manager in ipairs(managers) do
-        local mon = peripheral.wrap(manager.getMonitorName())
-        if mon then
-            mon.setBackgroundColor(colors.black)
-            mon.clear()
-        end
+    for _, display in ipairs(displays) do
+        display:clear()
     end
 
     print("[*] Goodbye!")
