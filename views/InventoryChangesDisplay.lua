@@ -8,10 +8,24 @@ local Text = mpm('utils/Text')
 
 local module
 
+-- Default configuration
+local DEFAULT_CONFIG = {
+    accumulationPeriod = 1800, -- 30 minutes
+    updateInterval = 1
+}
+
 module = {
     sleepTime = 1,
 
     new = function(monitor, config)
+        config = config or {}
+
+        -- Merge with defaults
+        local mergedConfig = {
+            accumulationPeriod = config.accumulationPeriod or DEFAULT_CONFIG.accumulationPeriod,
+            updateInterval = config.updateInterval or DEFAULT_CONFIG.updateInterval
+        }
+
         local interface = AEInterface.new() -- Auto-detects peripheral
         local self = {
             monitor = monitor,
@@ -19,32 +33,22 @@ module = {
             display = GridDisplay.new(monitor),
             prevItems = {},
             accumulatedChanges = {},
-            config = config or {
-                accumulationPeriod = 1800, -- 30 minutes
-                updateInterval = 1
-            }
+            config = mergedConfig
         }
         self.monitor.clear()
 
-        -- Initialize previous items from current state
-        local items = AEInterface.items(interface)
-        for _, item in ipairs(items) do
-            self.prevItems[item.name] = item.count
+        -- Initialize previous items from current state (with error handling)
+        local ok, items = pcall(AEInterface.items, interface)
+        if ok and items then
+            for _, item in ipairs(items) do
+                self.prevItems[item.name] = item.count
+            end
         end
-
-        -- Start accumulation timer
-        module.startTimer(self)
 
         return self
     end,
 
-    -- The timer clears the state every accumulationPeriod seconds
-    startTimer = function(self)
-        os.startTimer(self.config.accumulationPeriod)
-        module.clearState(self)
-    end,
-
-    -- Reset accumulated changes
+    -- Reset accumulated changes (called periodically)
     clearState = function(self)
         self.accumulatedChanges = {}
     end,
@@ -72,7 +76,16 @@ module = {
     end,
 
     render = function(self)
-        module.updateAccumulatedChanges(self)
+        -- Update changes with error handling
+        local ok, err = pcall(module.updateAccumulatedChanges, self)
+        if not ok then
+            self.monitor.clear()
+            self.monitor.setCursorPos(1, 1)
+            self.monitor.write("Error updating:")
+            self.monitor.setCursorPos(1, 2)
+            self.monitor.write(tostring(err):sub(1, 30))
+            return
+        end
 
         -- Convert accumulated changes to display format
         local displayItems = {}
@@ -80,6 +93,17 @@ module = {
             if change ~= 0 then
                 table.insert(displayItems, {name = name, change = change})
             end
+        end
+
+        -- Handle empty state
+        if #displayItems == 0 then
+            self.monitor.clear()
+            local width, height = self.monitor.getSize()
+            self.monitor.setCursorPos(1, math.floor(height / 2) - 1)
+            self.monitor.write("Inventory Changes")
+            self.monitor.setCursorPos(1, math.floor(height / 2) + 1)
+            self.monitor.write("No changes detected")
+            return
         end
 
         -- Sort by absolute change value descending
