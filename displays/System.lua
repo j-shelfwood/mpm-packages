@@ -11,6 +11,67 @@ local System = {}
 -- Overlay timeout in seconds
 local OVERLAY_TIMEOUT = 3
 
+-- Create a wrapped monitor that reserves row 1 for overlay
+-- Views render to rows 2+ but think they're rendering to row 1+
+local function createViewMonitor(monitor)
+    local width, height = monitor.getSize()
+
+    -- Create a proxy that offsets Y coordinates by 1
+    local viewMonitor = {}
+
+    -- Pass through most methods directly
+    for key, value in pairs(monitor) do
+        if type(value) == "function" then
+            viewMonitor[key] = value
+        end
+    end
+
+    -- Override size to hide row 1
+    function viewMonitor.getSize()
+        local w, h = monitor.getSize()
+        return w, math.max(1, h - 1)
+    end
+
+    -- Override cursor position to offset Y
+    function viewMonitor.setCursorPos(x, y)
+        monitor.setCursorPos(x, y + 1)
+    end
+
+    function viewMonitor.getCursorPos()
+        local x, y = monitor.getCursorPos()
+        return x, math.max(1, y - 1)
+    end
+
+    -- Override clear to only clear rows 2+
+    function viewMonitor.clear()
+        local w, h = monitor.getSize()
+        local bg = monitor.getBackgroundColor()
+        monitor.setBackgroundColor(colors.black)
+        for row = 2, h do
+            monitor.setCursorPos(1, row)
+            monitor.write(string.rep(" ", w))
+        end
+        monitor.setBackgroundColor(bg)
+    end
+
+    -- Override clearLine to offset Y
+    function viewMonitor.clearLine()
+        local x, y = monitor.getCursorPos()
+        local w = monitor.getSize()
+        monitor.setCursorPos(1, y)
+        monitor.write(string.rep(" ", w))
+        monitor.setCursorPos(x, y)
+    end
+
+    -- Override scroll to only affect rows 2+
+    function viewMonitor.scroll(n)
+        -- For simplicity, just clear the view area
+        viewMonitor.clear()
+    end
+
+    return viewMonitor
+end
+
 -- Create a display manager for a single monitor
 local function createDisplayManager(display, availableViews)
     local monitorName = display.monitor
@@ -21,9 +82,13 @@ local function createDisplayManager(display, availableViews)
         return nil
     end
 
+    -- Create view monitor (reserves row 1 for overlay)
+    local viewMonitor = createViewMonitor(monitor)
+
     -- State
     local state = {
-        monitor = monitor,
+        monitor = monitor,           -- Real monitor (for overlay)
+        viewMonitor = viewMonitor,   -- Offset monitor (for views)
         monitorName = monitorName,
         currentIndex = 1,
         currentViewName = nil,
@@ -70,9 +135,9 @@ local function createDisplayManager(display, availableViews)
         state.viewClass = View
         state.currentViewName = viewName
 
-        -- Create instance
+        -- Create instance with viewMonitor (offset by 1 row for overlay)
         local config = display.config or {}
-        local ok, instance = pcall(View.new, monitor, config)
+        local ok, instance = pcall(View.new, state.viewMonitor, config)
 
         if ok then
             state.viewInstance = instance
@@ -90,45 +155,49 @@ local function createDisplayManager(display, availableViews)
         return true
     end
 
-    -- Draw overlay on top of current view
+    -- Draw overlay bar on row 1 of the REAL monitor
     local function drawOverlay()
-        local width = monitor.getSize()
+        local width = state.monitor.getSize()
         local name = state.currentViewName or "Unknown"
         local viewNum = state.currentIndex .. "/" .. #availableViews
         local indicator = "< " .. name .. " >"
 
-        -- Save current colors
-        local prevBg = monitor.getBackgroundColor()
-        local prevFg = monitor.getTextColor()
-
-        -- Draw overlay bar at top
-        monitor.setBackgroundColor(colors.blue)
-        monitor.setTextColor(colors.white)
-        monitor.setCursorPos(1, 1)
-        monitor.write(string.rep(" ", width))
+        -- Draw overlay bar at row 1 (real monitor)
+        state.monitor.setBackgroundColor(colors.blue)
+        state.monitor.setTextColor(colors.white)
+        state.monitor.setCursorPos(1, 1)
+        state.monitor.write(string.rep(" ", width))
 
         -- Left arrow hint
-        monitor.setCursorPos(1, 1)
-        monitor.write(" <")
+        state.monitor.setCursorPos(1, 1)
+        state.monitor.write(" <")
 
         -- Right arrow hint
-        monitor.setCursorPos(width - 1, 1)
-        monitor.write("> ")
+        state.monitor.setCursorPos(width - 1, 1)
+        state.monitor.write("> ")
 
         -- Centered view name
         local startX = math.floor((width - #indicator) / 2) + 1
-        monitor.setCursorPos(startX, 1)
-        monitor.write(indicator)
+        state.monitor.setCursorPos(startX, 1)
+        state.monitor.write(indicator)
 
         -- View count on right (if room)
         if width > #indicator + 10 then
-            monitor.setCursorPos(width - #viewNum, 1)
-            monitor.write(viewNum)
+            state.monitor.setCursorPos(width - #viewNum, 1)
+            state.monitor.write(viewNum)
         end
 
-        -- Restore colors
-        monitor.setBackgroundColor(prevBg)
-        monitor.setTextColor(prevFg)
+        -- Reset colors
+        state.monitor.setBackgroundColor(colors.black)
+        state.monitor.setTextColor(colors.white)
+    end
+
+    -- Clear overlay bar (row 1)
+    local function clearOverlay()
+        local width = state.monitor.getSize()
+        state.monitor.setBackgroundColor(colors.black)
+        state.monitor.setCursorPos(1, 1)
+        state.monitor.write(string.rep(" ", width))
     end
 
     -- Show overlay and start/reset timeout
@@ -140,6 +209,7 @@ local function createDisplayManager(display, availableViews)
     -- Hide overlay
     local function hideOverlay()
         state.overlayVisible = false
+        clearOverlay()
     end
 
     -- Check if overlay should auto-hide
@@ -168,7 +238,8 @@ local function createDisplayManager(display, availableViews)
         showOverlay()  -- Keep/refresh overlay after switch
     end)
 
-    -- Initial load
+    -- Initial setup: clear screen and load first view
+    state.monitor.clear()
     loadView(state.currentIndex, false)
 
     -- Return manager interface
@@ -176,7 +247,13 @@ local function createDisplayManager(display, availableViews)
         state = state,
 
         render = function()
-            -- Always render the view content first
+            -- Draw overlay first if visible (on row 1 of real monitor)
+            -- This ensures it's always present even if view has issues
+            if state.overlayVisible then
+                drawOverlay()
+            end
+
+            -- Render view content (uses viewMonitor which is offset to row 2+)
             if state.viewInstance and state.viewClass and state.viewClass.render then
                 local ok, err = pcall(state.viewClass.render, state.viewInstance)
                 if not ok then
@@ -184,7 +261,8 @@ local function createDisplayManager(display, availableViews)
                 end
             end
 
-            -- Then draw overlay on top if visible
+            -- Redraw overlay after view render to ensure it's on top
+            -- (view's clear() only affects rows 2+ now, but just in case)
             if state.overlayVisible then
                 drawOverlay()
             end
