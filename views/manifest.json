@@ -4,10 +4,14 @@
   "dependencies": ["utils", "peripherals"],
   "files": [
     "ChestDisplay.lua",
+    "CraftingQueueDisplay.lua",
+    "EnergyStatusDisplay.lua",
     "FluidMonitor.lua",
     "InventoryChangesDisplay.lua",
     "InventoryDisplay.lua",
+    "LowStockAlert.lua",
     "MachineActivityDisplay.lua",
-    "StorageCapacityDisplay.lua"
+    "StorageCapacityDisplay.lua",
+    "WeatherClock.lua"
   ]
 }
