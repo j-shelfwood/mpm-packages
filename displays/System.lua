@@ -11,6 +11,23 @@ local System = {}
 local Display = {}
 Display.__index = Display
 
+-- Calculate optimal text scale based on monitor size
+-- Returns scale that makes UI elements appropriately sized
+local function calculateTextScale(width, height)
+    -- CC:Tweaked supports 0.5 to 5 in 0.5 increments
+    local pixels = width * height
+
+    if pixels >= 800 then
+        return 1.0  -- Large monitor: normal scale
+    elseif pixels >= 400 then
+        return 1.0  -- Medium: normal scale
+    elseif pixels >= 150 then
+        return 0.5  -- Small: half scale for more room
+    else
+        return 0.5  -- Very small: minimum scale
+    end
+end
+
 function Display.new(config, availableViews)
     local self = setmetatable({}, Display)
 
@@ -20,6 +37,11 @@ function Display.new(config, availableViews)
     if not self.peripheral then
         return nil
     end
+
+    -- Apply optimal text scale
+    local width, height = self.peripheral.getSize()
+    local scale = calculateTextScale(width, height)
+    self.peripheral.setTextScale(scale)
 
     self.availableViews = availableViews
     self.currentIndex = 1
@@ -83,41 +105,57 @@ function Display:loadView(viewName)
     return true
 end
 
--- Draw settings button in bottom-right corner
+-- Draw settings button with padding in bottom-right corner
 function Display:drawSettingsButton()
     local width, height = self.peripheral.getSize()
 
-    -- Save cursor
-    local oldX, oldY = self.peripheral.getCursorPos()
+    -- Save state
     local oldBg = self.peripheral.getBackgroundColor()
     local oldFg = self.peripheral.getTextColor()
 
-    -- Draw button: [*] in bottom-right
-    self.peripheral.setBackgroundColor(colors.gray)
+    -- Button with padding: " [*] " with 1 char margin from edges
+    local buttonText = " [*] "
+    local buttonX = width - #buttonText - 1  -- 1 char padding from right
+    local buttonY = height - 1               -- 1 row padding from bottom
+
+    -- Ensure minimum position
+    buttonX = math.max(1, buttonX)
+    buttonY = math.max(1, buttonY)
+
+    self.peripheral.setBackgroundColor(colors.blue)
     self.peripheral.setTextColor(colors.white)
-    self.peripheral.setCursorPos(width - 2, height)
-    self.peripheral.write("[*]")
+    self.peripheral.setCursorPos(buttonX, buttonY)
+    self.peripheral.write(buttonText)
 
     -- Restore
     self.peripheral.setBackgroundColor(oldBg)
     self.peripheral.setTextColor(oldFg)
-    self.peripheral.setCursorPos(oldX, oldY)
 
     self.showingSettings = true
     self.settingsTimer = os.startTimer(3)
+
+    -- Store button bounds for hit detection
+    self.settingsButtonBounds = {
+        x1 = buttonX,
+        y1 = buttonY,
+        x2 = buttonX + #buttonText - 1,
+        y2 = buttonY
+    }
 end
 
--- Hide settings button by re-rendering view
+-- Hide settings button
 function Display:hideSettingsButton()
     self.showingSettings = false
     self.settingsTimer = nil
-    -- Just let next render cycle handle it
+    self.settingsButtonBounds = nil
 end
 
 -- Check if touch is on settings button
 function Display:isSettingsButtonTouch(x, y)
-    local width, height = self.peripheral.getSize()
-    return y == height and x >= width - 2
+    if not self.settingsButtonBounds then return false end
+
+    local b = self.settingsButtonBounds
+    return x >= b.x1 and x <= b.x2 and y >= b.y1 and y <= b.y2
 end
 
 -- Draw the configuration menu

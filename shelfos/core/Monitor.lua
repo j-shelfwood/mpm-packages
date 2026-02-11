@@ -1,15 +1,33 @@
 -- Monitor.lua
--- Single monitor management with view lifecycle and touch handling
+-- Single monitor management with settings-button pattern
+-- Touch to show settings, click to open view selector
 
-local TouchZones = mpm('ui/TouchZones')
 local ViewManager = mpm('shelfos/view/Manager')
 
 local Monitor = {}
 Monitor.__index = Monitor
 
+-- Calculate optimal text scale based on monitor size
+-- Returns scale that makes UI elements appropriately sized
+local function calculateTextScale(width, height)
+    -- CC:Tweaked supports 0.5 to 5 in 0.5 increments
+    -- Larger monitors can use smaller scale for more content
+    -- Smaller monitors need larger scale for readability
+
+    local pixels = width * height
+
+    if pixels >= 800 then
+        return 1.0  -- Large monitor: normal scale
+    elseif pixels >= 400 then
+        return 1.0  -- Medium: normal scale
+    elseif pixels >= 150 then
+        return 0.5  -- Small: half scale for more room
+    else
+        return 0.5  -- Very small: minimum scale
+    end
+end
+
 -- Create a new monitor manager
--- @param config Monitor configuration from shelfos.config
--- @param onViewChange Optional callback when view changes: function(peripheralName, viewName)
 function Monitor.new(config, onViewChange)
     local self = setmetatable({}, Monitor)
 
@@ -23,19 +41,22 @@ function Monitor.new(config, onViewChange)
     self.peripheral = peripheral.wrap(self.peripheralName)
     self.connected = self.peripheral ~= nil
 
+    if not self.connected then
+        return self
+    end
+
     -- State
     self.view = nil
     self.viewInstance = nil
-    self.touchZones = nil
-    self.configMode = false
     self.renderTimer = nil
-    self.initialized = false
-    self.showingIndicator = false
+    self.settingsTimer = nil
+    self.showingSettings = false
+    self.inConfigMenu = false
+    self.availableViews = {}
+    self.currentIndex = 1
 
-    -- Initialize if connected
-    if self.connected then
-        self:initialize()
-    end
+    -- Initialize
+    self:initialize()
 
     return self
 end
@@ -44,35 +65,27 @@ end
 function Monitor:initialize()
     if not self.connected then return end
 
-    -- Set up touch zones
-    self.touchZones = TouchZones.new(self.peripheral)
-    self:setupTouchZones()
+    -- Apply optimal text scale based on monitor size
+    local width, height = self.peripheral.getSize()
+    local scale = calculateTextScale(width, height)
+    self.peripheral.setTextScale(scale)
+
+    -- Re-get size after scale change (dimensions change with scale)
+    width, height = self.peripheral.getSize()
+
+    -- Get available views
+    self.availableViews = ViewManager.getMountableViews()
+
+    -- Find current view index
+    for i, name in ipairs(self.availableViews) do
+        if name == self.viewName then
+            self.currentIndex = i
+            break
+        end
+    end
 
     -- Load initial view
     self:loadView(self.viewName)
-
-    self.initialized = true
-end
-
--- Set up default touch zones
-function Monitor:setupTouchZones()
-    local width, height = self.peripheral.getSize()
-    local halfWidth = math.floor(width / 2)
-
-    -- Left half: previous view
-    self.touchZones:addZone("prev", 1, 1, halfWidth, height - 1, function()
-        self:previousView()
-    end)
-
-    -- Right half: next view
-    self.touchZones:addZone("next", halfWidth + 1, 1, width, height - 1, function()
-        self:nextView()
-    end)
-
-    -- Bottom row: config mode
-    self.touchZones:addZone("config", 1, height, width, height, function()
-        self:toggleConfigMode()
-    end)
 end
 
 -- Load a view by name
@@ -81,151 +94,229 @@ function Monitor:loadView(viewName)
 
     local View = ViewManager.load(viewName)
     if not View then
-        print("[Monitor] Failed to load view: " .. viewName)
+        print("[Monitor] Failed to load: " .. viewName)
         return false
     end
 
     self.view = View
     self.viewName = viewName
 
+    -- Update index
+    for i, name in ipairs(self.availableViews) do
+        if name == viewName then
+            self.currentIndex = i
+            break
+        end
+    end
+
     -- Create view instance
     local ok, instance = pcall(View.new, self.peripheral, self.viewConfig)
     if ok then
         self.viewInstance = instance
     else
-        print("[Monitor] Failed to create view instance: " .. tostring(instance))
+        print("[Monitor] View error: " .. tostring(instance))
         self.viewInstance = nil
         return false
     end
 
-    -- Clear for fresh start
+    -- Clear and schedule render
     self.peripheral.clear()
-
-    -- Schedule first render
     self:scheduleRender()
 
     return true
 end
 
--- Cycle to next view
-function Monitor:nextView()
-    local views = ViewManager.getMountableViews()
-    if #views == 0 then return end
+-- Draw settings button with padding
+function Monitor:drawSettingsButton()
+    local width, height = self.peripheral.getSize()
 
-    local currentIndex = 1
-    for i, name in ipairs(views) do
-        if name == self.viewName then
-            currentIndex = i
-            break
-        end
-    end
+    -- Save state
+    local oldBg = self.peripheral.getBackgroundColor()
+    local oldFg = self.peripheral.getTextColor()
 
-    local nextIndex = currentIndex + 1
-    if nextIndex > #views then
-        nextIndex = 1
-    end
+    -- Button with padding: " [*] " in bottom-right with 1 char margin
+    local buttonText = " [*] "
+    local buttonX = width - #buttonText - 1  -- 1 char padding from right edge
+    local buttonY = height - 1               -- 1 row padding from bottom
 
-    local newViewName = views[nextIndex]
-    self:loadView(newViewName)
-    self:showIndicator()
+    -- Ensure minimum position
+    buttonX = math.max(1, buttonX)
+    buttonY = math.max(1, buttonY)
 
-    -- Notify kernel to persist change
-    if self.onViewChange then
-        self.onViewChange(self.peripheralName, newViewName)
-    end
+    self.peripheral.setBackgroundColor(colors.blue)
+    self.peripheral.setTextColor(colors.white)
+    self.peripheral.setCursorPos(buttonX, buttonY)
+    self.peripheral.write(buttonText)
+
+    -- Restore
+    self.peripheral.setBackgroundColor(oldBg)
+    self.peripheral.setTextColor(oldFg)
+
+    self.showingSettings = true
+    self.settingsTimer = os.startTimer(3)
+
+    -- Store button bounds for hit detection
+    self.settingsButtonBounds = {
+        x1 = buttonX,
+        y1 = buttonY,
+        x2 = buttonX + #buttonText - 1,
+        y2 = buttonY
+    }
 end
 
--- Cycle to previous view
-function Monitor:previousView()
-    local views = ViewManager.getMountableViews()
-    if #views == 0 then return end
-
-    local currentIndex = 1
-    for i, name in ipairs(views) do
-        if name == self.viewName then
-            currentIndex = i
-            break
-        end
-    end
-
-    local prevIndex = currentIndex - 1
-    if prevIndex < 1 then
-        prevIndex = #views
-    end
-
-    local newViewName = views[prevIndex]
-    self:loadView(newViewName)
-    self:showIndicator()
-
-    -- Notify kernel to persist change
-    if self.onViewChange then
-        self.onViewChange(self.peripheralName, newViewName)
-    end
+-- Hide settings button
+function Monitor:hideSettingsButton()
+    self.showingSettings = false
+    self.settingsTimer = nil
+    self.settingsButtonBounds = nil
 end
 
--- Show view name indicator briefly
-function Monitor:showIndicator()
-    if not self.connected then return end
+-- Check if touch is on settings button
+function Monitor:isSettingsButtonTouch(x, y)
+    if not self.settingsButtonBounds then return false end
 
-    self.showingIndicator = true
+    local b = self.settingsButtonBounds
+    return x >= b.x1 and x <= b.x2 and y >= b.y1 and y <= b.y2
+end
 
-    local width = self.peripheral.getSize()
-    local indicator = "< " .. self.viewName .. " >"
+-- Draw the configuration menu with proper scaling
+function Monitor:drawConfigMenu()
+    local width, height = self.peripheral.getSize()
 
-    -- Draw indicator bar
+    self.peripheral.setBackgroundColor(colors.black)
+    self.peripheral.clear()
+
+    -- Title bar with padding
     self.peripheral.setBackgroundColor(colors.blue)
     self.peripheral.setTextColor(colors.white)
     self.peripheral.setCursorPos(1, 1)
     self.peripheral.write(string.rep(" ", width))
 
-    local startX = math.floor((width - #indicator) / 2) + 1
-    self.peripheral.setCursorPos(startX, 1)
-    self.peripheral.write(indicator)
+    local title = "Select View"
+    local titleX = math.max(1, math.floor((width - #title) / 2) + 1)
+    self.peripheral.setCursorPos(titleX, 1)
+    self.peripheral.write(title)
 
+    -- View list with padding
+    self.peripheral.setBackgroundColor(colors.black)
+    local startY = 3
+    local maxItems = math.max(1, height - 5)  -- Leave room for title, spacing, and cancel
+
+    for i, viewName in ipairs(self.availableViews) do
+        if i <= maxItems then
+            local y = startY + i - 1
+            local displayName = viewName
+
+            -- Truncate if too long
+            if #displayName > width - 4 then
+                displayName = displayName:sub(1, width - 7) .. "..."
+            end
+
+            if i == self.currentIndex then
+                -- Highlighted (current)
+                self.peripheral.setBackgroundColor(colors.gray)
+                self.peripheral.setTextColor(colors.white)
+                self.peripheral.setCursorPos(1, y)
+                self.peripheral.write(string.rep(" ", width))
+                self.peripheral.setCursorPos(2, y)
+                self.peripheral.write("> " .. displayName)
+            else
+                self.peripheral.setBackgroundColor(colors.black)
+                self.peripheral.setTextColor(colors.lightGray)
+                self.peripheral.setCursorPos(2, y)
+                self.peripheral.write("  " .. displayName)
+            end
+        end
+    end
+
+    -- Cancel button at bottom with padding
+    local cancelY = height
+    self.peripheral.setBackgroundColor(colors.red)
+    self.peripheral.setTextColor(colors.white)
+    self.peripheral.setCursorPos(1, cancelY)
+    self.peripheral.write(string.rep(" ", width))
+
+    local cancelText = " Cancel "
+    local cancelX = math.max(1, math.floor((width - #cancelText) / 2) + 1)
+    self.peripheral.setCursorPos(cancelX, cancelY)
+    self.peripheral.write(cancelText)
+
+    -- Reset colors
     self.peripheral.setBackgroundColor(colors.black)
     self.peripheral.setTextColor(colors.white)
 
-    -- Clear indicator after delay
-    os.startTimer(1.5)
+    -- Store menu bounds
+    self.menuStartY = startY
+    self.menuMaxItems = maxItems
+    self.menuCancelY = cancelY
 end
 
--- Toggle configuration mode
-function Monitor:toggleConfigMode()
-    self.configMode = not self.configMode
-
-    if self.configMode then
-        self:showConfigOverlay()
-    else
-        self.peripheral.clear()
-        self:render()
+-- Handle touch in config menu
+function Monitor:handleConfigMenuTouch(x, y)
+    -- Cancel button
+    if y == self.menuCancelY then
+        return "cancel"
     end
+
+    -- View selection
+    local touchedIndex = y - self.menuStartY + 1
+    if touchedIndex >= 1 and touchedIndex <= #self.availableViews and touchedIndex <= self.menuMaxItems then
+        return self.availableViews[touchedIndex]
+    end
+
+    return nil
 end
 
--- Show configuration overlay
-function Monitor:showConfigOverlay()
-    -- Get view's config schema
-    local schema = {}
-    if self.view and self.view.configSchema then
-        schema = self.view.configSchema
+-- Open config menu
+function Monitor:openConfigMenu()
+    self.inConfigMenu = true
+    self.showingSettings = false
+
+    -- Cancel pending timers
+    if self.renderTimer then
+        os.cancelTimer(self.renderTimer)
+        self.renderTimer = nil
+    end
+    if self.settingsTimer then
+        os.cancelTimer(self.settingsTimer)
+        self.settingsTimer = nil
     end
 
-    if #schema == 0 then
-        -- No config options, show message
-        local width, height = self.peripheral.getSize()
-        self.peripheral.setBackgroundColor(colors.gray)
-        self.peripheral.clear()
-        self.peripheral.setTextColor(colors.white)
-        self.peripheral.setCursorPos(2, 2)
-        self.peripheral.write("No config options")
-        self.peripheral.setCursorPos(2, 4)
-        self.peripheral.write("Touch to close")
+    self:drawConfigMenu()
+end
+
+-- Close config menu
+function Monitor:closeConfigMenu()
+    self.inConfigMenu = false
+    self.peripheral.clear()
+    self:scheduleRender()
+end
+
+-- Render the view
+function Monitor:render()
+    if self.inConfigMenu or not self.viewInstance then
         return
     end
 
-    -- TODO: Implement full config UI with widgets
-    -- For now, just show placeholder
-    local ConfigMode = mpm('shelfos/input/ConfigMode')
-    ConfigMode.show(self, schema, self.viewConfig)
+    local ok, err = pcall(self.view.render, self.viewInstance)
+    if not ok then
+        self.peripheral.setCursorPos(1, 1)
+        self.peripheral.setTextColor(colors.red)
+        self.peripheral.write("Error")
+        self.peripheral.setTextColor(colors.white)
+    end
+
+    -- Redraw settings button if showing
+    if self.showingSettings then
+        self:drawSettingsButton()
+    end
+end
+
+-- Schedule next render
+function Monitor:scheduleRender()
+    if self.inConfigMenu then return end
+    local sleepTime = (self.view and self.view.sleepTime) or 1
+    self.renderTimer = os.startTimer(sleepTime)
 end
 
 -- Handle touch event
@@ -234,56 +325,51 @@ function Monitor:handleTouch(monitorName, x, y)
         return false
     end
 
-    -- Clear indicator if showing
-    if self.showingIndicator then
-        self.showingIndicator = false
-        self.peripheral.clear()
-        self:render()
+    -- Config menu mode
+    if self.inConfigMenu then
+        local result = self:handleConfigMenuTouch(x, y)
+
+        if result == "cancel" then
+            self:closeConfigMenu()
+        elseif result then
+            -- Selected a view
+            if self.onViewChange then
+                self.onViewChange(self.peripheralName, result)
+            end
+            self:loadView(result)
+            self:closeConfigMenu()
+        end
+
         return true
     end
 
-    -- Route to touch zones
-    if self.touchZones then
-        return self.touchZones:handleTouch(monitorName, x, y)
+    -- Check for settings button click
+    if self.showingSettings and self:isSettingsButtonTouch(x, y) then
+        self:openConfigMenu()
+        return true
     end
 
+    -- Any other touch: show settings button
+    self:drawSettingsButton()
+    return true
+end
+
+-- Handle timer event
+function Monitor:handleTimer(timerId)
+    if timerId == self.settingsTimer then
+        self:hideSettingsButton()
+        return true
+    elseif timerId == self.renderTimer then
+        self:render()
+        self:scheduleRender()
+        return true
+    end
     return false
 end
 
--- Render the current view
-function Monitor:render()
-    if not self.connected or not self.viewInstance or self.configMode then
-        return
-    end
-
-    if self.showingIndicator then
-        return  -- Don't render over indicator
-    end
-
-    local ok, err = pcall(self.view.render, self.viewInstance)
-    if not ok then
-        self.peripheral.setBackgroundColor(colors.black)
-        self.peripheral.setTextColor(colors.red)
-        self.peripheral.setCursorPos(1, 1)
-        self.peripheral.write("Render error")
-        self.peripheral.setCursorPos(1, 2)
-        self.peripheral.write(tostring(err):sub(1, 20))
-    end
-end
-
--- Schedule next render
-function Monitor:scheduleRender()
-    local sleepTime = 1
-    if self.view and self.view.sleepTime then
-        sleepTime = self.view.sleepTime
-    end
-
-    self.renderTimer = os.startTimer(sleepTime)
-end
-
--- Check if timer is our render timer
+-- Check if this is our render timer (for Kernel compatibility)
 function Monitor:isRenderTimer(timerId)
-    return timerId == self.renderTimer
+    return timerId == self.renderTimer or timerId == self.settingsTimer
 end
 
 -- Clear the monitor
@@ -323,8 +409,7 @@ end
 function Monitor:setViewConfig(key, value)
     self.viewConfig[key] = value
 
-    -- Notify view if it supports config changes
-    if self.viewInstance and self.view.onConfigChange then
+    if self.viewInstance and self.view and self.view.onConfigChange then
         pcall(self.view.onConfigChange, self.viewInstance, key, value)
     end
 end
