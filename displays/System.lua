@@ -8,6 +8,9 @@ local ViewManager = mpm('views/Manager')
 
 local System = {}
 
+-- Overlay timeout in seconds
+local OVERLAY_TIMEOUT = 3
+
 -- Create a display manager for a single monitor
 local function createDisplayManager(display, availableViews)
     local monitorName = display.monitor
@@ -27,7 +30,9 @@ local function createDisplayManager(display, availableViews)
         viewClass = nil,
         viewInstance = nil,
         touchZones = TouchZones.new(monitor),
-        showingIndicator = false
+        overlayVisible = false,
+        overlayTimer = nil,
+        lastInteraction = 0
     }
 
     -- Find current view index
@@ -82,43 +87,85 @@ local function createDisplayManager(display, availableViews)
             return false
         end
 
-        monitor.clear()
         return true
     end
 
-    -- Show view indicator
-    local function showIndicator()
-        state.showingIndicator = true
-
+    -- Draw overlay on top of current view
+    local function drawOverlay()
         local width = monitor.getSize()
         local name = state.currentViewName or "Unknown"
+        local viewNum = state.currentIndex .. "/" .. #availableViews
         local indicator = "< " .. name .. " >"
 
+        -- Save current colors
+        local prevBg = monitor.getBackgroundColor()
+        local prevFg = monitor.getTextColor()
+
+        -- Draw overlay bar at top
         monitor.setBackgroundColor(colors.blue)
         monitor.setTextColor(colors.white)
         monitor.setCursorPos(1, 1)
         monitor.write(string.rep(" ", width))
 
+        -- Left arrow hint
+        monitor.setCursorPos(1, 1)
+        monitor.write(" <")
+
+        -- Right arrow hint
+        monitor.setCursorPos(width - 1, 1)
+        monitor.write("> ")
+
+        -- Centered view name
         local startX = math.floor((width - #indicator) / 2) + 1
         monitor.setCursorPos(startX, 1)
         monitor.write(indicator)
 
-        monitor.setBackgroundColor(colors.black)
-        monitor.setTextColor(colors.white)
+        -- View count on right (if room)
+        if width > #indicator + 10 then
+            monitor.setCursorPos(width - #viewNum, 1)
+            monitor.write(viewNum)
+        end
+
+        -- Restore colors
+        monitor.setBackgroundColor(prevBg)
+        monitor.setTextColor(prevFg)
     end
 
-    -- Set up touch zones
+    -- Show overlay and start/reset timeout
+    local function showOverlay()
+        state.overlayVisible = true
+        state.lastInteraction = os.epoch("utc")
+    end
+
+    -- Hide overlay
+    local function hideOverlay()
+        state.overlayVisible = false
+    end
+
+    -- Check if overlay should auto-hide
+    local function checkOverlayTimeout()
+        if state.overlayVisible then
+            local elapsed = (os.epoch("utc") - state.lastInteraction) / 1000
+            if elapsed >= OVERLAY_TIMEOUT then
+                hideOverlay()
+                return true  -- Overlay was hidden
+            end
+        end
+        return false
+    end
+
+    -- Set up touch zones for navigation
     local width, height = monitor.getSize()
     local halfWidth = math.floor(width / 2)
 
     state.touchZones:addZone("prev", 1, 1, halfWidth, height, function()
         loadView(state.currentIndex - 1, true)
-        showIndicator()
+        showOverlay()  -- Keep/refresh overlay after switch
     end)
 
     state.touchZones:addZone("next", halfWidth + 1, 1, width, height, function()
         loadView(state.currentIndex + 1, true)
-        showIndicator()
+        showOverlay()  -- Keep/refresh overlay after switch
     end)
 
     -- Initial load
@@ -129,15 +176,17 @@ local function createDisplayManager(display, availableViews)
         state = state,
 
         render = function()
-            if state.showingIndicator then
-                return
-            end
-
+            -- Always render the view content first
             if state.viewInstance and state.viewClass and state.viewClass.render then
                 local ok, err = pcall(state.viewClass.render, state.viewInstance)
                 if not ok then
                     print("[!] Render error: " .. tostring(err))
                 end
+            end
+
+            -- Then draw overlay on top if visible
+            if state.overlayVisible then
+                drawOverlay()
             end
         end,
 
@@ -146,17 +195,26 @@ local function createDisplayManager(display, availableViews)
                 return false
             end
 
-            -- Clear indicator on any touch if showing
-            if state.showingIndicator then
-                state.showingIndicator = false
-                monitor.clear()
+            -- First touch when overlay not visible: just show overlay
+            if not state.overlayVisible then
+                showOverlay()
                 return true
             end
 
+            -- Overlay is visible: process touch zones (left/right navigation)
+            state.lastInteraction = os.epoch("utc")
             return state.touchZones:handleTouch(touchMonitor, x, y)
         end,
 
+        checkTimeout = function()
+            return checkOverlayTimeout()
+        end,
+
         getSleepTime = function()
+            -- Use shorter sleep when overlay visible for responsive timeout
+            if state.overlayVisible then
+                return 0.5
+            end
             return (state.viewClass and state.viewClass.sleepTime) or 1
         end,
 
@@ -171,6 +229,9 @@ local function runDisplay(manager)
     while true do
         manager.render()
 
+        -- Check overlay timeout
+        manager.checkTimeout()
+
         local sleepTime = manager.getSleepTime()
         local timer = os.startTimer(sleepTime)
 
@@ -182,7 +243,6 @@ local function runDisplay(manager)
             elseif event == "monitor_touch" then
                 if manager.handleTouch(p1, p2, p3) then
                     os.cancelTimer(timer)
-                    sleep(1)  -- Brief pause after touch
                     break
                 end
             end
@@ -214,6 +274,29 @@ function System.run()
 
     -- Get mountable views
     print("[*] Scanning views...")
+
+    -- Debug: show all views and their mount status
+    local allViews = ViewManager.getAvailableViews()
+    print("[*] Found " .. #allViews .. " views in manifest")
+
+    for _, viewName in ipairs(allViews) do
+        local View = ViewManager.load(viewName)
+        if not View then
+            print("    [!] " .. viewName .. ": LOAD FAILED")
+        elseif not View.mount then
+            print("    [+] " .. viewName .. ": OK (no mount check)")
+        else
+            local ok, canMount = pcall(View.mount)
+            if not ok then
+                print("    [!] " .. viewName .. ": MOUNT ERROR - " .. tostring(canMount))
+            elseif canMount then
+                print("    [+] " .. viewName .. ": OK")
+            else
+                print("    [-] " .. viewName .. ": skipped (peripheral missing)")
+            end
+        end
+    end
+
     local availableViews = ViewManager.getMountableViews()
 
     if #availableViews == 0 then
@@ -222,7 +305,8 @@ function System.run()
         return
     end
 
-    print("[*] Available: " .. table.concat(availableViews, ", "))
+    print("")
+    print("[*] Active: " .. table.concat(availableViews, ", "))
     print("")
 
     -- Create display managers
