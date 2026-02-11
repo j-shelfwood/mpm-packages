@@ -1,12 +1,18 @@
+-- StorageCapacityDisplay.lua
+-- Displays AE2 storage capacity as a graph over time
+-- Supports: me_bridge (Advanced Peripherals), merequester:requester
+
 local AEInterface = mpm('peripherals/AEInterface')
 
 local module
 
 module = {
+    sleepTime = 1,
+
     new = function(monitor)
         local self = {
             monitor = monitor,
-            interface = AEInterface.new(peripheral.find("merequester:requester")),
+            interface = AEInterface.new(), -- Auto-detects peripheral
             WIDTH = monitor.getSize(),
             HEIGHT = select(2, monitor.getSize()),
             MAX_DATA_POINTS = select(1, monitor.getSize()),
@@ -15,17 +21,14 @@ module = {
         }
         return self
     end,
+
     mount = function()
-        local peripherals = peripheral.getNames()
-        for _, name in ipairs(peripherals) do
-            if peripheral.getType(name) == "merequester:requester" then
-                return true
-            end
-        end
-        return false
+        return AEInterface.exists()
     end,
+
     recordStorageUsage = function(self)
-        local usedStorage = AEInterface.storage_status(self.interface).usedItemStorage
+        local status = AEInterface.storage_status(self.interface)
+        local usedStorage = status.usedItemStorage
         table.insert(self.storageData, usedStorage)
         if #self.storageData > self.MAX_DATA_POINTS then
             table.remove(self.storageData, 1)
@@ -33,9 +36,16 @@ module = {
     end,
 
     calculateGraphData = function(self)
+        local status = AEInterface.storage_status(self.interface)
+        local totalStorage = status.totalItemStorage
         local heights = {}
+
+        if totalStorage == 0 then
+            return heights
+        end
+
         for _, usage in ipairs(self.storageData) do
-            local height = math.floor((usage / AEInterface.storage_status().totalItemStorage) * (self.HEIGHT - 1))
+            local height = math.floor((usage / totalStorage) * (self.HEIGHT - 1))
             table.insert(heights, height)
         end
         return heights
@@ -43,17 +53,30 @@ module = {
 
     drawGraph = function(self)
         local heights = module.calculateGraphData(self)
+        local status = AEInterface.storage_status(self.interface)
+
         self.monitor.clear()
+
+        -- Title
         local titleStartX = math.floor((self.WIDTH - #self.TITLE) / 2) + 1
         self.monitor.setCursorPos(titleStartX, 1)
         self.monitor.write(self.TITLE)
-        local currentBytes = AEInterface.storage_status(self.interface).usedItemStorage
-        self.monitor.setCursorPos(self.WIDTH - #tostring(currentBytes), 1)
-        self.monitor.write(tostring(currentBytes) .. "B")
+
+        -- Current bytes used
+        local currentBytes = status.usedItemStorage
+        local bytesStr = tostring(currentBytes) .. "B"
+        self.monitor.setCursorPos(self.WIDTH - #bytesStr + 1, 1)
+        self.monitor.write(bytesStr)
+
+        -- Total capacity label
         self.monitor.setCursorPos(1, 2)
-        self.monitor.write(tostring(AEInterface.storage_status(self.interface).totalItemStorage))
+        self.monitor.write(tostring(status.totalItemStorage))
+
+        -- Zero label
         self.monitor.setCursorPos(1, self.HEIGHT)
         self.monitor.write("0")
+
+        -- Draw graph columns
         for x, height in ipairs(heights) do
             local columnPosition = self.WIDTH - #heights + x
             self.monitor.setBackgroundColor(colors.pink)
@@ -67,7 +90,7 @@ module = {
 
     render = function(self)
         module.recordStorageUsage(self)
-        module.drawGraph(self, graphData)
+        module.drawGraph(self)
     end
 }
 

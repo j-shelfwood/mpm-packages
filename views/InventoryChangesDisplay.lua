@@ -1,96 +1,125 @@
+-- InventoryChangesDisplay.lua
+-- Displays accumulated inventory changes over a configurable time period
+-- Supports: me_bridge (Advanced Peripherals), merequester:requester
+
+local AEInterface = mpm('peripherals/AEInterface')
 local GridDisplay = mpm('utils/GridDisplay')
 local Text = mpm('utils/Text')
 
 local module
 
---[[ 
-    This view displays the inventory changes of the requester over the last 30 minutes.
-
-    - It displays any inventory changes counting over 5 items. 
-    - It updates every second.
-]]
-
 module = {
+    sleepTime = 1,
+
     new = function(monitor, config)
+        local interface = AEInterface.new() -- Auto-detects peripheral
         local self = {
             monitor = monitor,
-            peripheral = peripheral.find('merequester:requester'),
+            interface = interface,
             display = GridDisplay.new(monitor),
             prevItems = {},
             accumulatedChanges = {},
             config = config or {
-                accumulationPeriod = 1800,
+                accumulationPeriod = 1800, -- 30 minutes
                 updateInterval = 1
             }
         }
         self.monitor.clear()
-        self:startTimer()
-        self.prevItems = self.peripheral.items()
+
+        -- Initialize previous items from current state
+        local items = AEInterface.items(interface)
+        for _, item in ipairs(items) do
+            self.prevItems[item.name] = item.count
+        end
+
+        -- Start accumulation timer
+        module.startTimer(self)
+
         return self
     end,
 
-    -- The timer clears the state every 30 minutes
+    -- The timer clears the state every accumulationPeriod seconds
     startTimer = function(self)
         os.startTimer(self.config.accumulationPeriod)
-        self:clearState()
+        module.clearState(self)
     end,
 
-    -- When the state is cleared we reset the self.accumulatedChanges
+    -- Reset accumulated changes
     clearState = function(self)
         self.accumulatedChanges = {}
     end,
 
     mount = function()
-        if peripheral.find('merequester:requester') then
-            return true
-        end
-        return false
+        return AEInterface.exists()
+    end,
+
+    configure = function()
+        print("Enter accumulation period in seconds (default 1800 = 30 min):")
+        local period = tonumber(read()) or 1800
+        return {
+            accumulationPeriod = period,
+            updateInterval = 1
+        }
     end,
 
     format_callback = function(key, value)
         local color = value > 0 and colors.green or colors.red
+        local sign = value > 0 and "+" or ""
         return {
-            lines = {Text.prettifyItemIdentifier(key), tostring(value), tostring(value)},
-            colors = {colors.white, colors.white, color}
+            lines = {Text.prettifyItemIdentifier(key), sign .. tostring(value)},
+            colors = {colors.white, color}
         }
     end,
 
     render = function(self)
-        self:updateAccumulatedChanges()
-        local currItems = self.peripheral.items()
-        self.prevItems = currItems
+        module.updateAccumulatedChanges(self)
 
-        self.display:display(self.accumulatedChanges, function(key, value)
-            return module.format_callback(key, value)
+        -- Convert accumulated changes to display format
+        local displayItems = {}
+        for name, change in pairs(self.accumulatedChanges) do
+            if change ~= 0 then
+                table.insert(displayItems, {name = name, change = change})
+            end
+        end
+
+        -- Sort by absolute change value descending
+        table.sort(displayItems, function(a, b)
+            return math.abs(a.change) > math.abs(b.change)
+        end)
+
+        self.display:display(displayItems, function(item)
+            return module.format_callback(item.name, item.change)
         end)
     end,
 
-    -- {1 = {"tags" = {"techreborn:raw_metals" = true, "c:raw_ores" = true, "c:raw_iridium_ores" = true}, "name" = "techreborn:raw_iridium", "itemGroups" = {}, "rawName" = "item.techreborn.raw_iridium", "count" = 2, "maxCount" = 64, "displayName" = "Raw Iridium"}}
-    -- We first remove the duplicates, then we record the changes
     updateAccumulatedChanges = function(self)
-        local currItems = self:cleanDuplicates(self.peripheral.items())
-        -- Compare the amounts of items that have changed by subtracting the previous count from the current count. 
-        -- If the value is not zero it had a change and we add the item.
-        for _, item in pairs(currItems) do
-            local prevCount = self.prevItems[item.displayName] or 0
-            local change = item.count - prevCount
-            if change ~= 0 then
-                self.accumulatedChanges[item.displayName] = (self.accumulatedChanges[item.displayName] or 0) + change
-            end
-            -- If the value is now 0 we remove the item from the accumulated changes.
-            if item.count == 0 then
-                self.accumulatedChanges[item.displayName] = nil
-            end
-        end
-    end,
+        local currItems = AEInterface.items(self.interface)
 
-    cleanDuplicates = function(items)
-        local cleanedItems = {}
-        for _, item in pairs(items) do
-            cleanedItems[item.displayName] = cleanedItems[item.displayName] or 0
-            cleanedItems[item.displayName] = cleanedItems[item.displayName] + item.count
+        -- Build lookup of current items
+        local currLookup = {}
+        for _, item in ipairs(currItems) do
+            currLookup[item.name] = item.count
         end
-        return cleanedItems
+
+        -- Compare with previous state
+        for name, count in pairs(currLookup) do
+            local prevCount = self.prevItems[name] or 0
+            local change = count - prevCount
+            if change ~= 0 then
+                self.accumulatedChanges[name] = (self.accumulatedChanges[name] or 0) + change
+            end
+        end
+
+        -- Check for items that were removed entirely
+        for name, prevCount in pairs(self.prevItems) do
+            if not currLookup[name] then
+                local change = -prevCount
+                self.accumulatedChanges[name] = (self.accumulatedChanges[name] or 0) + change
+            end
+        end
+
+        -- Update previous state
+        self.prevItems = currLookup
     end
 }
 

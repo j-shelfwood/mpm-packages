@@ -1,3 +1,7 @@
+-- FluidMonitor.lua
+-- Displays AE2 fluid storage with change tracking
+-- Supports: me_bridge (Advanced Peripherals), merequester:requester
+
 local AEInterface = mpm('peripherals/AEInterface')
 local GridDisplay = mpm('utils/GridDisplay')
 local Text = mpm('utils/Text')
@@ -5,29 +9,27 @@ local Text = mpm('utils/Text')
 local module
 
 module = {
+    sleepTime = 1,
+
     new = function(monitor)
+        local interface = AEInterface.new() -- Auto-detects peripheral
         local self = {
             monitor = monitor,
             display = GridDisplay.new(monitor),
-            interface = AEInterface.new(peripheral.find("merequester:requester")),
-            prev_fluids = nil
+            interface = interface,
+            prev_fluids = AEInterface.fluids(interface)
         }
-        self.prev_fluids = AEInterface.fluids(self.interface)
         return self
     end,
+
     mount = function()
-        local peripherals = peripheral.getNames()
-        for _, name in ipairs(peripherals) do
-            if peripheral.getType(name) == "merequester:requester" then
-                return true
-            end
-        end
-        return false
+        return AEInterface.exists()
     end,
+
     format_callback = function(fluid)
         local color = fluid.operation == "+" and colors.green or fluid.operation == "-" and colors.red or colors.white
         local _, _, name = string.find(fluid.name, ":(.+)")
-        name = name:gsub("^%l", string.upper)
+        name = name and name:gsub("^%l", string.upper) or fluid.name
         local change = fluid.change ~= 0 and fluid.operation .. Text.formatFluidAmount(fluid.change) or ""
         return {
             lines = {name, Text.formatFluidAmount(fluid.amount), change},
@@ -62,12 +64,15 @@ module = {
         table.sort(changes, function(a, b)
             return a.amount > b.amount
         end)
+
+        -- Limit to top 30
         changes = {table.unpack(changes, 1, 30)}
+
         self.display:display(changes, function(item)
             return module.format_callback(item)
         end)
-        print("Detected " .. #changes .. " changes in fluids")
 
+        print("Detected " .. #changes .. " fluids")
         self.prev_fluids = current_fluids
     end
 }
