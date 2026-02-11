@@ -2,6 +2,7 @@
 -- Input dialog framework for monitors
 -- Provides modal dialogs with configurable widgets
 
+local Core = mpm('ui/Core')
 local Overlay = mpm('ui/Overlay')
 local Button = mpm('ui/Button')
 
@@ -14,7 +15,7 @@ Dialog.__index = Dialog
 function Dialog.new(monitor)
     local self = setmetatable({}, Dialog)
     self.monitor = monitor
-    self.overlay = Overlay.new(monitor)
+    self.overlay = Overlay.new(monitor, {footerHeight = 1})
     self.widgets = {}
     self.result = nil
     self.cancelled = false
@@ -60,22 +61,19 @@ function Dialog:render()
         widget:render()
     end
 
-    -- Render OK/Cancel buttons at bottom
-    local buttonY = cy2
-    local okX = cx1
-    local cancelX = cx2 - 7
+    -- Render OK/Cancel buttons in footer area
+    local fx1, fy1, fx2, fy2 = self.overlay:getFooterBounds()
+    local buttonY = fy1
 
-    self.okButton = Button.new(self.monitor, okX, buttonY, "OK", function()
+    self.okButton = Button.confirm(self.monitor, fx1, buttonY, "OK", function()
         self.result = self:collectValues()
         self.running = false
     end)
-    self.okButton:setColors(colors.green, colors.white)
 
-    self.cancelButton = Button.new(self.monitor, cancelX, buttonY, "Cancel", function()
+    self.cancelButton = Button.cancel(self.monitor, fx2 - 8, buttonY, "Cancel", function()
         self.cancelled = true
         self.running = false
     end)
-    self.cancelButton:setColors(colors.red, colors.white)
 
     self.okButton:render()
     self.cancelButton:render()
@@ -142,41 +140,43 @@ function Dialog:show()
 end
 
 -- Show a simple confirmation dialog
+-- @param monitor Monitor peripheral
 -- @param title Dialog title
 -- @param message Message to display
 -- @return true if confirmed, false if cancelled
 function Dialog.confirm(monitor, title, message)
-    local dialog = Dialog.new(monitor)
-    dialog:setTitle(title)
-
-    -- Message is just displayed, no widget
-    dialog.overlay.content = {{text = message, color = colors.white}}
-
-    dialog.overlay:render()
-
-    -- Simplified: just OK/Cancel
     local width, height = monitor.getSize()
-    local centerY = math.floor(height / 2) + 2
 
-    local okButton = Button.new(monitor, math.floor(width / 2) - 6, centerY, "OK", function()
-        dialog.result = true
-        dialog.running = false
-    end)
-    okButton:setColors(colors.green, colors.white)
+    Core.clear(monitor)
 
-    local cancelButton = Button.new(monitor, math.floor(width / 2) + 2, centerY, "Cancel", function()
-        dialog.result = false
-        dialog.running = false
+    -- Title bar
+    Core.drawBar(monitor, 1, title, Core.COLORS.titleBar, Core.COLORS.titleText)
+
+    -- Message (centered)
+    local msgY = math.floor(height / 2)
+    monitor.setTextColor(Core.COLORS.text)
+    local msgX = Core.centerX(width, #message)
+    monitor.setCursorPos(msgX, msgY)
+    monitor.write(message)
+
+    -- Buttons
+    local buttonY = msgY + 2
+    local result = nil
+
+    local okButton = Button.confirm(monitor, math.floor(width / 2) - 6, buttonY, "OK", function()
+        result = true
     end)
-    cancelButton:setColors(colors.red, colors.white)
+
+    local cancelButton = Button.cancel(monitor, math.floor(width / 2) + 2, buttonY, "Cancel", function()
+        result = false
+    end)
 
     okButton:render()
     cancelButton:render()
 
-    dialog.running = true
     local monitorName = peripheral.getName(monitor)
 
-    while dialog.running do
+    while result == nil do
         local event, p1, p2, p3 = os.pullEvent()
 
         if event == "monitor_touch" and p1 == monitorName then
@@ -185,7 +185,7 @@ function Dialog.confirm(monitor, title, message)
         end
     end
 
-    return dialog.result == true
+    return result
 end
 
 return Dialog

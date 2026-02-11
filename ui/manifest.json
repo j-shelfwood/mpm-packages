@@ -3,12 +3,14 @@
   "description": "Touch UI primitives - zones, overlays, widgets for monitor interaction",
   "dependencies": ["utils"],
   "files": [
+    "Core.lua",
     "TouchZones.lua",
     "Overlay.lua",
     "Button.lua",
     "Toggle.lua",
     "Stepper.lua",
     "Select.lua",
+    "List.lua",
     "Dialog.lua"
   ]
 }

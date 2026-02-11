@@ -2,10 +2,14 @@
 -- Single monitor management with settings-button pattern
 -- Touch to show settings, click to open view selector
 -- Supports view configuration via configSchema
+-- Now uses ui/ widgets for consistent styling
 
-local ViewManager = mpm('shelfos/view/Manager')
+local ViewManager = mpm('views/Manager')
 local ConfigUI = mpm('shelfos/core/ConfigUI')
 local Theme = mpm('utils/Theme')
+local Core = mpm('ui/Core')
+local Button = mpm('ui/Button')
+local List = mpm('ui/List')
 
 local Monitor = {}
 Monitor.__index = Monitor
@@ -58,6 +62,7 @@ function Monitor.new(config, onViewChange, settings)
     self.inConfigMenu = false
     self.availableViews = {}
     self.currentIndex = 1
+    self.settingsButton = nil
 
     -- Initialize
     self:initialize()
@@ -154,151 +159,64 @@ function Monitor:loadView(viewName)
     return true
 end
 
--- Draw settings button with padding
+-- Draw settings button using ui/Button
 function Monitor:drawSettingsButton()
     local width, height = self.peripheral.getSize()
 
-    -- Save state
-    local oldBg = self.peripheral.getBackgroundColor()
-    local oldFg = self.peripheral.getTextColor()
-
-    -- Button with padding: " [*] " in bottom-right with 1 char margin
-    local buttonText = " [*] "
-    local buttonX = width - #buttonText - 1  -- 1 char padding from right edge
-    local buttonY = height - 1               -- 1 row padding from bottom
+    -- Button in bottom-right with padding
+    local buttonLabel = "[*]"
+    local buttonX = width - #buttonLabel - 2  -- padding from edge
+    local buttonY = height - 1                 -- 1 row padding from bottom
 
     -- Ensure minimum position
     buttonX = math.max(1, buttonX)
     buttonY = math.max(1, buttonY)
 
-    self.peripheral.setBackgroundColor(colors.blue)
-    self.peripheral.setTextColor(colors.white)
-    self.peripheral.setCursorPos(buttonX, buttonY)
-    self.peripheral.write(buttonText)
-
-    -- Restore
-    self.peripheral.setBackgroundColor(oldBg)
-    self.peripheral.setTextColor(oldFg)
+    -- Create button using ui/Button
+    self.settingsButton = Button.neutral(self.peripheral, buttonX, buttonY, buttonLabel, nil, {
+        padding = 1
+    })
+    self.settingsButton:render()
 
     self.showingSettings = true
     self.settingsTimer = os.startTimer(3)
-
-    -- Store button bounds for hit detection
-    self.settingsButtonBounds = {
-        x1 = buttonX,
-        y1 = buttonY,
-        x2 = buttonX + #buttonText - 1,
-        y2 = buttonY
-    }
 end
 
 -- Hide settings button
 function Monitor:hideSettingsButton()
     self.showingSettings = false
     self.settingsTimer = nil
-    self.settingsButtonBounds = nil
+    self.settingsButton = nil
 end
 
 -- Check if touch is on settings button
 function Monitor:isSettingsButtonTouch(x, y)
-    if not self.settingsButtonBounds then return false end
-
-    local b = self.settingsButtonBounds
-    return x >= b.x1 and x <= b.x2 and y >= b.y1 and y <= b.y2
+    if not self.settingsButton then return false end
+    return self.settingsButton:contains(x, y)
 end
 
--- Draw the configuration menu with proper scaling
+-- Draw the configuration menu using ui/List
 function Monitor:drawConfigMenu()
-    local width, height = self.peripheral.getSize()
+    -- Use ui/List for view selection
+    local List = mpm('ui/List')
 
-    self.peripheral.setBackgroundColor(colors.black)
-    self.peripheral.clear()
-
-    -- Title bar with padding
-    self.peripheral.setBackgroundColor(colors.blue)
-    self.peripheral.setTextColor(colors.white)
-    self.peripheral.setCursorPos(1, 1)
-    self.peripheral.write(string.rep(" ", width))
-
-    local title = "Select View"
-    local titleX = math.max(1, math.floor((width - #title) / 2) + 1)
-    self.peripheral.setCursorPos(titleX, 1)
-    self.peripheral.write(title)
-
-    -- View list with padding
-    self.peripheral.setBackgroundColor(colors.black)
-    local startY = 3
-    local maxItems = math.max(1, height - 5)  -- Leave room for title, spacing, and cancel
-
-    for i, viewName in ipairs(self.availableViews) do
-        if i <= maxItems then
-            local y = startY + i - 1
-            local displayName = viewName
-
-            -- Truncate if too long
-            if #displayName > width - 4 then
-                displayName = displayName:sub(1, width - 7) .. "..."
-            end
-
-            if i == self.currentIndex then
-                -- Highlighted (current)
-                self.peripheral.setBackgroundColor(colors.gray)
-                self.peripheral.setTextColor(colors.white)
-                self.peripheral.setCursorPos(1, y)
-                self.peripheral.write(string.rep(" ", width))
-                self.peripheral.setCursorPos(2, y)
-                self.peripheral.write("> " .. displayName)
-            else
-                self.peripheral.setBackgroundColor(colors.black)
-                self.peripheral.setTextColor(colors.lightGray)
-                self.peripheral.setCursorPos(2, y)
-                self.peripheral.write("  " .. displayName)
-            end
+    local selected = List.new(self.peripheral, self.availableViews, {
+        title = "Select View",
+        selected = self.viewName,
+        cancelText = "Cancel",
+        formatFn = function(viewName)
+            return viewName
         end
-    end
+    }):show()
 
-    -- Cancel button at bottom with padding
-    local cancelY = height
-    self.peripheral.setBackgroundColor(colors.red)
-    self.peripheral.setTextColor(colors.white)
-    self.peripheral.setCursorPos(1, cancelY)
-    self.peripheral.write(string.rep(" ", width))
-
-    local cancelText = " Cancel "
-    local cancelX = math.max(1, math.floor((width - #cancelText) / 2) + 1)
-    self.peripheral.setCursorPos(cancelX, cancelY)
-    self.peripheral.write(cancelText)
-
-    -- Reset colors
-    self.peripheral.setBackgroundColor(colors.black)
-    self.peripheral.setTextColor(colors.white)
-
-    -- Store menu bounds
-    self.menuStartY = startY
-    self.menuMaxItems = maxItems
-    self.menuCancelY = cancelY
-end
-
--- Handle touch in config menu
-function Monitor:handleConfigMenuTouch(x, y)
-    -- Cancel button
-    if y == self.menuCancelY then
-        return "cancel"
-    end
-
-    -- View selection
-    local touchedIndex = y - self.menuStartY + 1
-    if touchedIndex >= 1 and touchedIndex <= #self.availableViews and touchedIndex <= self.menuMaxItems then
-        return self.availableViews[touchedIndex]
-    end
-
-    return nil
+    return selected
 end
 
 -- Open config menu
 function Monitor:openConfigMenu()
     self.inConfigMenu = true
     self.showingSettings = false
+    self.settingsButton = nil
 
     -- Cancel pending timers
     if self.renderTimer then
@@ -310,7 +228,42 @@ function Monitor:openConfigMenu()
         self.settingsTimer = nil
     end
 
-    self:drawConfigMenu()
+    -- Show view selector
+    local selectedView = self:drawConfigMenu()
+
+    if selectedView and selectedView ~= "cancel" then
+        -- Check if view has configSchema
+        local View = ViewManager.load(selectedView)
+
+        if View and View.configSchema and #View.configSchema > 0 then
+            -- Show config menu for this view
+            local newConfig = ConfigUI.drawConfigMenu(
+                self.peripheral,
+                selectedView,
+                View.configSchema,
+                self.viewConfig
+            )
+
+            if newConfig then
+                -- User saved config
+                self.viewConfig = newConfig
+                if self.onViewChange then
+                    self.onViewChange(self.peripheralName, selectedView, newConfig)
+                end
+                self:loadView(selectedView)
+            end
+            -- If cancelled, just close menu (don't change view)
+        else
+            -- No config needed - just load view
+            self.viewConfig = {}
+            if self.onViewChange then
+                self.onViewChange(self.peripheralName, selectedView, {})
+            end
+            self:loadView(selectedView)
+        end
+    end
+
+    self:closeConfigMenu()
 end
 
 -- Close config menu
@@ -353,49 +306,9 @@ function Monitor:handleTouch(monitorName, x, y)
         return false
     end
 
-    -- Config menu mode
+    -- Config menu is now handled synchronously in openConfigMenu
     if self.inConfigMenu then
-        local result = self:handleConfigMenuTouch(x, y)
-
-        if result == "cancel" then
-            self:closeConfigMenu()
-        elseif result then
-            -- Selected a view - check if it has configSchema
-            local View = ViewManager.load(result)
-
-            if View and View.configSchema and #View.configSchema > 0 then
-                -- Show config menu for this view
-                local newConfig = ConfigUI.drawConfigMenu(
-                    self.peripheral,
-                    result,
-                    View.configSchema,
-                    self.viewConfig
-                )
-
-                if newConfig then
-                    -- User saved config
-                    self.viewConfig = newConfig
-                    if self.onViewChange then
-                        self.onViewChange(self.peripheralName, result, newConfig)
-                    end
-                    self:loadView(result)
-                    self:closeConfigMenu()
-                else
-                    -- User cancelled config - go back to view list
-                    self:drawConfigMenu()
-                end
-            else
-                -- No config needed - just load view
-                self.viewConfig = {}
-                if self.onViewChange then
-                    self.onViewChange(self.peripheralName, result, {})
-                end
-                self:loadView(result)
-                self:closeConfigMenu()
-            end
-        end
-
-        return true
+        return false
     end
 
     -- Check for settings button click
@@ -430,8 +343,7 @@ end
 -- Clear the monitor
 function Monitor:clear()
     if self.connected then
-        self.peripheral.setBackgroundColor(colors.black)
-        self.peripheral.clear()
+        Core.clear(self.peripheral)
     end
 end
 

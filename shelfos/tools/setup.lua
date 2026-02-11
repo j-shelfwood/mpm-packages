@@ -3,7 +3,7 @@
 
 local Config = mpm('shelfos/core/Config')
 local Zone = mpm('shelfos/core/Zone')
-local ViewManager = mpm('shelfos/view/Manager')
+local ViewManager = mpm('views/Manager')
 local Crypto = mpm('net/Crypto')
 
 local setup = {}

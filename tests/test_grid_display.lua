@@ -1,7 +1,7 @@
 -- test_script.lua
 -- Include required APIs
 local AEInterface = mpm('peripherals/AEInterface')
-local GridDisplay = mpm('views/GridDisplay')
+local GridDisplay = mpm('utils/GridDisplay')
 
 -- Detect monitor
 local monitor = peripheral.find("monitor")

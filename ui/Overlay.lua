@@ -1,17 +1,25 @@
 -- Overlay.lua
 -- Modal overlay rendering for monitors
 -- Provides a semi-modal UI layer on top of existing content
+-- Enhanced with configurable margins and footer support
+
+local Core = mpm('ui/Core')
 
 local Overlay = {}
 Overlay.__index = Overlay
 
 -- Create a new overlay for a monitor
 -- @param monitor The monitor peripheral
+-- @param opts Configuration table:
+--   margin: Margin from screen edges (default: 1)
+--   footerHeight: Height reserved for buttons at bottom (default: 2)
 -- @return Overlay instance
-function Overlay.new(monitor)
+function Overlay.new(monitor, opts)
     if not monitor then
         error("Overlay requires a monitor peripheral")
     end
+
+    opts = opts or {}
 
     local self = setmetatable({}, Overlay)
     self.monitor = monitor
@@ -19,6 +27,10 @@ function Overlay.new(monitor)
     self.visible = false
     self.title = ""
     self.content = {}
+    self.margin = opts.margin or 1
+    self.footerHeight = opts.footerHeight or 2
+
+    -- Colors
     self.backgroundColor = colors.gray
     self.borderColor = colors.lightGray
     self.titleColor = colors.white
@@ -40,24 +52,29 @@ function Overlay:setColors(bg, border, title, text)
     self.textColor = text or self.textColor
 end
 
--- Calculate overlay bounds (centered, with padding)
+-- Calculate overlay bounds (centered, with margin)
 -- @param contentHeight Number of content lines
--- @param contentWidth Desired content width (nil = auto)
+-- @param contentWidth Desired content width (nil = auto based on margin)
 -- @return x1, y1, x2, y2 (overlay bounds)
 function Overlay:calculateBounds(contentHeight, contentWidth)
-    contentWidth = contentWidth or math.floor(self.width * 0.8)
-    local totalHeight = contentHeight + 4  -- title + border + padding
+    -- Auto-calculate width from margin
+    if not contentWidth then
+        contentWidth = self.width - (self.margin * 2)
+    end
 
-    local x1 = math.floor((self.width - contentWidth) / 2)
-    local y1 = math.floor((self.height - totalHeight) / 2)
+    -- Add space for title bar, content padding, and footer
+    local totalHeight = contentHeight + 2 + self.footerHeight  -- title + border + footer
+
+    local x1 = math.floor((self.width - contentWidth) / 2) + 1
+    local y1 = math.floor((self.height - totalHeight) / 2) + 1
     local x2 = x1 + contentWidth - 1
     local y2 = y1 + totalHeight - 1
 
-    -- Clamp to screen
-    x1 = math.max(1, x1)
-    y1 = math.max(1, y1)
-    x2 = math.min(self.width, x2)
-    y2 = math.min(self.height, y2)
+    -- Clamp to screen with margin
+    x1 = math.max(self.margin + 1, x1)
+    y1 = math.max(self.margin + 1, y1)
+    x2 = math.min(self.width - self.margin, x2)
+    y2 = math.min(self.height - self.margin, y2)
 
     return x1, y1, x2, y2
 end
@@ -129,20 +146,17 @@ function Overlay:render()
         end
 
         -- Truncate if needed
-        if #text > contentWidth then
-            text = text:sub(1, contentWidth - 3) .. "..."
-        end
+        text = Core.truncate(text, contentWidth)
 
         local y = y1 + 1 + i
-        if y < y2 then
+        if y < y2 - self.footerHeight then
             self.monitor.setTextColor(color)
             self.monitor.setCursorPos(x1 + 1, y)
             self.monitor.write(text)
         end
     end
 
-    self.monitor.setTextColor(colors.white)
-    self.monitor.setBackgroundColor(colors.black)
+    Core.resetColors(self.monitor)
 end
 
 -- Hide the overlay
@@ -155,11 +169,24 @@ function Overlay:isVisible()
     return self.visible
 end
 
--- Get content area bounds (for placing widgets)
--- @return x1, y1, x2, y2 of content area
+-- Get content area bounds (for placing content/widgets)
+-- @return x1, y1, x2, y2 of content area (excludes title and footer)
 function Overlay:getContentBounds()
     local x1, y1, x2, y2 = self:calculateBounds(#self.content)
-    return x1 + 1, y1 + 2, x2 - 1, y2 - 1
+    return x1 + 1, y1 + 2, x2 - 1, y2 - self.footerHeight - 1
+end
+
+-- Get footer area bounds (for placing buttons)
+-- @return x1, y1, x2, y2 of footer area
+function Overlay:getFooterBounds()
+    local x1, y1, x2, y2 = self:calculateBounds(#self.content)
+    return x1 + 1, y2 - self.footerHeight, x2 - 1, y2 - 1
+end
+
+-- Get full overlay bounds
+-- @return x1, y1, x2, y2
+function Overlay:getBounds()
+    return self:calculateBounds(#self.content)
 end
 
 return Overlay

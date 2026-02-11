@@ -1,11 +1,12 @@
 -- ConfigUI.lua
 -- Renders configuration menus on monitors for view setup
 -- Handles different config field types: number, item:id, fluid:id, select, peripheral
--- Uses shared utils for drawing and text formatting
+-- Now uses ui/ widgets for consistent styling
 
 local AEInterface = mpm('peripherals/AEInterface')
 local Text = mpm('utils/Text')
-local MonitorHelpers = mpm('utils/MonitorHelpers')
+local Core = mpm('ui/Core')
+local List = mpm('ui/List')
 
 local ConfigUI = {}
 
@@ -64,118 +65,15 @@ local function getPeripherals(filterType)
     return result
 end
 
--- Draw a picker list (items, fluids, or options)
+-- Draw a picker list using ui/List widget
 -- Returns selected value or nil if cancelled
 function ConfigUI.drawPicker(monitor, title, options, currentValue, formatFn)
-    local width, height = monitor.getSize()
-    formatFn = formatFn or function(opt) return opt.label or opt.name or tostring(opt) end
-
-    local scrollOffset = 0
-    local maxVisible = height - 4  -- Title, spacing, cancel bar
-
-    -- Find current selection index
-    local selectedIndex = 1
-    for i, opt in ipairs(options) do
-        local value = opt.value or opt.name or opt
-        if value == currentValue then
-            selectedIndex = i
-            -- Scroll to show selection
-            if selectedIndex > maxVisible then
-                scrollOffset = selectedIndex - maxVisible
-            end
-            break
-        end
-    end
-
-    while true do
-        monitor.setBackgroundColor(colors.black)
-        monitor.clear()
-
-        -- Title bar
-        monitor.setBackgroundColor(colors.blue)
-        monitor.setTextColor(colors.white)
-        monitor.setCursorPos(1, 1)
-        monitor.write(string.rep(" ", width))
-        MonitorHelpers.writeCentered(monitor, 1, title)
-
-        -- Options list
-        monitor.setBackgroundColor(colors.black)
-        local startY = 3
-
-        for i = 1, math.min(maxVisible, #options - scrollOffset) do
-            local optIndex = i + scrollOffset
-            local opt = options[optIndex]
-            if opt then
-                local y = startY + i - 1
-                local label = formatFn(opt)
-                local value = opt.value or opt.name or opt
-
-                -- Truncate if too long
-                if #label > width - 4 then
-                    label = Text.truncateMiddle(label, width - 4)
-                end
-
-                if value == currentValue then
-                    monitor.setBackgroundColor(colors.gray)
-                    monitor.setTextColor(colors.white)
-                    monitor.setCursorPos(1, y)
-                    monitor.write(string.rep(" ", width))
-                    monitor.setCursorPos(2, y)
-                    monitor.write("> " .. label)
-                else
-                    monitor.setBackgroundColor(colors.black)
-                    monitor.setTextColor(colors.lightGray)
-                    monitor.setCursorPos(2, y)
-                    monitor.write("  " .. label)
-                end
-            end
-        end
-
-        -- Scroll indicators
-        if scrollOffset > 0 then
-            monitor.setBackgroundColor(colors.black)
-            monitor.setTextColor(colors.gray)
-            monitor.setCursorPos(width, 3)
-            monitor.write("^")
-        end
-        if scrollOffset + maxVisible < #options then
-            monitor.setBackgroundColor(colors.black)
-            monitor.setTextColor(colors.gray)
-            monitor.setCursorPos(width, startY + maxVisible - 1)
-            monitor.write("v")
-        end
-
-        -- Cancel bar
-        local cancelY = height
-        monitor.setBackgroundColor(colors.red)
-        monitor.setTextColor(colors.white)
-        monitor.setCursorPos(1, cancelY)
-        monitor.write(string.rep(" ", width))
-        MonitorHelpers.writeCentered(monitor, cancelY, "Cancel", colors.white)
-
-        -- Wait for touch
-        local event, side, x, y = os.pullEvent("monitor_touch")
-
-        -- Cancel
-        if y == cancelY then
-            return nil
-        end
-
-        -- Scroll up
-        if y == 3 and scrollOffset > 0 then
-            scrollOffset = scrollOffset - 1
-        -- Scroll down
-        elseif y == startY + maxVisible - 1 and scrollOffset + maxVisible < #options then
-            scrollOffset = scrollOffset + 1
-        -- Option selection
-        elseif y >= startY and y < startY + maxVisible then
-            local optIndex = (y - startY + 1) + scrollOffset
-            if optIndex >= 1 and optIndex <= #options then
-                local opt = options[optIndex]
-                return opt.value or opt.name or opt
-            end
-        end
-    end
+    return List.new(monitor, options, {
+        title = title,
+        selected = currentValue,
+        formatFn = formatFn,
+        cancelText = "Cancel"
+    }):show()
 end
 
 -- Draw number input (simple: tap +/- or preset values)
@@ -188,24 +86,20 @@ function ConfigUI.drawNumberInput(monitor, title, currentValue, min, max, preset
     local value = currentValue or presets[1] or 1000
 
     while true do
-        monitor.setBackgroundColor(colors.black)
-        monitor.clear()
+        Core.clear(monitor)
 
         -- Title bar
-        monitor.setBackgroundColor(colors.blue)
-        monitor.setTextColor(colors.white)
-        monitor.setCursorPos(1, 1)
-        monitor.write(string.rep(" ", width))
-        MonitorHelpers.writeCentered(monitor, 1, title)
+        Core.drawBar(monitor, 1, title, Core.COLORS.titleBar, Core.COLORS.titleText)
 
         -- Current value display
-        monitor.setBackgroundColor(colors.black)
-        monitor.setTextColor(colors.white)
+        monitor.setTextColor(Core.COLORS.text)
         local valueStr = Text.formatNumber(value, 0)
-        MonitorHelpers.writeCentered(monitor, 3, valueStr)
+        local valueX = Core.centerX(width, #valueStr)
+        monitor.setCursorPos(valueX, 3)
+        monitor.write(valueStr)
 
         -- Preset buttons
-        monitor.setTextColor(colors.lightGray)
+        monitor.setTextColor(Core.COLORS.textMuted)
         monitor.setCursorPos(2, 5)
         monitor.write("Presets:")
 
@@ -221,11 +115,11 @@ function ConfigUI.drawNumberInput(monitor, title, currentValue, min, max, preset
             end
 
             if preset == value then
-                monitor.setBackgroundColor(colors.green)
+                monitor.setBackgroundColor(Core.COLORS.confirmButton)
             else
-                monitor.setBackgroundColor(colors.gray)
+                monitor.setBackgroundColor(Core.COLORS.neutralButton)
             end
-            monitor.setTextColor(colors.white)
+            monitor.setTextColor(Core.COLORS.text)
             monitor.setCursorPos(btnX, btnY)
             monitor.write(" " .. label .. " ")
 
@@ -241,16 +135,10 @@ function ConfigUI.drawNumberInput(monitor, title, currentValue, min, max, preset
         local saveY = height - 1
         local cancelY = height
 
-        monitor.setBackgroundColor(colors.green)
-        monitor.setTextColor(colors.white)
-        monitor.setCursorPos(1, saveY)
-        monitor.write(string.rep(" ", width))
-        MonitorHelpers.writeCentered(monitor, saveY, "Save", colors.white)
+        Core.drawBar(monitor, saveY, "Save", Core.COLORS.confirmButton, Core.COLORS.text)
+        Core.drawBar(monitor, cancelY, "Cancel", Core.COLORS.cancelButton, Core.COLORS.text)
 
-        monitor.setBackgroundColor(colors.red)
-        monitor.setCursorPos(1, cancelY)
-        monitor.write(string.rep(" ", width))
-        MonitorHelpers.writeCentered(monitor, cancelY, "Cancel", colors.white)
+        Core.resetColors(monitor)
 
         -- Wait for touch
         local event, side, x, y = os.pullEvent("monitor_touch")
@@ -294,20 +182,14 @@ function ConfigUI.drawConfigMenu(monitor, viewName, schema, currentConfig)
     end
 
     while true do
-        monitor.setBackgroundColor(colors.black)
-        monitor.clear()
+        Core.clear(monitor)
 
         -- Title bar
-        monitor.setBackgroundColor(colors.blue)
-        monitor.setTextColor(colors.white)
-        monitor.setCursorPos(1, 1)
-        monitor.write(string.rep(" ", width))
-        MonitorHelpers.writeCentered(monitor, 1, "Configure")
+        Core.drawBar(monitor, 1, "Configure", Core.COLORS.titleBar, Core.COLORS.titleText)
 
         -- View name
-        monitor.setBackgroundColor(colors.black)
-        monitor.setTextColor(colors.lightGray)
-        local nameDisplay = Text.truncateMiddle(viewName, width - 4)
+        monitor.setTextColor(Core.COLORS.textMuted)
+        local nameDisplay = Core.truncateMiddle(viewName, width - 4)
         monitor.setCursorPos(2, 2)
         monitor.write(nameDisplay)
 
@@ -320,13 +202,13 @@ function ConfigUI.drawConfigMenu(monitor, viewName, schema, currentConfig)
             if y > height - 3 then break end
 
             -- Label
-            monitor.setTextColor(colors.white)
+            monitor.setTextColor(Core.COLORS.text)
             monitor.setCursorPos(2, y)
             monitor.write(field.label or field.key)
 
             -- Value display
             local valueDisplay = "Not set"
-            local valueColor = colors.gray
+            local valueColor = Core.COLORS.textMuted
 
             if config[field.key] ~= nil then
                 valueColor = colors.lime
@@ -343,12 +225,12 @@ function ConfigUI.drawConfigMenu(monitor, viewName, schema, currentConfig)
 
             -- Truncate if needed
             local maxValueLen = width - 6
-            valueDisplay = Text.truncateMiddle(valueDisplay, maxValueLen)
+            valueDisplay = Core.truncateMiddle(valueDisplay, maxValueLen)
 
             monitor.setTextColor(valueColor)
             monitor.setCursorPos(2, y + 1)
             monitor.write("  " .. valueDisplay .. " ")
-            monitor.setTextColor(colors.gray)
+            monitor.setTextColor(Core.COLORS.textMuted)
             monitor.write("[>]")
 
             table.insert(fieldBounds, {
@@ -361,16 +243,10 @@ function ConfigUI.drawConfigMenu(monitor, viewName, schema, currentConfig)
         local saveY = height - 1
         local cancelY = height
 
-        monitor.setBackgroundColor(colors.green)
-        monitor.setTextColor(colors.white)
-        monitor.setCursorPos(1, saveY)
-        monitor.write(string.rep(" ", width))
-        MonitorHelpers.writeCentered(monitor, saveY, "Save", colors.white)
+        Core.drawBar(monitor, saveY, "Save", Core.COLORS.confirmButton, Core.COLORS.text)
+        Core.drawBar(monitor, cancelY, "Cancel", Core.COLORS.cancelButton, Core.COLORS.text)
 
-        monitor.setBackgroundColor(colors.red)
-        monitor.setCursorPos(1, cancelY)
-        monitor.write(string.rep(" ", width))
-        MonitorHelpers.writeCentered(monitor, cancelY, "Cancel", colors.white)
+        Core.resetColors(monitor)
 
         -- Wait for touch
         local event, side, x, y = os.pullEvent("monitor_touch")

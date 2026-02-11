@@ -10,7 +10,6 @@
     "core/Monitor.lua",
     "core/Zone.lua",
     "core/Terminal.lua",
-    "view/Manager.lua",
     "input/Menu.lua",
     "pocket/start.lua",
     "pocket/App.lua",
