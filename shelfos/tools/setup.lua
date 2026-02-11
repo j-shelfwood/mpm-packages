@@ -1,5 +1,5 @@
 -- setup.lua
--- Initial setup wizard for ShelfOS
+-- Setup and reconfiguration wizard for ShelfOS
 
 local Config = mpm('shelfos/core/Config')
 local Zone = mpm('shelfos/core/Zone')
@@ -19,12 +19,45 @@ function setup.run()
     print("")
 
     -- Check for existing config
-    if Config.exists() then
-        print("[!] Configuration already exists.")
-        print("    Run 'mpm run shelfos' to start.")
+    local existingConfig = Config.load()
+    local isReconfigure = existingConfig ~= nil
+
+    if isReconfigure then
+        print("[*] Existing configuration found")
+        print("    Zone: " .. (existingConfig.zone.name or "Unknown"))
+        print("    Monitors: " .. #(existingConfig.monitors or {}))
         print("")
-        print("    To reconfigure, delete /shelfos.config")
-        return
+        print("Options:")
+        print("  1. Reconfigure monitors")
+        print("  2. Rename zone")
+        print("  3. Reset everything")
+        print("  4. Cancel")
+        print("")
+        write("Select (1-4): ")
+
+        local choice = tonumber(read()) or 4
+
+        if choice == 4 then
+            print("[*] Cancelled")
+            return
+        elseif choice == 3 then
+            fs.delete(Config.getPath())
+            print("[*] Configuration deleted")
+            existingConfig = nil
+            isReconfigure = false
+        elseif choice == 2 then
+            print("")
+            write("New zone name: ")
+            local newName = read()
+            if newName and #newName > 0 then
+                existingConfig.zone.name = newName
+                Config.save(existingConfig)
+                print("[*] Zone renamed to: " .. newName)
+            end
+            return
+        end
+        -- choice == 1 falls through to monitor setup
+        print("")
     end
 
     -- Zone setup

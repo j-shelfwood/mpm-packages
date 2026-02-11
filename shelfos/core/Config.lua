@@ -199,4 +199,62 @@ function Config.getPath()
     return CONFIG_PATH
 end
 
+-- Auto-create configuration by discovering monitors and assigning views
+-- Used for zero-touch first boot
+-- @return config, monitorsFound
+function Config.autoCreate()
+    local ViewManager = mpm('views/Manager')
+
+    -- Generate zone identity
+    local zoneId = "zone_" .. os.getComputerID() .. "_" .. (os.epoch("utc") % 100000)
+    local zoneName = os.getComputerLabel() or ("Zone " .. os.getComputerID())
+
+    local config = deepCopy(DEFAULT_CONFIG)
+    config.zone.id = zoneId
+    config.zone.name = zoneName
+
+    -- Discover monitors
+    local monitors = {}
+    local peripherals = peripheral.getNames()
+
+    for _, name in ipairs(peripherals) do
+        if peripheral.hasType(name, "monitor") then
+            table.insert(monitors, name)
+        end
+    end
+
+    if #monitors == 0 then
+        return config, 0
+    end
+
+    -- Get view suggestions
+    local suggestions = ViewManager.suggestViewsForMonitors(#monitors)
+
+    -- Assign views to monitors
+    for i, monitorName in ipairs(monitors) do
+        local suggestion = suggestions[i] or { view = "WeatherClock", reason = "Default" }
+        table.insert(config.monitors, {
+            peripheral = monitorName,
+            label = monitorName,
+            view = suggestion.view,
+            viewConfig = ViewManager.getDefaultConfig(suggestion.view)
+        })
+    end
+
+    return config, #monitors
+end
+
+-- Generate a short pairing code for network linking
+-- @return code (8 chars, human-readable)
+function Config.generatePairingCode()
+    local chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  -- No I,O,0,1 to avoid confusion
+    local code = ""
+    for i = 1, 8 do
+        if i == 5 then code = code .. "-" end
+        local idx = math.random(1, #chars)
+        code = code .. chars:sub(idx, idx)
+    end
+    return code
+end
+
 return Config

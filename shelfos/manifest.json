@@ -18,6 +18,7 @@
     "pocket/App.lua",
     "pocket/Notifications.lua",
     "tools/setup.lua",
-    "tools/migrate.lua"
+    "tools/migrate.lua",
+    "tools/link.lua"
   ]
 }

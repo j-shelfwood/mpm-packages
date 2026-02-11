@@ -28,8 +28,24 @@ function Kernel:boot()
     self.config = Config.load()
 
     if not self.config then
-        print("[ShelfOS] No configuration found. Run 'mpm run shelfos setup'")
-        return false
+        -- Auto-discovery mode: create config automatically
+        print("[ShelfOS] First boot - auto-discovering...")
+        self.config, self.discoveredCount = Config.autoCreate()
+
+        if self.discoveredCount == 0 then
+            print("[ShelfOS] No monitors found.")
+            print("[ShelfOS] Connect monitors and restart.")
+            return false
+        end
+
+        -- Save the auto-generated config
+        Config.save(self.config)
+        print("[ShelfOS] Auto-configured " .. self.discoveredCount .. " monitor(s)")
+
+        -- Generate pairing code for network
+        self.pairingCode = Config.generatePairingCode()
+        print("[ShelfOS] Pairing code: " .. self.pairingCode)
+        print("")
     end
 
     -- Initialize zone identity
@@ -42,7 +58,14 @@ function Kernel:boot()
     -- Initialize networking (optional)
     self:initializeNetwork()
 
+    if #self.monitors == 0 then
+        print("[ShelfOS] No monitors connected.")
+        print("[ShelfOS] Check peripheral connections and restart.")
+        return false
+    end
+
     print("[ShelfOS] Boot complete. " .. #self.monitors .. " monitor(s) active.")
+    print("[ShelfOS] Touch left/right to cycle views")
     print("[ShelfOS] Press 'q' to quit")
     print("")
 
@@ -98,8 +121,8 @@ end
 -- Main run loop
 function Kernel:run()
     if #self.monitors == 0 then
-        print("[ShelfOS] No monitors configured. Run 'mpm run shelfos setup'")
-        return
+        -- Boot already handled this message
+        return false
     end
 
     self.running = true

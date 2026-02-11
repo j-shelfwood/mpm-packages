@@ -149,4 +149,103 @@ function Manager.getDefaultConfig(viewName)
     return config
 end
 
+-- Suggest best view based on available peripherals
+-- Used for auto-discovery when no config exists
+-- @return viewName, reason
+function Manager.suggestView()
+    -- Priority order: most specific peripheral first
+    local suggestions = {
+        { check = function() return peripheral.find("meBridge") end, view = "StorageCapacityDisplay", reason = "AE2 ME Bridge detected" },
+        { check = function() return peripheral.find("rsBridge") end, view = "StorageCapacityDisplay", reason = "RS Bridge detected" },
+        { check = function() return peripheral.find("energyStorage") end, view = "EnergyStatusDisplay", reason = "Energy storage detected" },
+        { check = function() return peripheral.find("inventory") end, view = "ChestDisplay", reason = "Inventory detected" },
+        { check = function() return peripheral.find("fluid_storage") end, view = "FluidMonitor", reason = "Fluid storage detected" },
+    }
+
+    for _, suggestion in ipairs(suggestions) do
+        local ok, result = pcall(suggestion.check)
+        if ok and result then
+            -- Verify view is loadable
+            if Manager.canMount(suggestion.view) then
+                return suggestion.view, suggestion.reason
+            end
+        end
+    end
+
+    -- Fallback: first mountable view, or WeatherClock if available
+    local mountable = Manager.getMountableViews()
+    for _, viewName in ipairs(mountable) do
+        if viewName == "WeatherClock" then
+            return "WeatherClock", "Default fallback"
+        end
+    end
+
+    if #mountable > 0 then
+        return mountable[1], "First available view"
+    end
+
+    return nil, "No views available"
+end
+
+-- Get all suggested views for multiple monitors
+-- Tries to assign variety when possible
+-- @param monitorCount Number of monitors to assign
+-- @return Array of {view, reason} suggestions
+function Manager.suggestViewsForMonitors(monitorCount)
+    local mountable = Manager.getMountableViews()
+    local suggestions = {}
+
+    if #mountable == 0 then
+        return suggestions
+    end
+
+    -- Build prioritized list based on peripherals
+    local prioritized = {}
+
+    -- Check for ME/RS bridge first
+    if peripheral.find("meBridge") or peripheral.find("rsBridge") then
+        for _, v in ipairs({"StorageCapacityDisplay", "InventoryDisplay", "FluidMonitor", "InventoryChangesDisplay", "LowStockAlert"}) do
+            for _, m in ipairs(mountable) do
+                if m == v then
+                    table.insert(prioritized, v)
+                    break
+                end
+            end
+        end
+    end
+
+    -- Add energy if available
+    if peripheral.find("energyStorage") then
+        for _, m in ipairs(mountable) do
+            if m == "EnergyStatusDisplay" then
+                table.insert(prioritized, m)
+                break
+            end
+        end
+    end
+
+    -- Fill remaining with other mountable views
+    for _, m in ipairs(mountable) do
+        local found = false
+        for _, p in ipairs(prioritized) do
+            if p == m then found = true break end
+        end
+        if not found then
+            table.insert(prioritized, m)
+        end
+    end
+
+    -- Assign views to monitors
+    for i = 1, monitorCount do
+        local viewIndex = ((i - 1) % #prioritized) + 1
+        local viewName = prioritized[viewIndex]
+        table.insert(suggestions, {
+            view = viewName,
+            reason = i <= #prioritized and "Auto-assigned" or "Cycled"
+        })
+    end
+
+    return suggestions
+end
+
 return Manager
