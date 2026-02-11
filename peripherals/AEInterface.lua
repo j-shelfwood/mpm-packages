@@ -333,6 +333,46 @@ module = {
         end
 
         return self.interface.importItem(filter, direction)
+    end,
+
+    -- ME Bridge specific: Get single item by filter (more efficient than getItems)
+    getItem = function(self, filter)
+        if self.peripheralType ~= "me_bridge" then
+            return nil, "getItem only available on me_bridge"
+        end
+
+        return self.interface.getItem(filter)
+    end,
+
+    -- ME Bridge specific: Get single fluid by filter (more efficient than getFluids)
+    getFluid = function(self, filter)
+        if self.peripheralType ~= "me_bridge" then
+            return nil, "getFluid only available on me_bridge"
+        end
+
+        return self.interface.getFluid(filter)
+    end,
+
+    -- ME Bridge specific: Get all active crafting tasks
+    getCraftingTasks = function(self)
+        if self.peripheralType ~= "me_bridge" then
+            return {}, "Crafting methods only available on me_bridge"
+        end
+
+        return self.interface.getCraftingTasks() or {}
+    end,
+
+    -- ME Bridge specific: Get fluid storage status
+    fluidStorage = function(self)
+        if self.peripheralType ~= "me_bridge" then
+            return nil, "Fluid storage methods only available on me_bridge"
+        end
+
+        return {
+            used = self.interface.getUsedFluidStorage() or 0,
+            total = self.interface.getTotalFluidStorage() or 0,
+            available = self.interface.getAvailableFluidStorage() or 0
+        }
     end
 }
 

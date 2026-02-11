@@ -154,11 +154,10 @@ end
 function Manager.suggestView()
     -- Priority order: most specific peripheral first
     local suggestions = {
-        { check = function() return peripheral.find("meBridge") end, view = "StorageCapacityDisplay", reason = "AE2 ME Bridge detected" },
-        { check = function() return peripheral.find("rsBridge") end, view = "StorageCapacityDisplay", reason = "RS Bridge detected" },
-        { check = function() return peripheral.find("energyStorage") end, view = "EnergyStatusDisplay", reason = "Energy storage detected" },
-        { check = function() return peripheral.find("inventory") end, view = "ChestDisplay", reason = "Inventory detected" },
-        { check = function() return peripheral.find("fluid_storage") end, view = "FluidMonitor", reason = "Fluid storage detected" },
+        { check = function() return peripheral.find("me_bridge") end, view = "StorageGraph", reason = "AE2 ME Bridge detected" },
+        { check = function() return peripheral.find("rsBridge") end, view = "StorageGraph", reason = "RS Bridge detected" },
+        { check = function() return peripheral.find("energyStorage") end, view = "EnergyGraph", reason = "Energy storage detected" },
+        { check = function() return peripheral.find("environment_detector") end, view = "Clock", reason = "Environment detector found" },
     }
 
     for _, suggestion in ipairs(suggestions) do
@@ -171,11 +170,11 @@ function Manager.suggestView()
         end
     end
 
-    -- Fallback: first mountable view, or WeatherClock if available
+    -- Fallback: first mountable view, or Clock if available
     local mountable = Manager.getMountableViews()
     for _, viewName in ipairs(mountable) do
-        if viewName == "WeatherClock" then
-            return "WeatherClock", "Default fallback"
+        if viewName == "Clock" then
+            return "Clock", "Default fallback"
         end
     end
 
@@ -202,8 +201,8 @@ function Manager.suggestViewsForMonitors(monitorCount)
     local prioritized = {}
 
     -- Check for ME/RS bridge first
-    if peripheral.find("meBridge") or peripheral.find("rsBridge") then
-        for _, v in ipairs({"StorageCapacityDisplay", "InventoryDisplay", "FluidMonitor", "InventoryChangesDisplay", "LowStockAlert"}) do
+    if peripheral.find("me_bridge") or peripheral.find("rsBridge") then
+        for _, v in ipairs({"StorageGraph", "EnergyGraph", "ItemCounter", "FluidGauge", "ItemChanges", "LowStock", "CraftingCPU"}) do
             for _, m in ipairs(mountable) do
                 if m == v then
                     table.insert(prioritized, v)
@@ -216,7 +215,7 @@ function Manager.suggestViewsForMonitors(monitorCount)
     -- Add energy if available
     if peripheral.find("energyStorage") then
         for _, m in ipairs(mountable) do
-            if m == "EnergyStatusDisplay" then
+            if m == "EnergyGraph" then
                 table.insert(prioritized, m)
                 break
             end

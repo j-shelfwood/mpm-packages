@@ -181,4 +181,68 @@ function MonitorHelpers.getWarningColor(value, warningThreshold)
     end
 end
 
+-- Draw a time-series history graph (vertical bars from bottom)
+-- @param monitor Monitor peripheral
+-- @param data Array of values (rightmost is most recent)
+-- @param x Starting X position
+-- @param y1 Top Y position
+-- @param y2 Bottom Y position
+-- @param maxValue Maximum value for scaling (or nil for auto-scale)
+-- @param colorFn Function(value, maxValue) returning color (default: getPercentColor)
+function MonitorHelpers.drawHistoryGraph(monitor, data, x, y1, y2, maxValue, colorFn)
+    if not data or #data == 0 then return end
+
+    local height = y2 - y1 + 1
+    colorFn = colorFn or function(val, max)
+        local pct = max > 0 and (val / max * 100) or 0
+        return MonitorHelpers.getPercentColor(pct)
+    end
+
+    -- Auto-scale if no max provided
+    if not maxValue then
+        maxValue = 0
+        for _, v in ipairs(data) do
+            if v > maxValue then maxValue = v end
+        end
+        maxValue = math.max(maxValue, 1)  -- Avoid division by zero
+    end
+
+    -- Clear graph area
+    monitor.setBackgroundColor(colors.black)
+    for y = y1, y2 do
+        monitor.setCursorPos(x, y)
+        monitor.write(string.rep(" ", #data))
+    end
+
+    -- Draw bars from right to left (most recent on right)
+    for i, value in ipairs(data) do
+        local barHeight = math.floor((value / maxValue) * height)
+        local barColor = colorFn(value, maxValue)
+
+        if barHeight > 0 then
+            monitor.setBackgroundColor(barColor)
+            for dy = 0, barHeight - 1 do
+                local drawY = y2 - dy
+                if drawY >= y1 then
+                    monitor.setCursorPos(x + i - 1, drawY)
+                    monitor.write(" ")
+                end
+            end
+        end
+    end
+
+    monitor.setBackgroundColor(colors.black)
+end
+
+-- Record a value to a history buffer (circular, fixed size)
+-- @param history Array to append to
+-- @param value Value to add
+-- @param maxSize Maximum history length
+function MonitorHelpers.recordHistory(history, value, maxSize)
+    table.insert(history, value)
+    while #history > maxSize do
+        table.remove(history, 1)
+    end
+end
+
 return MonitorHelpers

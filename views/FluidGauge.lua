@@ -1,4 +1,4 @@
--- SingleFluidGauge.lua
+-- FluidGauge.lua
 -- Displays a single fluid level as a vertical gauge
 -- Configurable: fluid to monitor, warning threshold
 

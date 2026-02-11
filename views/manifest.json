@@ -1,20 +1,17 @@
 {
   "name": "views",
-  "description": "Display modules for various types of data visualization",
+  "description": "Display modules for ShelfOS monitors - single-purpose, configurable views",
   "dependencies": ["utils", "peripherals"],
   "files": [
     "Manager.lua",
-    "ChestDisplay.lua",
-    "CraftingQueueDisplay.lua",
-    "EnergyStatusDisplay.lua",
-    "FluidMonitor.lua",
-    "InventoryChangesDisplay.lua",
-    "InventoryDisplay.lua",
-    "LowStockAlert.lua",
-    "MachineActivityDisplay.lua",
-    "SingleFluidGauge.lua",
-    "SingleItemCounter.lua",
-    "StorageCapacityDisplay.lua",
-    "WeatherClock.lua"
+    "ItemCounter.lua",
+    "FluidGauge.lua",
+    "CraftingCPU.lua",
+    "MachineStatus.lua",
+    "StorageGraph.lua",
+    "EnergyGraph.lua",
+    "LowStock.lua",
+    "ItemChanges.lua",
+    "Clock.lua"
   ]
 }

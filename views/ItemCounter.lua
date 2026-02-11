@@ -1,4 +1,4 @@
--- SingleItemCounter.lua
+-- ItemCounter.lua
 -- Displays a single item count with large numbers
 -- Configurable: item to monitor, warning threshold
 
