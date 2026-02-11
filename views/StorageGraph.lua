@@ -62,7 +62,7 @@ module = {
         self.monitor.setTextColor(colors.white)
 
         if not self.interface then
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "No AE2 peripheral", colors.red)
+            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "No ME Bridge", colors.red)
             return
         end
 
@@ -70,18 +70,18 @@ module = {
         local used, total = 0, 0
 
         if self.storageType == "items" or self.storageType == "both" then
-            local ok, status = pcall(AEInterface.storage_status, self.interface)
+            local ok, status = pcall(function() return self.interface:itemStorage() end)
             if ok and status then
-                used = used + (status.usedItemStorage or 0)
-                total = total + (status.totalItemStorage or 0)
+                used = used + (status.used or 0)
+                total = total + (status.total or 0)
             end
         end
 
         if self.storageType == "fluids" or self.storageType == "both" then
-            local ok, fluidStatus = pcall(AEInterface.fluidStorage, self.interface)
-            if ok and fluidStatus then
-                used = used + (fluidStatus.used or 0)
-                total = total + (fluidStatus.total or 0)
+            local ok, status = pcall(function() return self.interface:fluidStorage() end)
+            if ok and status then
+                used = used + (status.used or 0)
+                total = total + (status.total or 0)
             end
         end
 
@@ -100,7 +100,7 @@ module = {
             barColor = colors.yellow
         end
 
-        -- Clear screen
+        -- Clear and render
         self.monitor.clear()
 
         -- Row 1: Title
@@ -121,8 +121,7 @@ module = {
         self.monitor.write(pctStr)
 
         self.monitor.setTextColor(colors.gray)
-        local totalStr = " / " .. Text.formatNumber(total, 1) .. "B"
-        self.monitor.write(totalStr)
+        self.monitor.write(" / " .. Text.formatNumber(total, 1) .. "B")
 
         -- Row 4: Progress bar
         if self.height >= 5 then
@@ -134,20 +133,18 @@ module = {
             local graphStartY = 6
             local graphEndY = self.height - 1
 
-            -- Label
             self.monitor.setTextColor(colors.gray)
             self.monitor.setCursorPos(1, graphStartY)
             self.monitor.write("History:")
 
-            -- Draw graph
             MonitorHelpers.drawHistoryGraph(
                 self.monitor,
                 self.history,
                 1,
                 graphStartY + 1,
                 graphEndY,
-                100,  -- Max is 100%
-                function(val, max)
+                100,
+                function(val)
                     if val > 90 then return colors.red
                     elseif val > 75 then return colors.orange
                     elseif val > 50 then return colors.yellow

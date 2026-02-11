@@ -52,28 +52,26 @@ function Text.truncateMiddle(text, maxLength)
     return text:sub(1, prefixLen) .. "..." .. text:sub(-suffixLen)
 end
 
+-- Format fluid amount in millibuckets to human-readable
+-- @param amount_mB Amount in millibuckets
+-- @return Formatted string like "500mB", "1.5B", "10K B", "1.2M B"
 function Text.formatFluidAmount(amount_mB)
-    local absAmount_mB = math.abs(amount_mB)
-    local absAmount_B = absAmount_mB / 1000
+    if not amount_mB then return "0mB" end
+    local buckets = math.abs(amount_mB) / 1000
 
-    -- mb
-    if absAmount_B < 10 then
-        return string.format("%.1fmB", absAmount_mB)
+    if buckets < 1 then
+        -- Less than 1 bucket: show millibuckets
+        return string.format("%dmB", math.abs(amount_mB))
+    elseif buckets < 1000 then
+        -- 1-999 buckets
+        return string.format("%.1fB", buckets)
+    elseif buckets < 1000000 then
+        -- 1K-999K buckets
+        return string.format("%.1fK B", buckets / 1000)
+    else
+        -- 1M+ buckets
+        return string.format("%.1fM B", buckets / 1000000)
     end
-
-    -- B
-    if absAmount_B < 1000 then
-        local absAmount_B = absAmount_B / 1000
-        return string.format("%.1f B", absAmount_B)
-    end
-
-    -- Thousand B
-    if absAmount_B < 999999 then
-        return string.format("%.1fK B", absAmount_B / 1000)
-    end
-
-    -- Million B
-    return string.format("%.2fM B", absAmount_B / 1000000)
 end
 
 -- Function to shorten item names if they're too long

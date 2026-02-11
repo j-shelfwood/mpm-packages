@@ -18,7 +18,7 @@ local function getAE2Items()
     local okNew, interface = pcall(AEInterface.new)
     if not okNew or not interface then return {} end
 
-    local itemsOk, items = pcall(AEInterface.items, interface)
+    local itemsOk, items = pcall(function() return interface:items() end)
     if not itemsOk or not items then return {} end
 
     -- Sort by count descending
@@ -37,7 +37,7 @@ local function getAE2Fluids()
     local okNew, interface = pcall(AEInterface.new)
     if not okNew or not interface then return {} end
 
-    local fluidsOk, fluids = pcall(AEInterface.fluids, interface)
+    local fluidsOk, fluids = pcall(function() return interface:fluids() end)
     if not fluidsOk or not fluids then return {} end
 
     -- Sort by amount descending
@@ -272,8 +272,8 @@ function ConfigUI.drawConfigMenu(monitor, viewName, schema, currentConfig)
                     local options = {}
                     for _, item in ipairs(items) do
                         table.insert(options, {
-                            value = item.name,
-                            label = Text.prettifyName(item.name) .. " (" .. Text.formatNumber(item.count or 0, 0) .. ")"
+                            value = item.registryName,
+                            label = Text.prettifyName(item.registryName) .. " (" .. Text.formatNumber(item.count or 0, 0) .. ")"
                         })
                     end
                     newValue = ConfigUI.drawPicker(monitor, "Select Item", options, config[field.key], function(opt)
@@ -286,8 +286,8 @@ function ConfigUI.drawConfigMenu(monitor, viewName, schema, currentConfig)
                     for _, fluid in ipairs(fluids) do
                         local buckets = math.floor((fluid.amount or 0) / 1000)
                         table.insert(options, {
-                            value = fluid.name,
-                            label = Text.prettifyName(fluid.name) .. " (" .. Text.formatNumber(buckets, 0) .. "B)"
+                            value = fluid.registryName,
+                            label = Text.prettifyName(fluid.registryName) .. " (" .. Text.formatNumber(buckets, 0) .. "B)"
                         })
                     end
                     newValue = ConfigUI.drawPicker(monitor, "Select Fluid", options, config[field.key], function(opt)

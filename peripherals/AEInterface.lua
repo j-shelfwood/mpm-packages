@@ -1,379 +1,208 @@
 -- AEInterface.lua
--- Unified adapter for AE2 peripherals (me_bridge from Advanced Peripherals, merequester:requester)
--- Normalizes API differences between peripheral types
+-- Adapter for AE2 ME Bridge peripheral (Advanced Peripherals)
+-- Provides normalized API for item/fluid/energy/crafting operations
 
-local module
+local AEInterface = {}
+AEInterface.__index = AEInterface
 
--- Supported peripheral types in priority order
-local PERIPHERAL_TYPES = {
-    "me_bridge",           -- Advanced Peripherals ME Bridge
-    "merequester:requester" -- ME Requester
-}
-
--- Detect which AE2 peripheral is available
-local function findAEPeripheral()
-    for _, pType in ipairs(PERIPHERAL_TYPES) do
-        local p = peripheral.find(pType)
-        if p then
-            return p, pType
-        end
-    end
-    return nil, nil
+-- Check if ME Bridge peripheral exists
+-- @return boolean, peripheral|nil
+function AEInterface.exists()
+    local p = peripheral.find("me_bridge")
+    return p ~= nil, p
 end
 
--- Check if any supported AE2 peripheral exists
-local function hasAEPeripheral()
-    for _, pType in ipairs(PERIPHERAL_TYPES) do
-        local names = peripheral.getNames()
-        for _, name in ipairs(names) do
-            if peripheral.getType(name) == pType then
-                return true, pType
-            end
-        end
-    end
-    return false, nil
+-- Find ME Bridge peripheral
+-- @return peripheral|nil
+function AEInterface.find()
+    return peripheral.find("me_bridge")
 end
 
-module = {
-    -- Supported peripheral types (exported for views to use)
-    PERIPHERAL_TYPES = PERIPHERAL_TYPES,
+-- Create new AEInterface instance
+-- @param p Optional: specific peripheral to wrap. If nil, auto-detects.
+-- @return AEInterface instance
+-- @throws error if no ME Bridge found
+function AEInterface.new(p)
+    p = p or peripheral.find("me_bridge")
 
-    -- Find any available AE2 peripheral
-    find = findAEPeripheral,
+    if not p then
+        error("No ME Bridge found")
+    end
 
-    -- Check if AE2 peripheral exists
-    exists = hasAEPeripheral,
+    local self = setmetatable({}, AEInterface)
+    self.bridge = p
+    return self
+end
 
-    -- Create new AEInterface instance
-    -- @param peripheral - Optional: specific peripheral to wrap. If nil, auto-detects.
-    new = function(p)
-        local detectedType = nil
+-- Fetch all items from the network
+-- @return array of {registryName, displayName, count, isCraftable}
+function AEInterface:items()
+    local raw = self.bridge.getItems() or {}
 
-        if not p then
-            p, detectedType = findAEPeripheral()
-        else
-            -- Determine type of provided peripheral
-            for _, pType in ipairs(PERIPHERAL_TYPES) do
-                if peripheral.hasType and peripheral.hasType(peripheral.getName(p), pType) then
-                    detectedType = pType
-                    break
-                end
-            end
-            -- Fallback: try to detect by available methods
-            if not detectedType then
-                if p.getItems then
-                    detectedType = "me_bridge"
-                elseif p.items then
-                    detectedType = "merequester:requester"
-                end
-            end
-        end
-
-        if not p then
-            error("No AE2 peripheral found. Supported types: me_bridge, merequester:requester")
-        end
-
-        local self = {
-            interface = p,
-            peripheralType = detectedType or "unknown"
-        }
-
-        return self
-    end,
-
-    -- Get peripheral type
-    getType = function(self)
-        return self.peripheralType
-    end,
-
-    -- Fetch all items from the network
-    -- Normalizes field names: ensures 'count' field exists
-    items = function(self)
-        local allItems
-
-        -- Call appropriate method based on peripheral type
-        if self.peripheralType == "me_bridge" then
-            allItems = self.interface.getItems()
-        else
-            allItems = self.interface.items()
-        end
-
-        if not allItems then
-            error("No items detected.")
-        end
-
-        -- Normalize item structure
-        for _, item in ipairs(allItems) do
-            item.id = item.name
-            -- ME Bridge uses 'amount', ME Requester uses 'count'
-            if item.amount and not item.count then
-                item.count = item.amount
-            end
-            -- Use displayName as name for display purposes
-            if item.displayName then
-                item.name = item.displayName
-            end
-        end
-
-        -- Consolidate items by id
-        local consolidatedItems = {}
-        for _, item in ipairs(allItems) do
-            local id = item.id
-            if consolidatedItems[id] then
-                consolidatedItems[id].count = consolidatedItems[id].count + item.count
+    -- Normalize and consolidate by registry name
+    local byId = {}
+    for _, item in ipairs(raw) do
+        local id = item.name  -- registry name like "minecraft:diamond"
+        if id then
+            if byId[id] then
+                byId[id].count = byId[id].count + (item.amount or 0)
             else
-                consolidatedItems[id] = {
-                    id = id,
-                    name = item.name,
-                    count = item.count,
-                    isCraftable = item.isCraftable
+                byId[id] = {
+                    registryName = id,
+                    displayName = item.displayName or id,
+                    count = item.amount or 0,
+                    isCraftable = item.isCraftable or false
                 }
             end
         end
-
-        -- Convert to list
-        local items = {}
-        for _, item in pairs(consolidatedItems) do
-            table.insert(items, item)
-        end
-
-        return items
-    end,
-
-    -- Calculate item changes between fetches
-    changes = function(self, prev_items)
-        local curr_items = module.items(self)
-
-        local prev_dict = {}
-        for _, item in ipairs(prev_items) do
-            prev_dict[item.id] = item.count
-        end
-
-        local changes = {}
-        for _, item in ipairs(curr_items) do
-            local prev_count = prev_dict[item.id]
-            if prev_count and prev_count ~= item.count then
-                local change = math.abs(item.count - prev_count)
-                local operation = item.count > prev_count and "+" or "-"
-                table.insert(changes, {
-                    id = item.id,
-                    name = item.name,
-                    count = item.count,
-                    change = change,
-                    operation = operation
-                })
-            end
-        end
-
-        return changes
-    end,
-
-    -- Fetch all fluids from the network
-    -- Normalizes field names: ensures 'amount' field exists
-    fluids = function(self)
-        local allFluids
-
-        -- Call appropriate method based on peripheral type
-        if self.peripheralType == "me_bridge" then
-            allFluids = self.interface.getFluids() or {}
-        else
-            allFluids = self.interface.tanks() or {}
-        end
-
-        -- Consolidate fluids
-        local consolidatedFluids = {}
-        for _, fluid in ipairs(allFluids) do
-            if fluid and fluid.name then
-                if consolidatedFluids[fluid.name] then
-                    consolidatedFluids[fluid.name].amount = consolidatedFluids[fluid.name].amount + (fluid.amount or 0)
-                else
-                    consolidatedFluids[fluid.name] = {
-                        name = fluid.name,
-                        amount = fluid.amount or 0
-                    }
-                end
-            end
-        end
-
-        -- Convert to list
-        local fluids = {}
-        for _, fluid in pairs(consolidatedFluids) do
-            table.insert(fluids, fluid)
-        end
-
-        return fluids
-    end,
-
-    -- Calculate fluid changes between fetches
-    fluid_changes = function(self, prev_fluids)
-        local curr_fluids = module.fluids(self)
-
-        local prev_dict = {}
-        for _, fluid in ipairs(prev_fluids) do
-            prev_dict[fluid.name] = fluid.amount
-        end
-
-        local changes = {}
-        for _, fluid in ipairs(curr_fluids) do
-            local prev_amount = prev_dict[fluid.name]
-            if prev_amount and prev_amount ~= fluid.amount then
-                local change = math.abs(fluid.amount - prev_amount)
-                local operation = fluid.amount > prev_amount and "+" or "-"
-                table.insert(changes, {
-                    name = fluid.name,
-                    amount = fluid.amount,
-                    change = change,
-                    operation = operation
-                })
-            end
-        end
-
-        return changes
-    end,
-
-    -- Get storage status (capacity information)
-    storage_status = function(self)
-        local cells
-
-        -- Call appropriate method based on peripheral type
-        if self.peripheralType == "me_bridge" then
-            cells = self.interface.getCells()
-        else
-            cells = self.interface.listCells()
-        end
-
-        local storageStatus = {
-            cells = cells or {},
-            usedItemStorage = self.interface.getUsedItemStorage() or 0,
-            totalItemStorage = self.interface.getTotalItemStorage() or 0,
-            availableItemStorage = self.interface.getAvailableItemStorage() or 0
-        }
-
-        return storageStatus
-    end,
-
-    -- Get storage cells
-    cells = function(self)
-        if self.peripheralType == "me_bridge" then
-            return self.interface.getCells() or {}
-        else
-            return self.interface.listCells() or {}
-        end
-    end,
-
-    -- Categorize cells by type
-    categorize_cells = function(self)
-        local cells = module.cells(self)
-        local categorized = {}
-
-        for _, cell in ipairs(cells) do
-            local cellType = cell.item:match(".*_(%w+)$") or "Unknown"
-            if not categorized[cellType] then
-                categorized[cellType] = 0
-            end
-            categorized[cellType] = categorized[cellType] + 1
-        end
-
-        return categorized
-    end,
-
-    -- ME Bridge specific: Get energy information
-    energy = function(self)
-        if self.peripheralType ~= "me_bridge" then
-            return nil, "Energy methods only available on me_bridge"
-        end
-
-        return {
-            stored = self.interface.getStoredEnergy() or 0,
-            capacity = self.interface.getEnergyCapacity() or 0,
-            usage = self.interface.getEnergyUsage() or 0
-        }
-    end,
-
-    -- ME Bridge specific: Check if item is craftable
-    isCraftable = function(self, filter)
-        if self.peripheralType ~= "me_bridge" then
-            return false, "Crafting methods only available on me_bridge"
-        end
-
-        return self.interface.isCraftable(filter)
-    end,
-
-    -- ME Bridge specific: Request item crafting
-    craftItem = function(self, filter, cpuName)
-        if self.peripheralType ~= "me_bridge" then
-            return nil, "Crafting methods only available on me_bridge"
-        end
-
-        return self.interface.craftItem(filter, cpuName)
-    end,
-
-    -- ME Bridge specific: Get crafting CPUs
-    getCraftingCPUs = function(self)
-        if self.peripheralType ~= "me_bridge" then
-            return {}, "Crafting methods only available on me_bridge"
-        end
-
-        return self.interface.getCraftingCPUs() or {}
-    end,
-
-    -- ME Bridge specific: Export item to adjacent inventory
-    exportItem = function(self, filter, direction)
-        if self.peripheralType ~= "me_bridge" then
-            return 0, "Export methods only available on me_bridge"
-        end
-
-        return self.interface.exportItem(filter, direction)
-    end,
-
-    -- ME Bridge specific: Import item from adjacent inventory
-    importItem = function(self, filter, direction)
-        if self.peripheralType ~= "me_bridge" then
-            return 0, "Import methods only available on me_bridge"
-        end
-
-        return self.interface.importItem(filter, direction)
-    end,
-
-    -- ME Bridge specific: Get single item by filter (more efficient than getItems)
-    getItem = function(self, filter)
-        if self.peripheralType ~= "me_bridge" then
-            return nil, "getItem only available on me_bridge"
-        end
-
-        return self.interface.getItem(filter)
-    end,
-
-    -- ME Bridge specific: Get single fluid by filter (more efficient than getFluids)
-    getFluid = function(self, filter)
-        if self.peripheralType ~= "me_bridge" then
-            return nil, "getFluid only available on me_bridge"
-        end
-
-        return self.interface.getFluid(filter)
-    end,
-
-    -- ME Bridge specific: Get all active crafting tasks
-    getCraftingTasks = function(self)
-        if self.peripheralType ~= "me_bridge" then
-            return {}, "Crafting methods only available on me_bridge"
-        end
-
-        return self.interface.getCraftingTasks() or {}
-    end,
-
-    -- ME Bridge specific: Get fluid storage status
-    fluidStorage = function(self)
-        if self.peripheralType ~= "me_bridge" then
-            return nil, "Fluid storage methods only available on me_bridge"
-        end
-
-        return {
-            used = self.interface.getUsedFluidStorage() or 0,
-            total = self.interface.getTotalFluidStorage() or 0,
-            available = self.interface.getAvailableFluidStorage() or 0
-        }
     end
-}
 
-return module
+    -- Convert to array
+    local result = {}
+    for _, item in pairs(byId) do
+        table.insert(result, item)
+    end
+
+    return result
+end
+
+-- Get single item by filter (more efficient than items())
+-- @param filter Table with {name="minecraft:diamond"}
+-- @return item table or nil
+function AEInterface:getItem(filter)
+    local item = self.bridge.getItem(filter)
+    if not item then return nil end
+
+    return {
+        registryName = item.name,
+        displayName = item.displayName or item.name,
+        count = item.amount or 0,
+        isCraftable = item.isCraftable or false
+    }
+end
+
+-- Fetch all fluids from the network
+-- @return array of {registryName, displayName, amount}
+function AEInterface:fluids()
+    local raw = self.bridge.getFluids() or {}
+
+    -- Consolidate by registry name
+    local byId = {}
+    for _, fluid in ipairs(raw) do
+        local id = fluid.name
+        if id then
+            if byId[id] then
+                byId[id].amount = byId[id].amount + (fluid.amount or 0)
+            else
+                byId[id] = {
+                    registryName = id,
+                    displayName = fluid.displayName or id,
+                    amount = fluid.amount or 0
+                }
+            end
+        end
+    end
+
+    -- Convert to array
+    local result = {}
+    for _, fluid in pairs(byId) do
+        table.insert(result, fluid)
+    end
+
+    return result
+end
+
+-- Get single fluid by filter (more efficient than fluids())
+-- @param filter Table with {name="minecraft:water"}
+-- @return fluid table or nil
+function AEInterface:getFluid(filter)
+    local fluid = self.bridge.getFluid(filter)
+    if not fluid then return nil end
+
+    return {
+        registryName = fluid.name,
+        displayName = fluid.displayName or fluid.name,
+        amount = fluid.amount or 0
+    }
+end
+
+-- Get item storage capacity
+-- @return {used, total, available}
+function AEInterface:itemStorage()
+    return {
+        used = self.bridge.getUsedItemStorage() or 0,
+        total = self.bridge.getTotalItemStorage() or 0,
+        available = self.bridge.getAvailableItemStorage() or 0
+    }
+end
+
+-- Get fluid storage capacity
+-- @return {used, total, available}
+function AEInterface:fluidStorage()
+    return {
+        used = self.bridge.getUsedFluidStorage() or 0,
+        total = self.bridge.getTotalFluidStorage() or 0,
+        available = self.bridge.getAvailableFluidStorage() or 0
+    }
+end
+
+-- Get energy status
+-- @return {stored, capacity, usage}
+function AEInterface:energy()
+    return {
+        stored = self.bridge.getStoredEnergy() or 0,
+        capacity = self.bridge.getEnergyCapacity() or 0,
+        usage = self.bridge.getEnergyUsage() or 0
+    }
+end
+
+-- Get all crafting CPUs
+-- @return array of {name, storage, coProcessors, isBusy}
+function AEInterface:getCraftingCPUs()
+    return self.bridge.getCraftingCPUs() or {}
+end
+
+-- Get all active crafting tasks
+-- @return array of task tables
+function AEInterface:getCraftingTasks()
+    return self.bridge.getCraftingTasks() or {}
+end
+
+-- Check if item is craftable
+-- @param filter Table with {name="minecraft:diamond"}
+-- @return boolean
+function AEInterface:isCraftable(filter)
+    return self.bridge.isCraftable(filter) or false
+end
+
+-- Request item crafting
+-- @param filter Table with {name="...", count=N}
+-- @param cpuName Optional CPU name
+-- @return job table or nil, error
+function AEInterface:craftItem(filter, cpuName)
+    return self.bridge.craftItem(filter, cpuName)
+end
+
+-- Export item to adjacent inventory
+-- @param filter Table with {name="...", count=N}
+-- @param direction "top", "bottom", "north", "south", "east", "west" or peripheral name
+-- @return number of items exported
+function AEInterface:exportItem(filter, direction)
+    return self.bridge.exportItem(filter, direction) or 0
+end
+
+-- Import item from adjacent inventory
+-- @param filter Table with {name="...", count=N}
+-- @param direction "top", "bottom", "north", "south", "east", "west" or peripheral name
+-- @return number of items imported
+function AEInterface:importItem(filter, direction)
+    return self.bridge.importItem(filter, direction) or 0
+end
+
+-- Get storage cells
+-- @return array of cell tables
+function AEInterface:getCells()
+    return self.bridge.getCells() or {}
+end
+
+return AEInterface

@@ -14,7 +14,7 @@ local function getCPUOptions()
     local okNew, interface = pcall(AEInterface.new)
     if not okNew or not interface then return {} end
 
-    local cpusOk, cpus = pcall(AEInterface.getCraftingCPUs, interface)
+    local cpusOk, cpus = pcall(function() return interface:getCraftingCPUs() end)
     if not cpusOk or not cpus then return {} end
 
     local options = {}
@@ -93,7 +93,7 @@ module = {
         end
 
         -- Get all CPUs and find ours
-        local ok, cpus = pcall(AEInterface.getCraftingCPUs, self.interface)
+        local ok, cpus = pcall(function() return self.interface:getCraftingCPUs() end)
         if not ok or not cpus then
             MonitorHelpers.writeCentered(self.monitor, 1, "Error fetching CPUs", colors.red)
             return
@@ -129,7 +129,7 @@ module = {
             MonitorHelpers.writeCentered(self.monitor, centerY - 1, "CRAFTING", colors.orange)
 
             -- Try to get current task info
-            local tasksOk, tasks = pcall(AEInterface.getCraftingTasks, self.interface)
+            local tasksOk, tasks = pcall(function() return self.interface:getCraftingTasks() end)
             if tasksOk and tasks then
                 for _, task in ipairs(tasks) do
                     -- Find task matching this CPU (task.cpu matches cpu.name)

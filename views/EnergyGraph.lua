@@ -47,8 +47,7 @@ module = {
     end,
 
     mount = function()
-        local exists, pType = AEInterface.exists()
-        return exists and pType == "me_bridge"
+        return AEInterface.exists()
     end,
 
     render = function(self)
@@ -66,7 +65,7 @@ module = {
         end
 
         -- Get energy data
-        local ok, energy = pcall(AEInterface.energy, self.interface)
+        local ok, energy = pcall(function() return self.interface:energy() end)
         if not ok or not energy then
             MonitorHelpers.writeCentered(self.monitor, 1, "Error fetching energy", colors.red)
             return
@@ -88,7 +87,7 @@ module = {
             barColor = colors.yellow
         end
 
-        -- Clear screen
+        -- Clear and render
         self.monitor.clear()
 
         -- Row 1: Title and percentage
@@ -135,7 +134,7 @@ module = {
                 graphStartY + 1,
                 graphEndY,
                 100,
-                function(val, max)
+                function(val)
                     if val <= warnPct then return colors.red
                     elseif val <= warnPct * 2 then return colors.yellow
                     else return colors.green end

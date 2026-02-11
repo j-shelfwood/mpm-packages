@@ -11,7 +11,6 @@ local module
 module = {
     sleepTime = 1,
 
-    -- Configuration schema for this view
     configSchema = {
         {
             key = "fluid",
@@ -23,7 +22,7 @@ module = {
         {
             key = "warningBelow",
             type = "number",
-            label = "Warning Below",
+            label = "Warning Below (B)",
             default = 1000,
             min = 0,
             max = 1000000,
@@ -47,7 +46,6 @@ module = {
             initialized = false
         }
 
-        -- Try to create interface
         local ok, interface = pcall(AEInterface.new)
         if ok and interface then
             self.interface = interface
@@ -61,7 +59,6 @@ module = {
     end,
 
     render = function(self)
-        -- One-time initialization
         if not self.initialized then
             self.monitor.clear()
             self.initialized = true
@@ -70,35 +67,28 @@ module = {
         self.monitor.setBackgroundColor(colors.black)
         self.monitor.setTextColor(colors.white)
 
-        -- Check interface
         if not self.interface then
-            self.monitor.setCursorPos(1, math.floor(self.height / 2))
-            self.monitor.write("No AE2 peripheral")
+            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "No ME Bridge", colors.red)
             return
         end
 
-        -- Check if fluid is configured
         if not self.fluidId then
-            self.monitor.setCursorPos(1, math.floor(self.height / 2) - 1)
-            self.monitor.write("Fluid Gauge")
-            self.monitor.setCursorPos(1, math.floor(self.height / 2) + 1)
-            self.monitor.write("Configure to select fluid")
+            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) - 1, "Fluid Gauge", colors.white)
+            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) + 1, "Configure to select fluid", colors.gray)
             return
         end
 
         -- Fetch fluids
-        local ok, fluids = pcall(AEInterface.fluids, self.interface)
+        local ok, fluids = pcall(function() return self.interface:fluids() end)
         if not ok or not fluids then
-            self.monitor.setCursorPos(1, 1)
-            self.monitor.setTextColor(colors.red)
-            self.monitor.write("Error fetching fluids")
+            MonitorHelpers.writeCentered(self.monitor, 1, "Error fetching fluids", colors.red)
             return
         end
 
-        -- Find our fluid
+        -- Find our fluid by registry name
         local amount = 0
         for _, fluid in ipairs(fluids) do
-            if fluid.name == self.fluidId then
+            if fluid.registryName == self.fluidId then
                 amount = fluid.amount or 0
                 break
             end
@@ -107,12 +97,9 @@ module = {
         local buckets = amount / 1000
 
         -- Record history
-        table.insert(self.history, buckets)
-        if #self.history > self.maxHistory then
-            table.remove(self.history, 1)
-        end
+        MonitorHelpers.recordHistory(self.history, buckets, self.maxHistory)
 
-        -- Determine color based on warning threshold
+        -- Determine color
         local gaugeColor = colors.cyan
         local isWarning = buckets < self.warningBelow
 
@@ -122,15 +109,14 @@ module = {
             gaugeColor = colors.orange
         end
 
-        -- Clear screen
-        self.monitor.setBackgroundColor(colors.black)
+        -- Clear and render
         self.monitor.clear()
 
         -- Row 1: Fluid name
         local name = Text.truncateMiddle(Text.prettifyName(self.fluidId), self.width)
         MonitorHelpers.writeCentered(self.monitor, 1, name, colors.white)
 
-        -- Row 3: Amount (large, centered)
+        -- Row 3: Amount
         local amountStr = Text.formatNumber(buckets, 0) .. "B"
         MonitorHelpers.writeCentered(self.monitor, 3, amountStr, gaugeColor)
 
@@ -145,23 +131,23 @@ module = {
             local barHeight = self.height - barStartY - 1
             local barX = math.floor(self.width / 2)
 
-            -- Calculate fill based on history max (auto-scaling)
+            -- Auto-scaling based on history
             local maxBuckets = buckets
             for _, h in ipairs(self.history) do
                 if h > maxBuckets then maxBuckets = h end
             end
-            maxBuckets = math.max(maxBuckets, self.warningBelow * 2)  -- At least 2x warning threshold
+            maxBuckets = math.max(maxBuckets, self.warningBelow * 2)
 
             local fillHeight = math.floor((buckets / maxBuckets) * barHeight)
 
-            -- Draw bar background
+            -- Bar background
             self.monitor.setBackgroundColor(colors.gray)
             for y = barStartY, barStartY + barHeight - 1 do
                 self.monitor.setCursorPos(barX - 1, y)
                 self.monitor.write("   ")
             end
 
-            -- Draw bar fill (from bottom up)
+            -- Bar fill (from bottom)
             self.monitor.setBackgroundColor(gaugeColor)
             for y = 0, fillHeight - 1 do
                 local drawY = barStartY + barHeight - 1 - y
@@ -184,12 +170,9 @@ module = {
         -- Bottom: threshold info
         self.monitor.setBackgroundColor(colors.black)
         self.monitor.setTextColor(colors.gray)
-        local thresholdStr = "Warn <" .. self.warningBelow .. "B"
         self.monitor.setCursorPos(1, self.height)
-        self.monitor.write(thresholdStr)
+        self.monitor.write("Warn <" .. self.warningBelow .. "B")
 
-        -- Reset colors
-        self.monitor.setBackgroundColor(colors.black)
         self.monitor.setTextColor(colors.white)
     end
 }

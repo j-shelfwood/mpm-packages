@@ -69,7 +69,7 @@ module = {
             countColor = colors.yellow
         end
 
-        local lines = { Text.prettifyName(item.id or item.name or "Unknown"), tostring(item.count) }
+        local lines = { Text.prettifyName(item.registryName or "Unknown"), tostring(item.count) }
         local lineColors = { colors.white, countColor }
 
         if showCraftable then
@@ -103,7 +103,7 @@ module = {
         end
 
         -- Get all items
-        local ok, items = pcall(AEInterface.items, self.interface)
+        local ok, items = pcall(function() return self.interface:items() end)
         if not ok or not items then
             MonitorHelpers.writeCentered(self.monitor, 1, "Error fetching items", colors.red)
             return

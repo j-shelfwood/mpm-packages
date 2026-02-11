@@ -45,10 +45,10 @@ module = {
         if ok and interface then
             self.interface = interface
             -- Initialize previous items
-            local itemsOk, items = pcall(AEInterface.items, interface)
+            local itemsOk, items = pcall(function() return interface:items() end)
             if itemsOk and items then
                 for _, item in ipairs(items) do
-                    self.prevItems[item.id or item.name] = item.count
+                    self.prevItems[item.registryName] = item.count
                 end
             end
         end
@@ -91,7 +91,7 @@ module = {
         end
 
         -- Get current items
-        local ok, currItems = pcall(AEInterface.items, self.interface)
+        local ok, currItems = pcall(function() return self.interface:items() end)
         if not ok or not currItems then
             MonitorHelpers.writeCentered(self.monitor, 1, "Error fetching items", colors.red)
             return
@@ -100,8 +100,7 @@ module = {
         -- Build current lookup
         local currLookup = {}
         for _, item in ipairs(currItems) do
-            local id = item.id or item.name
-            currLookup[id] = item.count
+            currLookup[item.registryName] = item.count
         end
 
         -- Calculate changes

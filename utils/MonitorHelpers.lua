@@ -35,7 +35,7 @@ end
 -- @param monitor Monitor peripheral
 -- @param y Y position
 -- @param text Text to write
--- @param color Optional text color
+-- @param color Optional text color (resets to white after)
 function MonitorHelpers.writeCentered(monitor, y, text, color)
     local width = monitor.getSize()
     local x = math.floor((width - #text) / 2) + 1
@@ -46,6 +46,11 @@ function MonitorHelpers.writeCentered(monitor, y, text, color)
     end
     monitor.setCursorPos(x, y)
     monitor.write(text)
+
+    -- Reset text color to avoid leaking state
+    if color then
+        monitor.setTextColor(colors.white)
+    end
 end
 
 -- Draw a horizontal progress bar

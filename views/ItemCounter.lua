@@ -11,7 +11,6 @@ local module
 module = {
     sleepTime = 1,
 
-    -- Configuration schema for this view
     configSchema = {
         {
             key = "item",
@@ -47,7 +46,6 @@ module = {
             initialized = false
         }
 
-        -- Try to create interface
         local ok, interface = pcall(AEInterface.new)
         if ok and interface then
             self.interface = interface
@@ -61,7 +59,6 @@ module = {
     end,
 
     render = function(self)
-        -- One-time initialization
         if not self.initialized then
             self.monitor.clear()
             self.initialized = true
@@ -70,36 +67,29 @@ module = {
         self.monitor.setBackgroundColor(colors.black)
         self.monitor.setTextColor(colors.white)
 
-        -- Check interface
         if not self.interface then
-            self.monitor.setCursorPos(1, math.floor(self.height / 2))
-            self.monitor.write("No AE2 peripheral")
+            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "No ME Bridge", colors.red)
             return
         end
 
-        -- Check if item is configured
         if not self.itemId then
-            self.monitor.setCursorPos(1, math.floor(self.height / 2) - 1)
-            self.monitor.write("Item Counter")
-            self.monitor.setCursorPos(1, math.floor(self.height / 2) + 1)
-            self.monitor.write("Configure to select item")
+            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) - 1, "Item Counter", colors.white)
+            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) + 1, "Configure to select item", colors.gray)
             return
         end
 
         -- Fetch items
-        local ok, items = pcall(AEInterface.items, self.interface)
+        local ok, items = pcall(function() return self.interface:items() end)
         if not ok or not items then
-            self.monitor.setCursorPos(1, 1)
-            self.monitor.setTextColor(colors.red)
-            self.monitor.write("Error fetching items")
+            MonitorHelpers.writeCentered(self.monitor, 1, "Error fetching items", colors.red)
             return
         end
 
-        -- Find our item
+        -- Find our item by registry name
         local count = 0
         local isCraftable = false
         for _, item in ipairs(items) do
-            if item.name == self.itemId then
+            if item.registryName == self.itemId then
                 count = item.count or 0
                 isCraftable = item.isCraftable or false
                 break
@@ -130,21 +120,19 @@ module = {
             countColor = colors.lime
         end
 
-        -- Clear screen
-        self.monitor.setBackgroundColor(colors.black)
+        -- Clear and render
         self.monitor.clear()
 
-        -- Row 1: Item name
+        -- Row 1: Item name (prettified from registry name)
         local name = Text.truncateMiddle(Text.prettifyName(self.itemId), self.width)
         MonitorHelpers.writeCentered(self.monitor, 1, name, colors.white)
 
-        -- Center area: Large count
+        -- Center: Large count
         local countStr = Text.formatNumber(count, 0)
         local centerY = math.floor(self.height / 2)
-
         MonitorHelpers.writeCentered(self.monitor, centerY, countStr, countColor)
 
-        -- Change indicator (draw after centered count)
+        -- Change indicator
         if self.changeIndicator ~= "" then
             local indicatorColor = self.changeIndicator == "+" and colors.green or colors.red
             local countX = math.floor((self.width - #countStr) / 2) + 1
@@ -167,12 +155,9 @@ module = {
 
         -- Bottom: threshold info
         self.monitor.setTextColor(colors.gray)
-        local thresholdStr = "Warn <" .. self.warningBelow
         self.monitor.setCursorPos(1, self.height)
-        self.monitor.write(thresholdStr)
+        self.monitor.write("Warn <" .. self.warningBelow)
 
-        -- Reset colors
-        self.monitor.setBackgroundColor(colors.black)
         self.monitor.setTextColor(colors.white)
     end
 }
