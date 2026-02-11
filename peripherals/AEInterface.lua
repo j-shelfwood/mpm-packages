@@ -137,7 +137,6 @@ module = {
             table.insert(items, item)
         end
 
-        print("Items fetched: " .. #items)
         return items
     end,
 
@@ -166,7 +165,6 @@ module = {
             end
         end
 
-        print("Changes calculated: " .. #changes)
         return changes
     end,
 
