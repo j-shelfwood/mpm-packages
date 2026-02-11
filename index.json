@@ -1,7 +1,21 @@
 [
   {
+    "name": "shelfos",
+    "description": "ShelfOS - Base Information System with multi-monitor management, touch config, and pocket integration",
+    "dependencies": ["views", "ui", "net", "peripherals", "utils"]
+  },
+  {
+    "name": "ui",
+    "description": "Touch UI primitives - zones, overlays, buttons, toggles, steppers for monitor interaction",
+    "dependencies": ["utils"]
+  },
+  {
+    "name": "net",
+    "description": "Secure networking primitives - crypto signing, protocols, discovery for rednet"
+  },
+  {
     "name": "displays",
-    "description": "Display management - Configure and manage multiple monitors to show information from peripherals",
+    "description": "(Legacy) Simple display management - Use 'shelfos' for full features",
     "dependencies": ["views"]
   },
   {

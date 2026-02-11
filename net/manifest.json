@@ -1,0 +1,11 @@
+{
+  "name": "net",
+  "description": "Secure networking primitives - crypto, protocols, discovery for rednet",
+  "dependencies": [],
+  "files": [
+    "Crypto.lua",
+    "Protocol.lua",
+    "Channel.lua",
+    "Discovery.lua"
+  ]
+}
