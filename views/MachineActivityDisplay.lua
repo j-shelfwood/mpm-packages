@@ -2,18 +2,24 @@
 -- Displays status of machines of a specific type
 -- Shows green when busy, gray when idle
 
-local this
+local module
 
-this = {
+module = {
     sleepTime = 1,
 
     new = function(monitor, config)
         config = config or {}
+        local width, height = monitor.getSize()
         local self = {
             monitor = monitor,
             machine_type = config.machine_type or "modern_industrialization:electrolyzer",
             bar_width = 7,
-            bar_height = 4
+            bar_height = 4,
+            width = width,
+            height = height,
+            peripherals = {},
+            title = "",
+            initialized = false
         }
 
         -- Extract machine type name for display
@@ -26,15 +32,8 @@ this = {
         machineTypeName = machineTypeName:gsub("_", " ") -- Replace underscores with spaces
         self.title = string.upper(string.sub(machineTypeName, 1, 1)) .. string.sub(machineTypeName, 2)
 
-        local width, height = monitor.getSize()
-        self.width = width
-        self.height = height
-
-        local names = peripheral.getNames()
-
-        self.peripherals = {}
-
         -- Find all peripherals of the specified machine type
+        local names = peripheral.getNames()
         for _, name in ipairs(names) do
             if peripheral.getType(name) == self.machine_type then
                 table.insert(self.peripherals, peripheral.wrap(name))
@@ -57,9 +56,31 @@ this = {
         }
     end,
 
+    -- Clear a single line by overwriting with spaces
+    clearLine = function(self, y)
+        self.monitor.setCursorPos(1, y)
+        self.monitor.setBackgroundColor(colors.black)
+        self.monitor.write(string.rep(" ", self.width))
+    end,
+
+    -- Write text at position
+    writeAt = function(self, x, y, text)
+        self.monitor.setCursorPos(x, y)
+        self.monitor.write(text)
+    end,
+
     render = function(self)
+        -- One-time initialization
+        if not self.initialized then
+            self.monitor.clear()
+            self.initialized = true
+        end
+
         self.monitor.setTextScale(1)
-        this.displayMachineStatus(self)
+        self.monitor.setBackgroundColor(colors.black)
+        self.monitor.setTextColor(colors.white)
+
+        module.displayMachineStatus(self)
     end,
 
     fetchData = function(self)
@@ -92,15 +113,17 @@ this = {
     end,
 
     displayMachineStatus = function(self)
-        local machine_data = this.fetchData(self)
-
-        self.monitor.clear()
+        local machine_data = module.fetchData(self)
 
         if #machine_data == 0 then
-            self.monitor.setCursorPos(1, 1)
-            self.monitor.write("No machines found")
-            self.monitor.setCursorPos(1, 2)
-            self.monitor.write("Type: " .. self.machine_type)
+            module.clearLine(self, 1)
+            module.writeAt(self, 1, 1, "No machines found")
+            module.clearLine(self, 2)
+            module.writeAt(self, 1, 2, "Type: " .. self.machine_type)
+            -- Clear rest of screen on empty
+            for y = 3, self.height do
+                module.clearLine(self, y)
+            end
             return
         end
 
@@ -109,13 +132,17 @@ this = {
         local rows = math.ceil(#machine_data / columns)
         local totalGridHeight = rows * (self.bar_height + 1) - 1
 
-        -- Display the title at the top
-        self.monitor.setBackgroundColor(colors.black)
-        self.monitor.setTextColor(colors.white)
-        local linesUsed = this.displayCenteredTitle(self, 2, self.title)
+        -- Display the title at the top (row 2)
+        module.clearLine(self, 2)
+        local linesUsed = module.displayCenteredTitle(self, 2, self.title)
 
         -- Adjust the topMargin based on the number of lines used by the title
         local topMargin = math.floor((self.height - totalGridHeight - (2 * linesUsed) - 2) / 2) + linesUsed + 1
+
+        -- Clear the grid area first
+        for y = topMargin, math.min(self.height - linesUsed - 1, topMargin + totalGridHeight) do
+            module.clearLine(self, y)
+        end
 
         for idx, machine in ipairs(machine_data) do
             local column = (idx - 1) % columns
@@ -146,7 +173,8 @@ this = {
         -- Display the title at the bottom
         self.monitor.setBackgroundColor(colors.black)
         self.monitor.setTextColor(colors.white)
-        this.displayCenteredTitle(self, self.height - linesUsed, self.title)
+        module.clearLine(self, self.height - linesUsed)
+        module.displayCenteredTitle(self, self.height - linesUsed, self.title)
     end,
 
     displayCenteredTitle = function(self, yPos, title)
@@ -189,4 +217,4 @@ this = {
     end
 }
 
-return this
+return module

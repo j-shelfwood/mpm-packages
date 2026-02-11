@@ -17,13 +17,6 @@ local MOON_PHASES = {
     [7] = "Waxing Gibbous"
 }
 
--- Weather icons (ASCII art style)
-local WEATHER_ICONS = {
-    clear = {"  \\  |  /  ", "   \\ | /   ", " ---( )--- ", "   / | \\   ", "  /  |  \\  "},
-    rain = {"  _______  ", " (       ) ", "(  rain   )", " \\ \\ \\ \\ \\ ", "  \\ \\ \\ \\  "},
-    thunder = {"  _______  ", " (       ) ", "( thunder )", "   \\ / \\   ", "    V   V  "}
-}
-
 module = {
     sleepTime = 1,
 
@@ -33,7 +26,8 @@ module = {
             monitor = monitor,
             detector = nil,
             width = width,
-            height = height
+            height = height,
+            initialized = false
         }
 
         -- Try to find environment detector
@@ -48,6 +42,22 @@ module = {
     mount = function()
         -- Always mount - can fall back to os.time()
         return true
+    end,
+
+    -- Clear a single line by overwriting with spaces
+    clearLine = function(self, y)
+        self.monitor.setCursorPos(1, y)
+        self.monitor.setBackgroundColor(colors.black)
+        self.monitor.write(string.rep(" ", self.width))
+    end,
+
+    -- Write text at position with optional padding
+    writeAt = function(self, x, y, text, padWidth)
+        self.monitor.setCursorPos(x, y)
+        if padWidth then
+            text = text .. string.rep(" ", math.max(0, padWidth - #text))
+        end
+        self.monitor.write(text)
     end,
 
     formatTime = function(time)
@@ -82,7 +92,13 @@ module = {
     end,
 
     render = function(self)
-        self.monitor.clear()
+        -- One-time initialization
+        if not self.initialized then
+            self.monitor.clear()
+            self.initialized = true
+        end
+
+        self.monitor.setBackgroundColor(colors.black)
         self.monitor.setTextColor(colors.white)
 
         local time = 12  -- Default noon
@@ -153,24 +169,26 @@ module = {
         -- Center the display
         local centerX = math.floor(self.width / 2)
 
-        -- Title
-        self.monitor.setCursorPos(centerX - 5, 1)
+        -- Row 1: Title
+        module.clearLine(self, 1)
         self.monitor.setTextColor(colors.lightBlue)
-        self.monitor.write("WEATHER CLOCK")
+        local titleText = "WEATHER CLOCK"
+        module.writeAt(self, centerX - math.floor(#titleText / 2), 1, titleText)
 
-        -- Large time display
+        -- Row 3: Large time display
+        module.clearLine(self, 3)
         self.monitor.setTextColor(colors.white)
         local timeX = centerX - math.floor(#timeStr / 2)
-        self.monitor.setCursorPos(math.max(1, timeX), 3)
-        self.monitor.write(timeStr)
+        module.writeAt(self, math.max(1, timeX), 3, timeStr)
 
-        -- Time of day
+        -- Row 4: Time of day
+        module.clearLine(self, 4)
         self.monitor.setTextColor(todColor)
         local todX = centerX - math.floor(#timeOfDay / 2)
-        self.monitor.setCursorPos(math.max(1, todX), 4)
-        self.monitor.write(timeOfDay)
+        module.writeAt(self, math.max(1, todX), 4, timeOfDay)
 
-        -- Weather
+        -- Row 6: Weather
+        module.clearLine(self, 6)
         self.monitor.setTextColor(colors.white)
         self.monitor.setCursorPos(1, 6)
         self.monitor.write("Weather: ")
@@ -184,8 +202,12 @@ module = {
             self.monitor.setTextColor(colors.green)
             self.monitor.write("Clear")
         end
+        -- Pad to clear old text
+        local curX, _ = self.monitor.getCursorPos()
+        self.monitor.write(string.rep(" ", self.width - curX))
 
-        -- Moon phase (only show at night)
+        -- Row 7: Moon phase (only show at night)
+        module.clearLine(self, 7)
         if time < 6 or time >= 20 then
             self.monitor.setTextColor(colors.white)
             self.monitor.setCursorPos(1, 7)
@@ -194,27 +216,29 @@ module = {
             self.monitor.write(MOON_PHASES[moonPhase] or "Unknown")
         end
 
-        -- Biome
+        -- Row 8: Biome
+        module.clearLine(self, 8)
         self.monitor.setTextColor(colors.white)
         self.monitor.setCursorPos(1, 8)
         self.monitor.write("Biome: ")
         self.monitor.setTextColor(colors.lime)
         self.monitor.write(biome)
 
-        -- Dimension
+        -- Row 9: Dimension
+        module.clearLine(self, 9)
         self.monitor.setTextColor(colors.white)
         self.monitor.setCursorPos(1, 9)
         self.monitor.write("Dim: ")
         self.monitor.setTextColor(colors.purple)
         self.monitor.write(dimension)
 
-        -- Detector status
+        -- Bottom row: Detector status
+        module.clearLine(self, self.height)
         self.monitor.setTextColor(colors.gray)
-        self.monitor.setCursorPos(1, self.height)
         if self.detector then
-            self.monitor.write("Env Detector: OK")
+            module.writeAt(self, 1, self.height, "Env Detector: OK")
         else
-            self.monitor.write("No detector (using CC time)")
+            module.writeAt(self, 1, self.height, "No detector (CC time)")
         end
 
         self.monitor.setTextColor(colors.white)
