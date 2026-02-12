@@ -444,9 +444,9 @@ shelfos/
 9. Auto-detect mode in start.lua
 10. Terminal UI for headless status
 
-### Phase 4: Optimization
-11. Implement caching layer
-12. Add subscription/push updates
+### Phase 4: Optimization (Future)
+11. Implement caching layer (reduce network calls)
+12. Add subscription/push updates (real-time data)
 13. Connection health monitoring
 14. Reconnection logic
 
