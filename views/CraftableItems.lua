@@ -38,7 +38,8 @@ return BaseView.grid({
     end,
 
     init = function(self, config)
-        self.interface = AEInterface.new()
+        local ok, interface = pcall(AEInterface.new)
+        self.interface = ok and interface or nil
         self.showMode = config.showMode or "all"
         self.lowThreshold = config.lowThreshold or 64
     end,

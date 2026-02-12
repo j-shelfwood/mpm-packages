@@ -79,8 +79,12 @@ function Manager.canMount(viewName)
         return true  -- No mount check = always mountable
     end
 
-    local ok, canMount = pcall(View.mount)
-    return ok and canMount
+    local ok, result = pcall(View.mount)
+    if not ok then
+        print("[ViewManager] Mount error for " .. viewName .. ": " .. tostring(result))
+        return false
+    end
+    return result
 end
 
 -- Get list of views that can mount (with yields for responsiveness)

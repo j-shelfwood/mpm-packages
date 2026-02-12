@@ -302,9 +302,24 @@ function Monitor:render()
 
     local ok, err = pcall(self.view.render, self.viewInstance)
     if not ok then
+        -- Log full error to terminal
+        print("[Monitor] Render error in " .. (self.viewName or "unknown") .. ": " .. tostring(err))
+
+        -- Show error on monitor
+        self.peripheral.clear()
         self.peripheral.setCursorPos(1, 1)
         self.peripheral.setTextColor(colors.red)
-        self.peripheral.write("Error")
+        self.peripheral.write("Render Error")
+
+        -- Show truncated error message if room
+        local width, height = self.peripheral.getSize()
+        if height >= 3 and err then
+            self.peripheral.setCursorPos(1, 3)
+            self.peripheral.setTextColor(colors.gray)
+            local errStr = tostring(err):sub(1, width)
+            self.peripheral.write(errStr)
+        end
+
         self.peripheral.setTextColor(colors.white)
     end
 

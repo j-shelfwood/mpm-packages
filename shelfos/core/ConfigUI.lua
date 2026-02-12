@@ -426,7 +426,17 @@ function ConfigUI.drawConfigMenu(monitor, viewName, schema, currentConfig)
                     if type(options) == "function" then
                         options = options()
                     end
-                    newValue = ConfigUI.drawPicker(monitor, field.label or field.key, options, config[field.key])
+                    -- Handle empty options with informative message
+                    if not options or #options == 0 then
+                        local Dialog = mpm('ui/Dialog')
+                        Dialog.new(monitor, {
+                            title = field.label or field.key,
+                            message = "No options available.\nCheck peripheral connections.",
+                            buttons = {{ label = "OK", value = true }}
+                        }):show()
+                    else
+                        newValue = ConfigUI.drawPicker(monitor, field.label or field.key, options, config[field.key])
+                    end
                 end
 
                 if newValue ~= nil then

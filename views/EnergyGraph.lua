@@ -27,7 +27,8 @@ return BaseView.custom({
     end,
 
     init = function(self, config)
-        self.interface = AEInterface.new()
+        local ok, interface = pcall(AEInterface.new)
+        self.interface = ok and interface or nil
         self.warningBelow = config.warningBelow or 25
         self.history = {}
         self.maxHistory = self.width

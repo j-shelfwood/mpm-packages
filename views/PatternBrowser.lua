@@ -75,7 +75,8 @@ return BaseView.grid({
     end,
 
     init = function(self, config)
-        self.interface = AEInterface.new()
+        local ok, interface = pcall(AEInterface.new)
+        self.interface = ok and interface or nil
         self.sortBy = config.sortBy or "output"
         self.maxDisplay = config.maxDisplay or 50
         self.totalPatterns = 0  -- Will be set in getData

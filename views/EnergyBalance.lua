@@ -28,7 +28,8 @@ return BaseView.custom({
     end,
 
     init = function(self, config)
-        self.interface = AEInterface.new()
+        local ok, interface = pcall(AEInterface.new)
+        self.interface = ok and interface or nil
         self.warningDeficit = config.warningDeficit or 100
         self.history = {}
         self.maxHistory = self.width

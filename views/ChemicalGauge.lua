@@ -43,7 +43,8 @@ return BaseView.custom({
     end,
 
     init = function(self, config)
-        self.interface = AEInterface.new()
+        local ok, interface = pcall(AEInterface.new)
+        self.interface = ok and interface or nil
         self.chemicalId = config.chemical
         self.warningBelow = config.warningBelow or 1000
         self.history = {}

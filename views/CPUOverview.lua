@@ -28,7 +28,8 @@ return BaseView.grid({
     end,
 
     init = function(self, config)
-        self.interface = AEInterface.new()
+        local ok, interface = pcall(AEInterface.new)
+        self.interface = ok and interface or nil
         self.showStorage = config.showStorage or false
         self.tasks = nil  -- Will be populated by getData
     end,

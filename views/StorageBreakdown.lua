@@ -39,7 +39,8 @@ return BaseView.custom({
     end,
 
     init = function(self, config)
-        self.interface = AEInterface.new()
+        local ok, interface = pcall(AEInterface.new)
+        self.interface = ok and interface or nil
         self.showFluids = config.showFluids ~= false
         self.showExternal = config.showExternal ~= false
     end,

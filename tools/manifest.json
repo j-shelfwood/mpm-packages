@@ -1,5 +1,5 @@
 {
   "name": "tools",
   "description": "Tools package - Various utility scripts for managing peripherals and other tasks",
-  "files": ["inspect_peripheral.lua", "peripheral_report.lua"]
+  "files": ["inspect_peripheral.lua", "peripheral_report.lua", "validate_manifests.lua"]
 }

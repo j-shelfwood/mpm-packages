@@ -63,7 +63,8 @@ return BaseView.custom({
     end,
 
     init = function(self, config)
-        self.interface = AEInterface.new()
+        local ok, interface = pcall(AEInterface.new)
+        self.interface = ok and interface or nil
         self.warningPercent = config.warningPercent or 90
         self.sortBy = config.sortBy or "usage"
     end,

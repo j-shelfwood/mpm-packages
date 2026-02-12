@@ -36,7 +36,8 @@ return BaseView.grid({
     end,
 
     init = function(self, config)
-        self.interface = AEInterface.new()
+        local ok, interface = pcall(AEInterface.new)
+        self.interface = ok and interface or nil
         self.warningBelow = config.warningBelow or 100
         self.sortBy = config.sortBy or "amount"
         self.totalBuckets = 0  -- Will be calculated in getData

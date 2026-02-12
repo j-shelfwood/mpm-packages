@@ -37,7 +37,8 @@ return BaseView.grid({
     end,
 
     init = function(self, config)
-        self.interface = AEInterface.new()
+        local ok, interface = pcall(AEInterface.new)
+        self.interface = ok and interface or nil
         self.threshold = config.threshold or 100
         self.showCraftable = config.showCraftable ~= false
     end,
