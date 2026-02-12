@@ -12,6 +12,16 @@
     "EnergyGraph.lua",
     "LowStock.lua",
     "ItemChanges.lua",
-    "Clock.lua"
+    "Clock.lua",
+    "CraftingQueue.lua",
+    "CPUOverview.lua",
+    "EnergyBalance.lua",
+    "CellHealth.lua",
+    "StorageBreakdown.lua",
+    "CraftableItems.lua",
+    "PatternBrowser.lua",
+    "FluidList.lua",
+    "ChemicalGauge.lua",
+    "DriveStatus.lua"
   ]
 }
