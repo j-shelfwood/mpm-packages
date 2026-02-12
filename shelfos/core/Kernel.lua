@@ -1,10 +1,12 @@
 -- Kernel.lua
 -- Main event loop and system orchestration
+-- Menu handling uses Controller abstraction for unified terminal/monitor support
 
 local Config = mpm('shelfos/core/Config')
 local Monitor = mpm('shelfos/core/Monitor')
 local Zone = mpm('shelfos/core/Zone')
 local Terminal = mpm('shelfos/core/Terminal')
+local Controller = mpm('shelfos/core/Controller')
 local Menu = mpm('shelfos/input/Menu')
 local ViewManager = mpm('views/Manager')
 
@@ -146,6 +148,14 @@ function Kernel:initializeNetwork()
         self.discovery:setIdentity(self.zone:getId(), self.zone:getName())
         self.discovery:start()
 
+        -- Set up peripheral host to share local peripherals
+        local PeripheralHost = mpm('net/PeripheralHost')
+        self.peripheralHost = PeripheralHost.new(self.channel, self.zone:getId(), self.zone:getName())
+        local hostCount = self.peripheralHost:start()
+        if hostCount > 0 then
+            print("[ShelfOS] Sharing " .. hostCount .. " local peripheral(s)")
+        end
+
         -- Set up peripheral client for remote peripheral access
         local PeripheralClient = mpm('net/PeripheralClient')
         local RemotePeripheral = mpm('net/RemotePeripheral')
@@ -222,6 +232,14 @@ function Kernel:eventLoop()
         elseif event == "key" then
             -- Handle menu keys
             self:handleMenuKey(p1)
+
+        elseif event == "peripheral" or event == "peripheral_detach" then
+            -- Rescan shared peripherals when hardware changes
+            if self.peripheralHost then
+                local count = self.peripheralHost:rescan()
+                print("[ShelfOS] Peripheral " .. (event == "peripheral" and "attached" or "detached") .. ": " .. p1)
+                print("[ShelfOS] Now sharing " .. count .. " peripheral(s)")
+            end
         end
     end
 end
@@ -395,11 +413,14 @@ end
 
 -- Network event loop
 function Kernel:networkLoop()
+    local lastHostAnnounce = 0
+    local hostAnnounceInterval = 10000  -- 10 seconds
+
     while self.running do
         if self.channel then
             self.channel:poll(0.5)
 
-            -- Periodic announce
+            -- Periodic zone announce
             if self.discovery and self.discovery:shouldAnnounce() then
                 local monitorInfo = {}
                 for _, m in ipairs(self.monitors) do
@@ -409,6 +430,15 @@ function Kernel:networkLoop()
                     })
                 end
                 self.discovery:announce(monitorInfo)
+            end
+
+            -- Periodic peripheral host announce
+            if self.peripheralHost then
+                local now = os.epoch("utc")
+                if now - lastHostAnnounce > hostAnnounceInterval then
+                    self.peripheralHost:announce()
+                    lastHostAnnounce = now
+                end
             end
         else
             sleep(1)
