@@ -40,6 +40,14 @@ Protocol.MessageType = {
     ALERT = "alert",
     ALERT_ACK = "alert_ack",
 
+    -- Remote Peripherals (ender modem proxy)
+    PERIPH_DISCOVER = "periph_discover",    -- Request list of peripherals
+    PERIPH_LIST = "periph_list",            -- Response with peripheral list
+    PERIPH_ANNOUNCE = "periph_announce",    -- Broadcast available peripherals
+    PERIPH_CALL = "periph_call",            -- Call method on remote peripheral
+    PERIPH_RESULT = "periph_result",        -- Result of peripheral call
+    PERIPH_ERROR = "periph_error",          -- Error from peripheral call
+
     -- System
     ERROR = "error",
     OK = "ok"
@@ -203,9 +211,65 @@ function Protocol.isRequest(msg)
         [Protocol.MessageType.GET_CONFIG] = true,
         [Protocol.MessageType.SET_VIEW] = true,
         [Protocol.MessageType.SET_CONFIG] = true,
-        [Protocol.MessageType.INPUT_REQUEST] = true
+        [Protocol.MessageType.INPUT_REQUEST] = true,
+        [Protocol.MessageType.PERIPH_DISCOVER] = true,
+        [Protocol.MessageType.PERIPH_CALL] = true
     }
     return requestTypes[msg.type] == true
+end
+
+-- Create peripheral discovery request
+function Protocol.createPeriphDiscover()
+    return Protocol.createMessage(Protocol.MessageType.PERIPH_DISCOVER, {})
+end
+
+-- Create peripheral list response
+-- @param peripherals Array of {name, type, methods}
+function Protocol.createPeriphList(request, peripherals)
+    return Protocol.createResponse(request, Protocol.MessageType.PERIPH_LIST, {
+        peripherals = peripherals
+    })
+end
+
+-- Create peripheral announcement (broadcast)
+-- @param zoneId Zone identifier
+-- @param peripherals Array of {name, type, methods}
+function Protocol.createPeriphAnnounce(zoneId, zoneName, peripherals)
+    return Protocol.createMessage(Protocol.MessageType.PERIPH_ANNOUNCE, {
+        zoneId = zoneId,
+        zoneName = zoneName,
+        peripherals = peripherals
+    })
+end
+
+-- Create peripheral method call
+-- @param peripheralName Name of the peripheral
+-- @param methodName Method to call
+-- @param args Arguments table
+function Protocol.createPeriphCall(peripheralName, methodName, args)
+    return Protocol.createMessage(Protocol.MessageType.PERIPH_CALL, {
+        peripheral = peripheralName,
+        method = methodName,
+        args = args or {}
+    })
+end
+
+-- Create peripheral result response
+-- @param request Original call request
+-- @param results Results table (array of return values)
+function Protocol.createPeriphResult(request, results)
+    return Protocol.createResponse(request, Protocol.MessageType.PERIPH_RESULT, {
+        results = results
+    })
+end
+
+-- Create peripheral error response
+-- @param request Original call request
+-- @param errorMsg Error message
+function Protocol.createPeriphError(request, errorMsg)
+    return Protocol.createResponse(request, Protocol.MessageType.PERIPH_ERROR, {
+        error = errorMsg
+    })
 end
 
 -- Check if message is a response

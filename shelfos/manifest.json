@@ -1,6 +1,6 @@
 {
   "name": "shelfos",
-  "description": "ShelfOS - Base Information System for multi-monitor display management with touch config and pocket integration",
+  "description": "ShelfOS - Base Information System for multi-monitor display management with touch config, pocket integration, and peripheral hosting",
   "dependencies": ["views", "ui", "net", "peripherals", "utils"],
   "files": [
     "start.lua",
@@ -11,6 +11,7 @@
     "core/Zone.lua",
     "core/Terminal.lua",
     "input/Menu.lua",
+    "modes/headless.lua",
     "pocket/start.lua",
     "pocket/App.lua",
     "pocket/Notifications.lua",

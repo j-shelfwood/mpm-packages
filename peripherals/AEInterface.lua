@@ -1,21 +1,35 @@
 -- AEInterface.lua
 -- Adapter for AE2 ME Bridge peripheral (Advanced Peripherals)
 -- Provides normalized API for item/fluid/energy/crafting operations
+-- Supports both local and remote peripherals via RemotePeripheral
 
 local AEInterface = {}
 AEInterface.__index = AEInterface
 
--- Check if ME Bridge peripheral exists
+-- Get the peripheral finder (local or remote-aware)
+local function getPeripheralAPI()
+    -- Try to load RemotePeripheral for network support
+    local ok, RemotePeripheral = pcall(mpm, 'net/RemotePeripheral')
+    if ok and RemotePeripheral and RemotePeripheral.hasClient() then
+        return RemotePeripheral
+    end
+    -- Fall back to standard peripheral API
+    return peripheral
+end
+
+-- Check if ME Bridge peripheral exists (local or remote)
 -- @return boolean, peripheral|nil
 function AEInterface.exists()
-    local p = peripheral.find("me_bridge")
+    local api = getPeripheralAPI()
+    local p = api.find("me_bridge")
     return p ~= nil, p
 end
 
--- Find ME Bridge peripheral
+-- Find ME Bridge peripheral (local or remote)
 -- @return peripheral|nil
 function AEInterface.find()
-    return peripheral.find("me_bridge")
+    local api = getPeripheralAPI()
+    return api.find("me_bridge")
 end
 
 -- Create new AEInterface instance
@@ -23,7 +37,8 @@ end
 -- @return AEInterface instance
 -- @throws error if no ME Bridge found
 function AEInterface.new(p)
-    p = p or peripheral.find("me_bridge")
+    local api = getPeripheralAPI()
+    p = p or api.find("me_bridge")
 
     if not p then
         error("No ME Bridge found")
@@ -31,6 +46,7 @@ function AEInterface.new(p)
 
     local self = setmetatable({}, AEInterface)
     self.bridge = p
+    self.isRemote = type(p) == "table" and p._isRemote == true
     return self
 end
 

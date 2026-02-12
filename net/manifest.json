@@ -1,11 +1,15 @@
 {
   "name": "net",
-  "description": "Secure networking primitives - crypto, protocols, discovery for rednet",
+  "description": "Secure networking primitives - crypto, protocols, discovery, and remote peripheral proxy for rednet",
   "dependencies": [],
   "files": [
     "Crypto.lua",
     "Protocol.lua",
     "Channel.lua",
-    "Discovery.lua"
+    "Discovery.lua",
+    "PeripheralHost.lua",
+    "PeripheralClient.lua",
+    "RemoteProxy.lua",
+    "RemotePeripheral.lua"
   ]
 }

@@ -145,6 +145,23 @@ function Kernel:initializeNetwork()
         self.discovery = Discovery.new(self.channel)
         self.discovery:setIdentity(self.zone:getId(), self.zone:getName())
         self.discovery:start()
+
+        -- Set up peripheral client for remote peripheral access
+        local PeripheralClient = mpm('net/PeripheralClient')
+        local RemotePeripheral = mpm('net/RemotePeripheral')
+
+        self.peripheralClient = PeripheralClient.new(self.channel)
+        self.peripheralClient:registerHandlers()
+
+        -- Make client available globally via RemotePeripheral
+        RemotePeripheral.setClient(self.peripheralClient)
+
+        -- Discover remote peripherals (non-blocking, short timeout)
+        print("[ShelfOS] Discovering remote peripherals...")
+        local count = self.peripheralClient:discover(2)
+        if count > 0 then
+            print("[ShelfOS] Found " .. count .. " remote peripheral(s)")
+        end
     else
         print("[ShelfOS] Network: no modem found")
         self.channel = nil
