@@ -58,6 +58,11 @@ function Manager.load(viewName)
         return View
     end
 
+    -- Log error for debugging
+    if not ok then
+        print("[ViewManager] Error loading " .. viewName .. ": " .. tostring(View))
+    end
+
     return nil
 end
 

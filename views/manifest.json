@@ -3,6 +3,7 @@
   "description": "Display modules for ShelfOS monitors - single-purpose, configurable views",
   "dependencies": ["utils", "peripherals", "ui"],
   "files": [
+    "BaseView.lua",
     "Manager.lua",
     "ItemCounter.lua",
     "FluidGauge.lua",
