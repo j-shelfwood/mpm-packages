@@ -235,6 +235,10 @@ return BaseView.custom({
 
         -- When the current tracking period started
         self.periodStart = 0
+
+        -- Cached changes for current period
+        self.cachedData = nil
+        self.lastUpdate = 0
     end,
 
     getData = function(self)
@@ -253,6 +257,8 @@ return BaseView.custom({
                 self.baselineCount = count
                 self.periodStart = now
                 self.state = "baseline_set"
+                self.cachedData = nil
+                self.lastUpdate = 0
                 return {
                     status = "baseline_captured",
                     baselineCount = count,
@@ -278,12 +284,27 @@ return BaseView.custom({
                 self.baseline = copySnapshot(snapshot)
                 self.baselineCount = count
                 self.periodStart = now
+                self.cachedData = nil
+                self.lastUpdate = 0
                 return {
                     status = "period_reset",
                     baselineCount = count,
                     elapsed = 0
                 }
             end
+        end
+
+        -- Reuse cached changes during the period
+        if self.cachedData and self.lastUpdate >= self.periodStart then
+            return {
+                status = "tracking",
+                changes = self.cachedData.changes,
+                totalGains = self.cachedData.totalGains,
+                totalLosses = self.cachedData.totalLosses,
+                baselineCount = self.baselineCount,
+                currentCount = self.cachedData.currentCount,
+                elapsed = elapsed
+            }
         end
 
         -- Take current snapshot
@@ -302,6 +323,14 @@ return BaseView.custom({
 
         -- Calculate totals
         local totalGains, totalLosses = calculateTotals(changes)
+
+        self.cachedData = {
+            changes = changes,
+            totalGains = totalGains,
+            totalLosses = totalLosses,
+            currentCount = itemCount
+        }
+        self.lastUpdate = now
 
         return {
             status = "tracking",

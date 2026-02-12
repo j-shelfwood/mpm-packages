@@ -60,6 +60,7 @@ return BaseView.grid({
     formatItem = function(self, cpuData)
         local lines = {}
         local lineColors = {}
+        local taskInfo = nil
 
         -- Line 1: CPU name (truncated)
         local name = Text.truncateMiddle(cpuData.name or "Unknown", 20)
@@ -78,16 +79,47 @@ return BaseView.grid({
             for _, task in ipairs(self.tasks) do
                 -- Match task to this CPU
                 if task.cpu == cpuData.name or (not task.cpu and cpuData.isBusy) then
-                    local itemName = task.name or task.item or "Unknown"
+                    local itemName = "Unknown"
+                    if task.resource and task.resource.displayName then
+                        itemName = task.resource.displayName
+                    elseif task.resource and task.resource.name then
+                        itemName = Text.prettifyName(task.resource.name)
+                    elseif task.name or task.item then
+                        itemName = Text.prettifyName(task.name or task.item)
+                    end
                     craftingItem = Text.prettifyName(itemName)
                     craftingItem = Text.truncateMiddle(craftingItem, 18)
+                    taskInfo = task
                     break
                 end
             end
             table.insert(lines, craftingItem)
             table.insert(lineColors, colors.yellow)
+            if taskInfo then
+                local detailParts = {}
+                local quantity = taskInfo.quantity or (taskInfo.resource and taskInfo.resource.count)
+                if quantity then
+                    table.insert(detailParts, "x" .. Text.formatNumber(quantity, 0))
+                end
+                if type(taskInfo.completion) == "number" then
+                    local percent = math.floor(taskInfo.completion * 100 + 0.5)
+                    table.insert(detailParts, percent .. "%")
+                end
+                if #detailParts > 0 then
+                    table.insert(lines, table.concat(detailParts, " "))
+                    table.insert(lineColors, colors.gray)
+                end
+            end
         elseif self.showStorage then
             -- Show storage info if not busy and config enabled
+            local storageStr = (cpuData.storage or 0) .. "B"
+            if cpuData.coProcessors and cpuData.coProcessors > 0 then
+                storageStr = storageStr .. " " .. cpuData.coProcessors .. "cp"
+            end
+            table.insert(lines, storageStr)
+            table.insert(lineColors, colors.gray)
+        end
+        if cpuData.isBusy and self.showStorage then
             local storageStr = (cpuData.storage or 0) .. "B"
             if cpuData.coProcessors and cpuData.coProcessors > 0 then
                 storageStr = storageStr .. " " .. cpuData.coProcessors .. "cp"

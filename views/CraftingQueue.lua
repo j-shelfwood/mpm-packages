@@ -119,7 +119,20 @@ return BaseView.custom({
                 end
             end
 
-            -- Format: [>] Item Name - CPU Name
+            -- Build detail string (quantity + completion)
+            local detailParts = {}
+            if task.quantity then
+                table.insert(detailParts, "x" .. Text.formatNumber(task.quantity, 0))
+            elseif task.resource and task.resource.count then
+                table.insert(detailParts, "x" .. Text.formatNumber(task.resource.count, 0))
+            end
+            if type(task.completion) == "number" then
+                local percent = math.floor(task.completion * 100 + 0.5)
+                table.insert(detailParts, percent .. "%")
+            end
+            local detail = #detailParts > 0 and table.concat(detailParts, " ") or nil
+
+            -- Format: [>] Item Name - CPU Name (detail)
             self.monitor.setCursorPos(1, row)
 
             -- Status indicator
@@ -133,8 +146,10 @@ return BaseView.custom({
             -- Calculate remaining width for item and CPU name
             local remainingWidth = self.width - 4  -- minus "[>] "
             local separator = " - "
-            local cpuWidth = math.min(#cpuName, math.floor(remainingWidth * 0.3))
-            local itemWidth = remainingWidth - cpuWidth - #separator
+            local detailWidth = detail and (#detail + 1) or 0
+            local usableWidth = math.max(0, remainingWidth - detailWidth)
+            local cpuWidth = math.min(#cpuName, math.floor(usableWidth * 0.3))
+            local itemWidth = math.max(0, usableWidth - cpuWidth - #separator)
 
             local truncatedItem = Text.truncateMiddle(itemName, itemWidth)
             local truncatedCPU = Text.truncateMiddle(cpuName, cpuWidth)
@@ -143,6 +158,11 @@ return BaseView.custom({
             self.monitor.setTextColor(colors.gray)
             self.monitor.write(separator)
             self.monitor.write(truncatedCPU)
+
+            if detail then
+                self.monitor.setTextColor(colors.lightGray)
+                self.monitor.write(" " .. Text.truncateMiddle(detail, detailWidth - 1))
+            end
 
             displayedJobs = displayedJobs + 1
         end

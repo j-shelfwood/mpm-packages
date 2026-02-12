@@ -8,6 +8,21 @@ local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Yield = mpm('utils/Yield')
 
+local function buildTaskDetail(task)
+    if not task then return nil end
+    local parts = {}
+    local quantity = task.quantity or (task.resource and task.resource.count)
+    if quantity then
+        table.insert(parts, "x" .. Text.formatNumber(quantity, 0))
+    end
+    if type(task.completion) == "number" then
+        local percent = math.floor(task.completion * 100 + 0.5)
+        table.insert(parts, percent .. "%")
+    end
+    if #parts == 0 then return nil end
+    return table.concat(parts, " ")
+end
+
 -- Get available CPUs for config picker
 local function getCPUOptions()
     local ok, exists = pcall(AEInterface.exists)
@@ -122,10 +137,22 @@ return BaseView.custom({
 
             -- Show current task info
             if data.currentTask then
-                local itemName = data.currentTask.name or data.currentTask.item or "Unknown"
+                local itemName = "Unknown"
+                if data.currentTask.resource and data.currentTask.resource.displayName then
+                    itemName = data.currentTask.resource.displayName
+                elseif data.currentTask.resource and data.currentTask.resource.name then
+                    itemName = Text.prettifyName(data.currentTask.resource.name)
+                elseif data.currentTask.name or data.currentTask.item then
+                    itemName = Text.prettifyName(data.currentTask.name or data.currentTask.item)
+                end
                 itemName = Text.prettifyName(itemName)
                 itemName = Text.truncateMiddle(itemName, self.width - 2)
                 MonitorHelpers.writeCentered(self.monitor, centerY + 1, itemName, colors.yellow)
+
+                local detail = buildTaskDetail(data.currentTask)
+                if detail and centerY + 2 < self.height then
+                    MonitorHelpers.writeCentered(self.monitor, centerY + 2, detail, colors.gray)
+                end
             end
         else
             -- Show IDLE status

@@ -126,11 +126,13 @@ return BaseView.custom({
         local totalCells = #data
         local totalUsage = 0
         local warningCount = 0
+        local totalTypes = 0
         for _, cell in ipairs(data) do
             totalUsage = totalUsage + cell.percentage
             if cell.percentage >= self.warningPercent then
                 warningCount = warningCount + 1
             end
+            totalTypes = totalTypes + (cell.totalTypes or 0)
         end
         local avgUsage = totalCells > 0 and (totalUsage / totalCells) or 0
 
@@ -147,6 +149,12 @@ return BaseView.custom({
                 local warnX = self.width - #warnStr + 1
                 self.monitor.setCursorPos(warnX, summaryY)
                 self.monitor.write(warnStr)
+            else
+                self.monitor.setTextColor(colors.gray)
+                local typesStr = "Types: " .. totalTypes
+                local typesX = self.width - #typesStr + 1
+                self.monitor.setCursorPos(typesX, summaryY)
+                self.monitor.write(typesStr)
             end
         end
 

@@ -182,7 +182,7 @@ end
 -- NOTE: With window-buffered rendering, text scale is set once at init.
 -- This function no longer changes text scale dynamically to avoid
 -- triggering resize events and breaking window dimensions.
-function GridDisplay:calculate_layout(num_items, content_width, content_height)
+function GridDisplay:calculate_layout(num_items, content_width, content_height, screen_width, screen_height)
     if num_items <= 0 then
         self.columns = 1
         self.rows = 0
@@ -193,7 +193,9 @@ function GridDisplay:calculate_layout(num_items, content_width, content_height)
 
     -- Use current dimensions without changing text scale
     -- Monitor.lua sets text scale once at initialization
-    local screen_width, screen_height = self.monitor.getSize()
+    if not screen_width or not screen_height then
+        screen_width, screen_height = self.monitor.getSize()
+    end
     screen_width = math.max(screen_width, 1)
     screen_height = math.max(screen_height, 1)
 
@@ -246,7 +248,7 @@ end
 
 -- Display data in a grid layout
 -- @param data - Array of items to display
--- @param format_callback - Function(item) returning {lines={...}, colors={...}}
+-- @param format_callback - Function(item) returning {lines={...}, colors={...}, aligns={...}}
 --   colors can be per-line (array) or per-character (array of arrays)
 -- @param options - Table or boolean for backwards compatibility:
 --   If boolean: treated as center_text
@@ -258,6 +260,7 @@ function GridDisplay:display(data, format_callback, options)
     local center_text = true
     local skipClear = true  -- Default TRUE: buffer handles clearing
     local startY = nil
+    local reservedTop = 0
 
     if type(options) == "boolean" then
         center_text = options
@@ -283,11 +286,15 @@ function GridDisplay:display(data, format_callback, options)
     local content_width, content_height = self:analyzeContent(data, format_callback)
 
     -- Calculate grid layout
-    self:calculate_layout(#data, content_width, content_height)
-
-    -- Override start_y if specified (for header reservation)
     if startY then
-        self.start_y = math.max(startY, self.start_y)
+        reservedTop = math.max(0, startY - 1)
+    end
+    local screen_width, screen_height = self.monitor.getSize()
+    screen_height = math.max(1, screen_height - reservedTop)
+    self:calculate_layout(#data, content_width, content_height, screen_width, screen_height)
+
+    if reservedTop > 0 then
+        self.start_y = self.start_y + reservedTop
     end
 
     -- Legacy: clear if explicitly requested (skipClear=false)
@@ -337,10 +344,14 @@ function GridDisplay:display(data, format_callback, options)
             -- Truncate content
             local content = self:truncateText(line_content, content_area)
 
-            -- Center text within cell if requested
-            if center_text and #content < content_area then
-                local leftPad = math.floor((content_area - #content) / 2)
-                x_pos = x_pos + leftPad
+            local lineAlign = formatted.aligns and formatted.aligns[line_idx] or formatted.align
+            if lineAlign == "right" and #content < content_area then
+                x_pos = x_pos + (content_area - #content)
+            elseif lineAlign == "center" or (not lineAlign and center_text) then
+                if #content < content_area then
+                    local leftPad = math.floor((content_area - #content) / 2)
+                    x_pos = x_pos + leftPad
+                end
             end
 
             -- Ensure valid cursor position

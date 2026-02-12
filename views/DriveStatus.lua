@@ -112,13 +112,15 @@ return BaseView.grid({
         -- Line 3: Storage (if has cells)
         if hasCells then
             local usedStr = Text.formatNumber(usedBytes, 1) .. "B"
-            table.insert(lines, usedStr)
+            local totalStr = Text.formatNumber(totalBytes, 1) .. "B"
+            table.insert(lines, usedStr .. "/" .. totalStr)
             table.insert(lineColors, colors.gray)
         end
 
         return {
             lines = lines,
-            colors = lineColors
+            colors = lineColors,
+            aligns = { "left", "left", "right" }
         }
     end,
 

@@ -42,6 +42,7 @@ return BaseView.grid({
         self.interface = ok and interface or nil
         self.showMode = config.showMode or "all"
         self.lowThreshold = config.lowThreshold or 64
+        self.totalCraftable = 0
     end,
 
     getData = function(self)
@@ -51,13 +52,7 @@ return BaseView.grid({
 
         Yield.yield()
 
-        -- Build lookup table for craftable item names
-        local craftableLookup = {}
-        for _, item in ipairs(craftableItems) do
-            if item.name then
-                craftableLookup[item.name] = true
-            end
-        end
+        self.totalCraftable = #craftableItems
 
         -- Get current stock levels
         local allItems = self.interface:items()
@@ -124,7 +119,7 @@ return BaseView.grid({
         return {
             text = headerText,
             color = headerColor,
-            secondary = " (" .. #data .. ")",
+            secondary = " (" .. #data .. "/" .. self.totalCraftable .. ")",
             secondaryColor = colors.gray
         }
     end,
@@ -143,10 +138,11 @@ return BaseView.grid({
 
         return {
             lines = {
-                Text.prettifyName(item.registryName or "Unknown"),
+                item.displayName or Text.prettifyName(item.registryName or "Unknown"),
                 Text.formatNumber(count)
             },
-            colors = { colors.white, countColor }
+            colors = { colors.white, countColor },
+            aligns = { "left", "right" }
         }
     end,
 

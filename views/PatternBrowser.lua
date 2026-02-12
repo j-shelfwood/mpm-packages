@@ -31,6 +31,26 @@ local function countInputs(pattern)
     return #pattern.inputs
 end
 
+local function getOutputCount(pattern)
+    if pattern.primaryOutput and pattern.primaryOutput.count then
+        return pattern.primaryOutput.count
+    elseif pattern.outputs and #pattern.outputs > 0 and pattern.outputs[1].count then
+        return pattern.outputs[1].count
+    end
+    return nil
+end
+
+local function getFirstInputName(pattern)
+    if not pattern.inputs or #pattern.inputs == 0 then return nil end
+    local input = pattern.inputs[1]
+    if input.primaryInput and input.primaryInput.displayName then
+        return input.primaryInput.displayName
+    elseif input.primaryInput and input.primaryInput.name then
+        return Text.prettifyName(input.primaryInput.name)
+    end
+    return nil
+end
+
 local function getPatternTypeColor(patternType)
     if patternType == "crafting" then
         return colors.lime
@@ -128,13 +148,26 @@ return BaseView.grid({
     formatItem = function(self, pattern)
         local displayName = getDisplayName(pattern)
         local inputCount = countInputs(pattern)
+        local outputCount = getOutputCount(pattern)
+        local firstInput = getFirstInputName(pattern)
         local patternType = pattern.patternType or "unknown"
         local typeColor = getPatternTypeColor(patternType)
+        local detailParts = {}
+
+        if outputCount then
+            table.insert(detailParts, "x" .. Text.formatNumber(outputCount, 0))
+        end
+        if firstInput then
+            table.insert(detailParts, "in: " .. firstInput)
+        else
+            table.insert(detailParts, inputCount .. " input" .. (inputCount ~= 1 and "s" or ""))
+        end
+        local detailLine = table.concat(detailParts, " ")
 
         return {
             lines = {
                 displayName,
-                inputCount .. " input" .. (inputCount ~= 1 and "s" or ""),
+                detailLine,
                 "[" .. (patternType:sub(1, 1):upper() .. patternType:sub(2)) .. "]"
             },
             colors = {
