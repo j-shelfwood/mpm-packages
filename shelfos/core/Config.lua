@@ -269,6 +269,7 @@ end
 -- @return config, monitorsFound
 function Config.autoCreate()
     local ViewManager = mpm('views/Manager')
+    local Crypto = mpm('net/Crypto')
 
     -- Generate zone identity
     local zoneId = "zone_" .. os.getComputerID() .. "_" .. (os.epoch("utc") % 100000)
@@ -277,6 +278,12 @@ function Config.autoCreate()
     local config = deepCopy(DEFAULT_CONFIG)
     config.zone.id = zoneId
     config.zone.name = zoneName
+
+    -- Auto-generate network secret for seamless networking
+    -- This enables networking by default - computers just need to pair
+    config.network.secret = Crypto.generateSecret()
+    config.network.enabled = true
+    config.network.pairingCode = Config.generatePairingCode()
 
     -- Discover monitors
     local monitors = {}

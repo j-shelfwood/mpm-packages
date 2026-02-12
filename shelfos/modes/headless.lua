@@ -25,6 +25,9 @@ local function drawStatus(host, channel, config)
     -- Network status
     if channel and channel:isOpen() then
         print("Network: Connected")
+        if config.network and config.network.pairingCode then
+            print("Pairing Code: " .. config.network.pairingCode)
+        end
     else
         print("Network: Disconnected")
     end
@@ -60,15 +63,25 @@ function headless.run()
             "zone_" .. os.getComputerID() .. "_" .. os.epoch("utc"),
             os.getComputerLabel() or ("Peripheral Node " .. os.getComputerID())
         )
-        config.network.enabled = true
-        Config.save(config)
         print("[ShelfOS] Created new configuration")
     end
 
-    -- Initialize crypto if secret exists
-    if config.network and config.network.secret then
-        Crypto.setSecret(config.network.secret)
+    -- Auto-generate network secret if not set
+    if not config.network then
+        config.network = {}
     end
+
+    if not config.network.secret then
+        config.network.secret = Crypto.generateSecret()
+        config.network.enabled = true
+        config.network.pairingCode = Config.generatePairingCode()
+        Config.save(config)
+        print("[ShelfOS] Generated network credentials")
+        print("[ShelfOS] Pairing code: " .. config.network.pairingCode)
+    end
+
+    -- Initialize crypto with secret
+    Crypto.setSecret(config.network.secret)
 
     -- Open network channel
     local channel = Channel.new()
