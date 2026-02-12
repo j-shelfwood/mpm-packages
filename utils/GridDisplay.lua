@@ -1,6 +1,7 @@
 -- GridDisplay.lua
 -- Responsive grid layout for CC:Tweaked monitors
 -- Automatically scales and arranges items in a grid with proper centering
+-- NOTE: Works with window-buffered monitors for flicker-free rendering
 
 local GridDisplay = {}
 GridDisplay.__index = GridDisplay
@@ -10,6 +11,10 @@ local MIN_TEXT_SCALE = 0.5
 local MAX_TEXT_SCALE = 1.5
 local SCALE_DECREMENT = 0.5
 local ELLIPSIS = "..."
+
+-- Cache for text scale to avoid redundant setTextScale calls
+-- setTextScale() can trigger monitor_resize events causing loops
+local scaleCache = setmetatable({}, { __mode = "k" })
 
 -- Create a new GridDisplay instance
 -- @param monitor - The monitor peripheral to render to
@@ -142,7 +147,30 @@ function GridDisplay:calculateOptimalColumns(num_items, screen_width, screen_hei
     return best_cols, max_cols
 end
 
+-- Helper to safely set text scale with caching
+-- Avoids redundant calls that can trigger resize events
+local function safeSetTextScale(monitor, scale)
+    -- Check if monitor supports setTextScale (windows may not in all cases)
+    if not monitor.setTextScale then
+        return false
+    end
+
+    -- Check cache to avoid redundant calls
+    local cached = scaleCache[monitor]
+    if cached == scale then
+        return false  -- No change needed
+    end
+
+    -- Apply scale and cache
+    monitor.setTextScale(scale)
+    scaleCache[monitor] = scale
+    return true
+end
+
 -- Calculate layout for the given data
+-- NOTE: With window-buffered rendering, text scale is set once at init.
+-- This function no longer changes text scale dynamically to avoid
+-- triggering resize events and breaking window dimensions.
 function GridDisplay:calculate_layout(num_items, content_width, content_height)
     if num_items <= 0 then
         self.columns = 1
@@ -152,94 +180,57 @@ function GridDisplay:calculate_layout(num_items, content_width, content_height)
         return true
     end
 
-    local scale = MAX_TEXT_SCALE
-
-    while scale >= MIN_TEXT_SCALE do
-        self.monitor.setTextScale(scale)
-        local screen_width, screen_height = self.monitor.getSize()
-        screen_width = math.max(screen_width, 1)
-        screen_height = math.max(screen_height, 1)
-
-        -- Determine cell width
-        local cell_width
-        if self.fixed_cell_width then
-            cell_width = self.fixed_cell_width
-        elseif self.fill_width then
-            -- Calculate cell width to fill screen evenly
-            local optimal_cols, max_cols = self:calculateOptimalColumns(
-                num_items, screen_width, screen_height, content_width, content_height
-            )
-
-            -- Calculate cell width that fills the screen with optimal_cols
-            local available_width = screen_width + self.spacing_x
-            cell_width = math.floor(available_width / optimal_cols) - self.spacing_x
-            cell_width = math.max(self.min_cell_width, math.min(self.max_cell_width, cell_width))
-        else
-            cell_width = content_width
-        end
-
-        self.cell_width = cell_width
-        self.cell_height = content_height
-
-        -- Recalculate optimal columns with final cell width
-        local cell_total_width = cell_width + self.spacing_x
-        local cell_total_height = content_height + self.spacing_y
-
-        local max_cols = math.max(1, math.floor((screen_width + self.spacing_x) / cell_total_width))
-        local max_rows = math.max(1, math.floor((screen_height + self.spacing_y) / cell_total_height))
-
-        -- Use optimal column count (not max)
-        local cols = math.min(max_cols, num_items)
-        local rows_needed = math.ceil(num_items / cols)
-
-        -- Check if layout fits
-        if rows_needed <= max_rows then
-            self.columns = cols
-            self.rows = rows_needed
-            self.scale = scale
-
-            -- Calculate centering using ACTUAL grid dimensions
-            local actual_grid_width = cols * cell_total_width - self.spacing_x
-            local actual_grid_height = rows_needed * cell_total_height - self.spacing_y
-
-            self.start_x = math.max(1, math.floor((screen_width - actual_grid_width) / 2) + 1)
-            self.start_y = math.max(1, math.floor((screen_height - actual_grid_height) / 2) + 1)
-
-            return true
-        end
-
-        scale = scale - SCALE_DECREMENT
-    end
-
-    -- Fallback: use minimum scale and fit what we can
-    self.scale = MIN_TEXT_SCALE
-    self.monitor.setTextScale(MIN_TEXT_SCALE)
-
+    -- Use current dimensions without changing text scale
+    -- Monitor.lua sets text scale once at initialization
     local screen_width, screen_height = self.monitor.getSize()
     screen_width = math.max(screen_width, 1)
     screen_height = math.max(screen_height, 1)
 
-    local cell_width = self.fixed_cell_width or content_width
+    -- Determine cell width
+    local cell_width
+    if self.fixed_cell_width then
+        cell_width = self.fixed_cell_width
+    elseif self.fill_width then
+        -- Calculate cell width to fill screen evenly
+        local optimal_cols, max_cols = self:calculateOptimalColumns(
+            num_items, screen_width, screen_height, content_width, content_height
+        )
+
+        -- Calculate cell width that fills the screen with optimal_cols
+        local available_width = screen_width + self.spacing_x
+        cell_width = math.floor(available_width / optimal_cols) - self.spacing_x
+        cell_width = math.max(self.min_cell_width, math.min(self.max_cell_width, cell_width))
+    else
+        cell_width = content_width
+    end
+
     self.cell_width = cell_width
     self.cell_height = content_height
 
-    local cell_total_width = math.max(1, cell_width + self.spacing_x)
-    local cell_total_height = math.max(1, content_height + self.spacing_y)
+    -- Calculate grid dimensions
+    local cell_total_width = cell_width + self.spacing_x
+    local cell_total_height = content_height + self.spacing_y
 
-    self.columns = math.max(1, math.floor((screen_width + self.spacing_x) / cell_total_width))
-    self.rows = math.max(1, math.floor((screen_height + self.spacing_y) / cell_total_height))
+    local max_cols = math.max(1, math.floor((screen_width + self.spacing_x) / cell_total_width))
+    local max_rows = math.max(1, math.floor((screen_height + self.spacing_y) / cell_total_height))
 
-    -- Center the fallback grid
-    local actual_cols = math.min(self.columns, num_items)
-    local actual_rows = math.min(self.rows, math.ceil(num_items / actual_cols))
+    -- Use optimal column count (not max)
+    local cols = math.min(max_cols, num_items)
+    local rows_needed = math.ceil(num_items / cols)
 
-    local actual_grid_width = actual_cols * cell_total_width - self.spacing_x
+    self.columns = cols
+    self.rows = math.min(rows_needed, max_rows)
+    self.scale = 1.0  -- Scale is managed by Monitor.lua
+
+    -- Calculate centering using ACTUAL grid dimensions
+    local actual_rows = math.min(rows_needed, max_rows)
+    local actual_grid_width = cols * cell_total_width - self.spacing_x
     local actual_grid_height = actual_rows * cell_total_height - self.spacing_y
 
     self.start_x = math.max(1, math.floor((screen_width - actual_grid_width) / 2) + 1)
     self.start_y = math.max(1, math.floor((screen_height - actual_grid_height) / 2) + 1)
 
-    return false
+    return rows_needed <= max_rows
 end
 
 -- Display data in a grid layout
@@ -248,26 +239,27 @@ end
 --   colors can be per-line (array) or per-character (array of arrays)
 -- @param options - Table or boolean for backwards compatibility:
 --   If boolean: treated as center_text
---   If table: {center_text=true, skipClear=false, startY=1}
+--   If table: {center_text=true, skipClear=true, startY=1}
+-- NOTE: skipClear defaults to TRUE for window-buffered rendering
+--       Monitor.lua handles clearing via the buffer
 function GridDisplay:display(data, format_callback, options)
     -- Handle backwards compatibility: options can be boolean (center_text)
     local center_text = true
-    local skipClear = false
+    local skipClear = true  -- Default TRUE: buffer handles clearing
     local startY = nil
 
     if type(options) == "boolean" then
         center_text = options
     elseif type(options) == "table" then
         center_text = options.center_text ~= false
-        skipClear = options.skipClear == true
+        skipClear = options.skipClear ~= false  -- Default true unless explicitly false
         startY = options.startY
     end
 
     -- Handle nil/empty data
     if not data or #data == 0 then
-        if not skipClear then
-            self:displayMessage("No data", colors.lightGray)
-        end
+        -- Don't clear; just show message overlay
+        self:displayMessage("No data", colors.lightGray, true)
         return
     end
 
@@ -287,7 +279,7 @@ function GridDisplay:display(data, format_callback, options)
         self.start_y = math.max(startY, self.start_y)
     end
 
-    -- Clear and render (unless skipClear)
+    -- Legacy: clear if explicitly requested (skipClear=false)
     if not skipClear then
         self.monitor.clear()
     end
@@ -371,9 +363,15 @@ function GridDisplay:display(data, format_callback, options)
 end
 
 -- Display a simple message centered on the monitor
-function GridDisplay:displayMessage(message, color)
-    self.monitor.setTextScale(1)
-    self.monitor.clear()
+-- @param message Text to display
+-- @param color Text color
+-- @param skipClear If true, don't clear monitor (default true for buffered rendering)
+function GridDisplay:displayMessage(message, color, skipClear)
+    -- Don't change text scale - Monitor.lua manages scale
+    -- Don't clear by default - Monitor.lua buffer handles this
+    if skipClear ~= true then
+        self.monitor.clear()
+    end
 
     local width, height = self.monitor.getSize()
     local fgHex = colors.toBlit(color or colors.white)

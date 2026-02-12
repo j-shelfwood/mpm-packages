@@ -190,15 +190,18 @@ function BaseView.create(definition)
         end,
 
         -- Main render function (framework-managed)
+        -- NOTE: Monitor.lua handles buffer clearing via window API
+        -- Views should NOT call clear() - it causes flicker
         render = function(self)
-            -- Set up monitor
+            -- Set up text colors (buffer already cleared by Monitor.lua)
             self.monitor.setBackgroundColor(colors.black)
             self.monitor.setTextColor(colors.white)
-            self.monitor.clear()
 
             -- 1. Get data with error handling
+            -- NOTE: Yield.yield() removed from render path - it causes
+            -- context switching that breaks multi-monitor rendering.
+            -- Views should yield inside getData() if needed.
             local ok, data = pcall(definition.getData, self)
-            Yield.yield()
 
             if not ok then
                 local errorMsg = definition.errorMessage or "Error loading data"

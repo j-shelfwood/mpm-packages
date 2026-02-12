@@ -2,6 +2,7 @@
 -- Single monitor management with settings-button pattern
 -- Touch to show settings, click to open view selector
 -- Supports view configuration via configSchema
+-- Uses window buffering for flicker-free rendering
 -- Now uses ui/ widgets for consistent styling
 
 local ViewManager = mpm('views/Manager')
@@ -17,10 +18,9 @@ Monitor.__index = Monitor
 -- Calculate optimal text scale based on NATIVE monitor size (at scale 1.0)
 -- This prevents feedback loops where changing scale changes dimensions
 -- @param monitor The monitor peripheral
--- @return scale The calculated text scale
+-- @return scale, nativeWidth, nativeHeight
 local function calculateTextScale(monitor)
     -- Get dimensions at native scale to determine physical monitor size
-    local currentScale = monitor.getTextScale()
     monitor.setTextScale(1.0)
     local nativeWidth, nativeHeight = monitor.getSize()
 
@@ -35,16 +35,15 @@ local function calculateTextScale(monitor)
         scale = 1.0  -- 3x3 or larger: normal scale
     else
         scale = 1.0  -- 2x2 or smaller: keep scale 1.0 for readability
-        -- Note: Using 0.5 on small monitors causes text to be too small
     end
 
-    -- Restore to calculated scale (or current if unchanged)
-    if scale ~= 1.0 then
-        monitor.setTextScale(scale)
-    end
-    -- If scale is 1.0, we already set it above
+    -- Apply scale
+    monitor.setTextScale(scale)
 
-    return scale
+    -- Get final dimensions at this scale
+    local width, height = monitor.getSize()
+
+    return scale, width, height
 end
 
 -- Create a new monitor manager
@@ -82,6 +81,12 @@ function Monitor.new(config, onViewChange, settings, index)
     self.currentIndex = 1
     self.settingsButton = nil
 
+    -- Window buffer for flicker-free rendering
+    self.buffer = nil
+    self.bufferWidth = 0
+    self.bufferHeight = 0
+    self.currentScale = 1.0
+
     -- Initialize
     self:initialize()
 
@@ -92,12 +97,16 @@ end
 function Monitor:initialize()
     if not self.connected then return end
 
-    -- Apply optimal text scale based on physical monitor size
-    -- calculateTextScale handles getting native dimensions internally
-    self.currentScale = calculateTextScale(self.peripheral)
+    -- Apply optimal text scale and get dimensions
+    self.currentScale, self.bufferWidth, self.bufferHeight = calculateTextScale(self.peripheral)
 
-    -- Apply theme palette
+    -- Create window buffer over the monitor for flicker-free rendering
+    -- Window starts visible; we toggle visibility during render cycles
+    self.buffer = window.create(self.peripheral, 1, 1, self.bufferWidth, self.bufferHeight, true)
+
+    -- Apply theme palette to both peripheral and buffer
     Theme.apply(self.peripheral, self.themeName)
+    Theme.apply(self.buffer, self.themeName)
 
     -- Get available views
     self.availableViews = ViewManager.getMountableViews()
@@ -122,14 +131,15 @@ function Monitor:handleResize()
     if self.handlingResize then return end
     self.handlingResize = true
 
-    -- Recalculate optimal text scale (uses native dimensions internally)
-    self.currentScale = calculateTextScale(self.peripheral)
+    -- Recalculate optimal text scale and get new dimensions
+    self.currentScale, self.bufferWidth, self.bufferHeight = calculateTextScale(self.peripheral)
 
-    -- Reapply theme (palette persists but good practice)
+    -- Recreate window buffer with new dimensions
+    self.buffer = window.create(self.peripheral, 1, 1, self.bufferWidth, self.bufferHeight, true)
+
+    -- Reapply theme to both peripheral and buffer
     Theme.apply(self.peripheral, self.themeName)
-
-    -- Clear and re-render
-    self.peripheral.clear()
+    Theme.apply(self.buffer, self.themeName)
 
     -- Reload view to recalculate layout
     if self.viewName then
@@ -160,8 +170,9 @@ function Monitor:loadView(viewName)
         end
     end
 
-    -- Create view instance
-    local ok, instance = pcall(View.new, self.peripheral, self.viewConfig)
+    -- Create view instance with BUFFER (not raw peripheral)
+    -- This enables flicker-free rendering via window API
+    local ok, instance = pcall(View.new, self.buffer, self.viewConfig)
     if ok then
         self.viewInstance = instance
     else
@@ -170,31 +181,26 @@ function Monitor:loadView(viewName)
         return false
     end
 
-    -- Clear, render immediately, then schedule next render
-    -- Stagger initial timer by monitor index to prevent all monitors
-    -- from rendering simultaneously (causes visual flashing)
-    self.peripheral.clear()
+    -- Initial render (buffer handles flicker prevention)
     self:render()
     self:scheduleRender(self.index * 0.05)  -- 50ms stagger per monitor
 
     return true
 end
 
--- Draw settings button using ui/Button
+-- Draw settings button using ui/Button (renders to buffer)
 function Monitor:drawSettingsButton()
-    local width, height = self.peripheral.getSize()
-
     -- Button in bottom-right with padding
     local buttonLabel = "[*]"
-    local buttonX = width - #buttonLabel - 2  -- padding from edge
-    local buttonY = height - 1                 -- 1 row padding from bottom
+    local buttonX = self.bufferWidth - #buttonLabel - 2  -- padding from edge
+    local buttonY = self.bufferHeight - 1                 -- 1 row padding from bottom
 
     -- Ensure minimum position
     buttonX = math.max(1, buttonX)
     buttonY = math.max(1, buttonY)
 
-    -- Create button using ui/Button
-    self.settingsButton = Button.neutral(self.peripheral, buttonX, buttonY, buttonLabel, nil, {
+    -- Create button using ui/Button (renders to buffer)
+    self.settingsButton = Button.neutral(self.buffer, buttonX, buttonY, buttonLabel, nil, {
         padding = 1
     })
     self.settingsButton:render()
@@ -217,10 +223,12 @@ function Monitor:isSettingsButtonTouch(x, y)
 end
 
 -- Draw the configuration menu using ui/List
+-- Uses raw peripheral for interactive menus (not buffered)
 function Monitor:drawConfigMenu()
     -- Use ui/List for view selection
     local List = mpm('ui/List')
 
+    -- Config menus use peripheral directly (interactive, needs immediate feedback)
     local selected = List.new(self.peripheral, self.availableViews, {
         title = "Select View",
         selected = self.viewName,
@@ -290,43 +298,53 @@ end
 -- Close config menu
 function Monitor:closeConfigMenu()
     self.inConfigMenu = false
+    -- Clear peripheral and trigger immediate buffered render
     self.peripheral.clear()
+    self:render()
     self:scheduleRender()
 end
 
--- Render the view
+-- Render the view using window buffering for flicker-free updates
 function Monitor:render()
     if self.inConfigMenu or not self.viewInstance then
         return
     end
+
+    -- Hide buffer before rendering (prevents flicker)
+    self.buffer.setVisible(false)
+
+    -- Clear buffer and render view
+    self.buffer.setBackgroundColor(colors.black)
+    self.buffer.clear()
 
     local ok, err = pcall(self.view.render, self.viewInstance)
     if not ok then
         -- Log full error to terminal
         print("[Monitor] Render error in " .. (self.viewName or "unknown") .. ": " .. tostring(err))
 
-        -- Show error on monitor
-        self.peripheral.clear()
-        self.peripheral.setCursorPos(1, 1)
-        self.peripheral.setTextColor(colors.red)
-        self.peripheral.write("Render Error")
+        -- Show error on buffer
+        self.buffer.setCursorPos(1, 1)
+        self.buffer.setTextColor(colors.red)
+        self.buffer.write("Render Error")
 
         -- Show truncated error message if room
-        local width, height = self.peripheral.getSize()
-        if height >= 3 and err then
-            self.peripheral.setCursorPos(1, 3)
-            self.peripheral.setTextColor(colors.gray)
-            local errStr = tostring(err):sub(1, width)
-            self.peripheral.write(errStr)
+        if self.bufferHeight >= 3 and err then
+            self.buffer.setCursorPos(1, 3)
+            self.buffer.setTextColor(colors.gray)
+            local errStr = tostring(err):sub(1, self.bufferWidth)
+            self.buffer.write(errStr)
         end
 
-        self.peripheral.setTextColor(colors.white)
+        self.buffer.setTextColor(colors.white)
     end
 
-    -- Redraw settings button if showing
+    -- Redraw settings button if showing (on buffer)
     if self.showingSettings then
         self:drawSettingsButton()
     end
+
+    -- Atomic flip: show buffer (instant, no flicker)
+    self.buffer.setVisible(true)
 end
 
 -- Schedule next render
@@ -377,9 +395,12 @@ function Monitor:isRenderTimer(timerId)
     return timerId == self.renderTimer or timerId == self.settingsTimer
 end
 
--- Clear the monitor
+-- Clear the monitor (both buffer and peripheral)
 function Monitor:clear()
     if self.connected then
+        if self.buffer then
+            Core.clear(self.buffer)
+        end
         Core.clear(self.peripheral)
     end
 end
@@ -435,6 +456,9 @@ function Monitor:setTheme(themeName)
     self.themeName = themeName or "default"
     if self.connected then
         Theme.apply(self.peripheral, self.themeName)
+        if self.buffer then
+            Theme.apply(self.buffer, self.themeName)
+        end
         -- Re-render to show updated colors
         if not self.inConfigMenu and self.viewInstance then
             self:render()
