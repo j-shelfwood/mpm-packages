@@ -1,7 +1,7 @@
 -- ItemChanges.lua
 -- Tracks and displays inventory changes over a configurable time period
--- Shows items gained or lost since the tracking period began
--- Fully rewritten for reliability on large AE2 systems
+-- Compares current inventory against a baseline taken at period start
+-- Fixed: Proper state machine to avoid double-snapshot issues
 
 local AEInterface = mpm('peripherals/AEInterface')
 local GridDisplay = mpm('utils/GridDisplay')
@@ -59,18 +59,15 @@ module = {
             minChange = config.minChange or 1,
             interface = nil,
             display = GridDisplay.new(monitor),
-            -- Baseline snapshot taken at start of tracking period
-            baseline = nil,
+            -- State machine
+            state = "init",  -- "init", "baseline_set", "tracking"
+            -- Baseline snapshot (frozen at period start)
+            baseline = {},
+            baselineCount = 0,
             -- When the current tracking period started
-            periodStart = nil,
-            -- Last known item counts (for detecting changes between renders)
-            lastSnapshot = nil,
-            -- Accumulated changes from baseline
-            changes = {},
-            -- Stats
-            totalGains = 0,
-            totalLosses = 0,
-            initialized = false
+            periodStart = 0,
+            -- Render counter (for skipping comparison on baseline frame)
+            renderCount = 0
         }
 
         -- Try to connect to AE2
@@ -87,99 +84,106 @@ module = {
     end,
 
     -- Take a snapshot of current item counts
-    -- Returns: table {[registryName] = count}, totalItems
+    -- Returns: table {[registryName] = count}, itemCount, success
     takeSnapshot = function(self)
         if not self.interface then
-            return nil, 0
+            return {}, 0, false
         end
 
         local ok, items = pcall(function() return self.interface:items() end)
-        if not ok or not items then
-            return nil, 0
+        if not ok or not items or #items == 0 then
+            return {}, 0, false
         end
 
         Yield.yield()
 
         local snapshot = {}
-        local total = 0
-        Yield.forEach(items, function(item)
-            if item.registryName and item.count then
-                snapshot[item.registryName] = (snapshot[item.registryName] or 0) + item.count
-                total = total + 1
+        local count = 0
+
+        for _, item in ipairs(items) do
+            if item.registryName then
+                local itemCount = item.count or 0
+                if itemCount > 0 then
+                    snapshot[item.registryName] = (snapshot[item.registryName] or 0) + itemCount
+                    count = count + 1
+                end
             end
-        end)
-
-        return snapshot, total
-    end,
-
-    -- Calculate changes between baseline and current snapshot
-    -- Returns: array of {id, change, name}
-    calculateChanges = function(self, current)
-        if not self.baseline or not current then
-            return {}
+            -- Yield periodically
+            if count % 100 == 0 then
+                Yield.yield()
+            end
         end
 
+        return snapshot, count, true
+    end,
+
+    -- Deep copy a table (to prevent reference issues)
+    copySnapshot = function(snapshot)
+        local copy = {}
+        for k, v in pairs(snapshot) do
+            copy[k] = v
+        end
+        return copy
+    end,
+
+    -- Calculate changes between baseline and current
+    calculateChanges = function(self, current)
         local changes = {}
         local showMode = self.showMode
         local minChange = self.minChange
+        local baseline = self.baseline
 
-        -- Check items in current snapshot
-        local count = 0
+        if not baseline or not current then
+            return changes
+        end
+
+        -- Track which baseline items we've seen
+        local seen = {}
+
+        -- Check current items against baseline
         for id, currCount in pairs(current) do
-            local baseCount = self.baseline[id] or 0
+            seen[id] = true
+            local baseCount = baseline[id] or 0
             local change = currCount - baseCount
 
-            if math.abs(change) >= minChange then
-                local include = false
-                if showMode == "both" then
-                    include = true
-                elseif showMode == "gains" and change > 0 then
-                    include = true
-                elseif showMode == "losses" and change < 0 then
-                    include = true
-                end
+            if change ~= 0 and math.abs(change) >= minChange then
+                local include = (showMode == "both") or
+                    (showMode == "gains" and change > 0) or
+                    (showMode == "losses" and change < 0)
 
                 if include then
                     table.insert(changes, {
                         id = id,
                         change = change,
-                        current = currCount
+                        current = currCount,
+                        baseline = baseCount
                     })
                 end
             end
-
-            count = count + 1
-            Yield.check(count)
         end
 
-        -- Check for items that were in baseline but not in current (fully consumed)
-        count = 0
-        for id, baseCount in pairs(self.baseline) do
-            if not current[id] and baseCount > 0 then
+        -- Check for items completely removed (in baseline but not in current)
+        for id, baseCount in pairs(baseline) do
+            if not seen[id] and baseCount > 0 then
                 local change = -baseCount
                 if math.abs(change) >= minChange then
-                    local include = false
-                    if showMode == "both" or showMode == "losses" then
-                        include = true
-                    end
-
+                    local include = (showMode == "both") or (showMode == "losses")
                     if include then
                         table.insert(changes, {
                             id = id,
                             change = change,
-                            current = 0
+                            current = 0,
+                            baseline = baseCount
                         })
                     end
                 end
             end
-            count = count + 1
-            Yield.check(count)
         end
 
         return changes
     end,
 
-    -- Calculate totals for display
+    -- Calculate summary totals
     calculateTotals = function(changes)
         local gains, losses = 0, 0
         for _, item in ipairs(changes) do
@@ -202,6 +206,7 @@ module = {
     end,
 
     render = function(self)
+        self.renderCount = self.renderCount + 1
         self.monitor.setBackgroundColor(colors.black)
         self.monitor.setTextColor(colors.white)
 
@@ -214,51 +219,71 @@ module = {
 
         local now = os.epoch("utc")
 
-        -- Check if we need to start a new tracking period
-        local needsReset = false
-        if not self.periodStart then
-            needsReset = true
-        elseif (now - self.periodStart) / 1000 >= self.periodSeconds then
-            needsReset = true
-        end
-
-        if needsReset then
-            -- Take new baseline snapshot
-            local snapshot, count = module.takeSnapshot(self)
-            if snapshot and count > 0 then
-                self.baseline = snapshot
+        -- State machine
+        if self.state == "init" then
+            -- First render: take baseline and move to next state
+            local snapshot, count, ok = module.takeSnapshot(self)
+            if ok and count > 0 then
+                self.baseline = module.copySnapshot(snapshot)
+                self.baselineCount = count
                 self.periodStart = now
-                self.changes = {}
-                self.lastSnapshot = snapshot
-            elseif not self.baseline then
-                -- First run and failed to get snapshot
+                self.state = "baseline_set"
+
+                -- Show initialization message (don't compare yet)
                 self.monitor.clear()
                 MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) - 1, "Item Changes", colors.white)
-                MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) + 1, "Waiting for data...", colors.gray)
+                MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) + 1, "Baseline captured: " .. count .. " items", colors.lime)
+                return
+            else
+                -- Failed to get data
+                self.monitor.clear()
+                MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) - 1, "Item Changes", colors.white)
+                MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) + 1, "Waiting for AE2 data...", colors.gray)
+                return
+            end
+
+        elseif self.state == "baseline_set" then
+            -- Second render: now we can start tracking
+            self.state = "tracking"
+            -- Fall through to tracking logic
+        end
+
+        -- Check for period reset
+        local elapsed = (now - self.periodStart) / 1000
+        if elapsed >= self.periodSeconds then
+            -- Period expired - take new baseline
+            local snapshot, count, ok = module.takeSnapshot(self)
+            if ok and count > 0 then
+                self.baseline = module.copySnapshot(snapshot)
+                self.baselineCount = count
+                self.periodStart = now
+
+                -- Show reset message
+                self.monitor.clear()
+                MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) - 1, "Period Reset", colors.orange)
+                MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) + 1, "New baseline: " .. count .. " items", colors.gray)
                 return
             end
         end
 
         -- Take current snapshot
-        local current, itemCount = module.takeSnapshot(self)
-        if not current then
-            MonitorHelpers.writeCentered(self.monitor, 1, "Error fetching items", colors.red)
+        local current, itemCount, ok = module.takeSnapshot(self)
+        if not ok then
+            self.monitor.clear()
+            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "Error reading AE2", colors.red)
             return
         end
 
         -- Calculate changes from baseline
         local changes = module.calculateChanges(self, current)
-        self.lastSnapshot = current
 
-        -- Calculate elapsed and remaining time
-        local elapsed = math.floor((now - self.periodStart) / 1000)
-        local remaining = math.max(0, self.periodSeconds - elapsed)
+        -- Calculate remaining time
+        local remaining = math.max(0, math.floor(self.periodSeconds - elapsed))
 
         -- Handle no changes
         if #changes == 0 then
             self.monitor.clear()
 
-            -- Title
             MonitorHelpers.writeCentered(self.monitor, 1, "Item Changes", colors.white)
 
             -- Time indicator
@@ -271,9 +296,9 @@ module = {
             local centerY = math.floor(self.height / 2)
             MonitorHelpers.writeCentered(self.monitor, centerY - 1, "No changes detected", colors.gray)
 
-            -- Show tracking info
-            local trackingStr = "Tracking " .. itemCount .. " items"
-            MonitorHelpers.writeCentered(self.monitor, centerY + 1, trackingStr, colors.lightGray)
+            -- Show baseline info
+            local infoStr = "Baseline: " .. self.baselineCount .. " | Current: " .. itemCount
+            MonitorHelpers.writeCentered(self.monitor, centerY + 1, Text.truncateMiddle(infoStr, self.width - 2), colors.lightGray)
 
             -- Mode indicator at bottom
             local modeStr = "Mode: " .. self.showMode
@@ -295,13 +320,12 @@ module = {
         -- Calculate totals
         local totalGains, totalLosses = module.calculateTotals(changes)
 
-        -- Display items in grid (this clears the monitor)
+        -- Display items in grid
         self.display:display(changes, function(item)
             return module.formatChange(item.id, item.change)
         end)
 
-        -- Draw header OVER the grid (row 1)
-        -- This works because header is short and grid is centered
+        -- Draw header overlay
         self.monitor.setBackgroundColor(colors.black)
         self.monitor.setCursorPos(1, 1)
         self.monitor.clearLine()
@@ -310,7 +334,6 @@ module = {
         self.monitor.setCursorPos(1, 1)
         self.monitor.write("Changes")
 
-        -- Show count
         self.monitor.setTextColor(colors.lightGray)
         self.monitor.write(" (" .. #changes .. ")")
 
@@ -320,7 +343,7 @@ module = {
         self.monitor.setCursorPos(math.max(1, self.width - #timeStr + 1), 1)
         self.monitor.write(timeStr)
 
-        -- Row 2: Summary (if room and not overlapping grid)
+        -- Summary row
         if self.height >= 8 then
             self.monitor.setCursorPos(1, 2)
             self.monitor.clearLine()
