@@ -19,10 +19,10 @@ module = {
             key = "periodSeconds",
             type = "number",
             label = "Reset Period (sec)",
-            default = 1800,
-            min = 60,
+            default = 60,
+            min = 10,
             max = 86400,
-            presets = {60, 300, 600, 1800, 3600}
+            presets = {30, 60, 300, 600, 1800}
         },
         {
             key = "showMode",
@@ -54,7 +54,7 @@ module = {
             monitor = monitor,
             width = width,
             height = height,
-            periodSeconds = config.periodSeconds or 1800,
+            periodSeconds = config.periodSeconds or 60,
             showMode = config.showMode or "both",
             minChange = config.minChange or 1,
             interface = nil,
