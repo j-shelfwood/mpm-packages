@@ -2,8 +2,40 @@
 -- Single monitor management with settings-button pattern
 -- Touch to show settings, click to open view selector
 -- Supports view configuration via configSchema
--- Uses window buffering for flicker-free rendering
 -- Now uses ui/ widgets for consistent styling
+--
+-- ============================================================================
+-- WINDOW BUFFERING ARCHITECTURE (see docs/RENDERING_ARCHITECTURE.md)
+-- ============================================================================
+-- This module implements flicker-free multi-monitor rendering using the
+-- CC:Tweaked window API as a display buffer.
+--
+-- KEY CONCEPTS:
+--   self.peripheral = raw monitor peripheral
+--   self.buffer     = window.create() over peripheral (views render here)
+--
+-- RENDER CYCLE:
+--   1. buffer.setVisible(false)   -- hide buffer during render
+--   2. buffer.clear()             -- clear invisible buffer
+--   3. view.render(viewInstance)  -- view draws to buffer
+--   4. buffer.setVisible(true)    -- atomic flip (instant, no flicker)
+--
+-- WHY THIS WORKS:
+--   - Views never see the raw peripheral, only the buffer
+--   - All drawing happens to invisible buffer
+--   - Single setVisible(true) call flips entire screen atomically
+--   - No intermediate states visible = no flicker
+--
+-- TEXT SCALE:
+--   - Set ONCE in initialize() based on monitor physical size
+--   - NEVER changed during rendering
+--   - Views should NOT call setTextScale()
+--
+-- INTERACTIVE MENUS:
+--   - Config menus use peripheral directly (not buffer)
+--   - Needs immediate feedback for touch interactions
+--   - Buffer render resumes after menu closes
+-- ============================================================================
 
 local ViewManager = mpm('views/Manager')
 local ConfigUI = mpm('shelfos/core/ConfigUI')

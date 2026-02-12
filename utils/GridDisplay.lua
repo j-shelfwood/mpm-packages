@@ -1,12 +1,23 @@
 -- GridDisplay.lua
 -- Responsive grid layout for CC:Tweaked monitors
 -- Automatically scales and arranges items in a grid with proper centering
--- NOTE: Works with window-buffered monitors for flicker-free rendering
+--
+-- ============================================================================
+-- BUFFER COMPATIBILITY (see docs/RENDERING_ARCHITECTURE.md)
+-- ============================================================================
+-- This module is designed for window-buffered rendering:
+--   - Does NOT call setTextScale() during rendering (Monitor.lua sets once)
+--   - Does NOT clear by default (skipClear=true, buffer handles clearing)
+--   - Uses cached scale values to avoid resize event loops
+--
+-- When used with ShelfOS, the "monitor" parameter is actually a window buffer
+-- created by Monitor.lua, not a raw peripheral.
+-- ============================================================================
 
 local GridDisplay = {}
 GridDisplay.__index = GridDisplay
 
--- Constants
+-- Constants (legacy - scale is now managed by Monitor.lua)
 local MIN_TEXT_SCALE = 0.5
 local MAX_TEXT_SCALE = 1.5
 local SCALE_DECREMENT = 0.5

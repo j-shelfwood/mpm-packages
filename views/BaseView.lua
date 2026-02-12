@@ -3,6 +3,21 @@
 -- Handles lifecycle, rendering, and error states consistently
 --
 -- Views define WHAT to show, framework handles HOW to render
+--
+-- ============================================================================
+-- RENDERING ARCHITECTURE (see docs/RENDERING_ARCHITECTURE.md)
+-- ============================================================================
+-- Monitor.lua uses WINDOW BUFFERING for flicker-free rendering:
+--   1. Views receive a window buffer, not raw peripheral
+--   2. Monitor.lua clears buffer before calling render()
+--   3. Monitor.lua toggles visibility for atomic screen updates
+--
+-- RULES FOR VIEW DEVELOPMENT:
+--   - DO NOT call self.monitor.clear() in render() - causes flashing
+--   - DO NOT call Yield.yield() in render() - breaks multi-monitor
+--   - DO NOT call setTextScale() - Monitor.lua sets scale once
+--   - DO yield in getData() for large data processing
+-- ============================================================================
 
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')

@@ -1,0 +1,179 @@
+# ShelfOS Rendering Architecture
+
+## Overview
+
+ShelfOS uses **window buffering** for flicker-free multi-monitor rendering. This document explains the pattern and provides guidelines for view development.
+
+## The Problem
+
+Direct monitor rendering causes two critical issues:
+
+1. **Flashing**: Calling `monitor.clear()` on every render tick causes visible flicker as the screen goes black momentarily before being redrawn.
+
+2. **Single-monitor rendering**: Calling `Yield.yield()` or `os.sleep()` during render causes context switching. In a single-threaded event loop, this allows other monitors' timers to fire before the current render completes, causing only one monitor to appear rendered at a time.
+
+## The Solution: Window Buffering
+
+Per [CC:Tweaked Window API](https://tweaked.cc/module/window.html) best practices:
+
+```
+Windows retain a memory of everything rendered "through" them (hence acting
+as display buffers), and if the parent's display is wiped, the window's
+content can be easily redrawn later. A window may also be flagged as invisible,
+preventing any changes to it from being rendered until it's flagged as visible
+once more.
+```
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Monitor.lua                          │
+├─────────────────────────────────────────────────────────────┤
+│  self.peripheral = peripheral.wrap(name)   -- raw monitor  │
+│  self.buffer = window.create(peripheral, 1, 1, w, h, true) │
+│                                                             │
+│  render():                                                  │
+│    1. buffer.setVisible(false)  -- hide during render      │
+│    2. buffer.clear()            -- clear invisible buffer  │
+│    3. view.render(viewInstance) -- view draws to buffer    │
+│    4. buffer.setVisible(true)   -- atomic flip (instant!)  │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                         View                                │
+├─────────────────────────────────────────────────────────────┤
+│  self.monitor = buffer  -- receives window, not peripheral │
+│                                                             │
+│  render():                                                  │
+│    -- DO NOT call self.monitor.clear()                      │
+│    -- DO NOT call Yield.yield()                             │
+│    -- Just draw content directly                            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Rules for View Development
+
+### DO NOT in render():
+
+```lua
+-- WRONG: Causes flashing
+function render(self, data)
+    self.monitor.clear()  -- NO! Buffer handles this
+    -- ...
+end
+
+-- WRONG: Causes context switching
+function render(self, data)
+    -- draw something
+    Yield.yield()  -- NO! Breaks multi-monitor
+    -- draw more
+end
+
+-- WRONG: Causes resize events
+function render(self, data)
+    self.monitor.setTextScale(0.5)  -- NO! Monitor.lua sets scale once
+    -- ...
+end
+```
+
+### DO in render():
+
+```lua
+-- CORRECT: Just draw content
+function render(self, data)
+    self.monitor.setBackgroundColor(colors.black)
+    self.monitor.setTextColor(colors.white)
+    -- Draw directly - buffer is already cleared
+    self.monitor.setCursorPos(1, 1)
+    self.monitor.write("Content")
+end
+```
+
+### Yielding in getData():
+
+Yielding is acceptable (and encouraged for large data processing) inside `getData()`:
+
+```lua
+getData = function(self)
+    local items = self.interface:items()
+    Yield.yield()  -- OK here - not in render path
+
+    local filtered = Yield.filter(items, function(item)
+        return item.count > 0
+    end)
+
+    return filtered
+end
+```
+
+## Component Responsibilities
+
+### Monitor.lua
+- Creates and manages window buffer
+- Sets text scale ONCE at initialization
+- Handles buffer visibility toggling
+- Clears buffer before each render
+- Passes buffer (not peripheral) to views
+
+### BaseView.lua
+- Provides declarative view framework
+- Calls `getData()` then `render()`
+- Does NOT clear monitor
+- Does NOT yield in render path
+
+### GridDisplay.lua
+- Renders grid layouts to buffer
+- Does NOT change text scale
+- Does NOT clear by default (`skipClear=true`)
+- Uses cached scale values
+
+### Views (individual)
+- Define `getData()` for data fetching (can yield)
+- Define `render()` for drawing (no clear, no yield)
+- Define `formatItem()` for grid/list formatting
+
+## Text Scale Management
+
+Text scale is managed ONCE by `Monitor.lua` during initialization:
+
+```lua
+-- Monitor.lua
+function Monitor:initialize()
+    self.currentScale, self.bufferWidth, self.bufferHeight = calculateTextScale(self.peripheral)
+    self.buffer = window.create(self.peripheral, 1, 1, self.bufferWidth, self.bufferHeight, true)
+end
+```
+
+Views and GridDisplay should NEVER call `setTextScale()`. The dimensions are fixed when the buffer is created.
+
+## Interactive Menus (Exception)
+
+Config menus (view selector, settings) use the raw peripheral directly because they need immediate visual feedback for touch interactions:
+
+```lua
+-- Monitor.lua - openConfigMenu()
+function Monitor:drawConfigMenu()
+    -- Uses self.peripheral (not self.buffer) for interactive menus
+    local List = mpm('ui/List')
+    local selected = List.new(self.peripheral, self.availableViews, {...})
+end
+```
+
+After the menu closes, `closeConfigMenu()` triggers a buffered render to restore normal operation.
+
+## Debugging Flicker Issues
+
+If you see flashing:
+
+1. **Check for `clear()` calls**: Search for `monitor.clear()` or `self.monitor.clear()` in view code
+2. **Check for yields in render**: Search for `Yield.yield()` between draw calls
+3. **Check for scale changes**: Search for `setTextScale()` in view code
+4. **Verify buffer is used**: Ensure `Monitor:loadView()` passes `self.buffer` not `self.peripheral`
+
+## References
+
+- [CC:Tweaked Window API](https://tweaked.cc/module/window.html)
+- [CC:Tweaked Monitor Peripheral](https://tweaked.cc/peripheral/monitor.html)
+- [Monitor Rendering Blog Post](https://squiddev.cc/2023/03/18/monitors-again.html)
