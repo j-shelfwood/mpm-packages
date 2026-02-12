@@ -5,6 +5,8 @@
 local Controller = mpm('ui/Controller')
 local Keys = mpm('utils/Keys')
 
+local Menu = {}
+
 -- Menu key mappings
 local menuKeys = {
     m = "monitors",
