@@ -156,19 +156,18 @@ module = {
             return
         end
 
-        -- Draw header
-        self.monitor.clear()
+        -- Display drives in grid (let GridDisplay handle clearing)
+        self.display:display(filteredDrives, function(drive)
+            return module.formatDrive(drive)
+        end)
+
+        -- Draw header overlay after grid (so it doesn't get erased)
         self.monitor.setTextColor(colors.white)
         self.monitor.setCursorPos(1, 1)
         self.monitor.write("ME Drives")
         self.monitor.setTextColor(colors.gray)
         local countStr = " (" .. #filteredDrives .. ")"
         self.monitor.write(countStr)
-
-        -- Display drives in grid
-        self.display:display(filteredDrives, function(drive)
-            return module.formatDrive(drive)
-        end)
 
         self.monitor.setTextColor(colors.white)
     end

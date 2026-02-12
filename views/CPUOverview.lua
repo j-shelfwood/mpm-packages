@@ -136,20 +136,19 @@ module = {
             tasks = tasksData
         end
 
-        -- Draw header
-        self.monitor.clear()
+        -- Clear and display CPUs in grid (let GridDisplay handle clearing)
+        local showStorage = self.showStorage
+        self.display:display(cpus, function(cpu)
+            return module.formatCPU(cpu, tasks, showStorage)
+        end)
+
+        -- Draw header overlay after grid (so it doesn't get erased)
         self.monitor.setTextColor(colors.white)
         self.monitor.setCursorPos(1, 1)
         self.monitor.write("Crafting CPUs")
         self.monitor.setTextColor(colors.gray)
         local countStr = " (" .. #cpus .. ")"
         self.monitor.write(countStr)
-
-        -- Display CPUs in grid
-        local showStorage = self.showStorage
-        self.display:display(cpus, function(cpu)
-            return module.formatCPU(cpu, tasks, showStorage)
-        end)
 
         self.monitor.setTextColor(colors.white)
     end

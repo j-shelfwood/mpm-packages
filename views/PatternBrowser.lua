@@ -215,17 +215,16 @@ module = {
             displayPatterns[i] = patterns[i]
         end
 
-        -- Draw header
-        self.monitor.clear()
+        -- Display patterns in grid (let GridDisplay handle clearing)
+        self.display:display(displayPatterns, module.formatPattern)
+
+        -- Draw header overlay after grid (so it doesn't get erased)
         self.monitor.setTextColor(colors.cyan)
         self.monitor.setCursorPos(1, 1)
         self.monitor.write("PATTERNS")
         self.monitor.setTextColor(colors.gray)
         local countStr = " (" .. #patterns .. " total)"
         self.monitor.write(Text.truncateMiddle(countStr, self.width - 9))
-
-        -- Display patterns in grid
-        self.display:display(displayPatterns, module.formatPattern)
 
         self.monitor.setTextColor(colors.white)
     end

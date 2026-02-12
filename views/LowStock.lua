@@ -139,20 +139,19 @@ module = {
             displayItems[i] = lowStock[i]
         end
 
-        -- Draw header
-        self.monitor.clear()
+        -- Display items in grid (let GridDisplay handle clearing)
+        local showCraftable = self.showCraftable
+        self.display:display(displayItems, function(item)
+            return module.formatItem(item, showCraftable)
+        end)
+
+        -- Draw header overlay after grid (so it doesn't get erased)
         self.monitor.setTextColor(colors.red)
         self.monitor.setCursorPos(1, 1)
         self.monitor.write("LOW STOCK")
         self.monitor.setTextColor(colors.gray)
         local countStr = " (" .. #lowStock .. " < " .. self.threshold .. ")"
         self.monitor.write(Text.truncateMiddle(countStr, self.width - 10))
-
-        -- Display items in grid
-        local showCraftable = self.showCraftable
-        self.display:display(displayItems, function(item)
-            return module.formatItem(item, showCraftable)
-        end)
 
         self.monitor.setTextColor(colors.white)
     end

@@ -199,27 +199,26 @@ module = {
             limitedItems[i] = displayItems[i]
         end
 
-        -- Draw header
-        self.monitor.clear()
+        -- Display items in grid (let GridDisplay handle clearing)
+        self.display:display(limitedItems, function(item)
+            return module.formatItem(item)
+        end)
+
+        -- Draw header overlay after grid (so it doesn't get erased)
         self.monitor.setTextColor(colors.cyan)
         self.monitor.setCursorPos(1, 1)
-        
+
         local headerText = "CRAFTABLE ITEMS"
         if self.showMode == "zeroStock" then
             headerText = "OUT OF STOCK"
         elseif self.showMode == "lowStock" then
             headerText = "LOW STOCK (< " .. self.lowThreshold .. ")"
         end
-        
+
         self.monitor.write(headerText)
         self.monitor.setTextColor(colors.gray)
         local countStr = " (" .. #displayItems .. ")"
         self.monitor.write(countStr)
-
-        -- Display items in grid
-        self.display:display(limitedItems, function(item)
-            return module.formatItem(item)
-        end)
 
         self.monitor.setTextColor(colors.white)
     end

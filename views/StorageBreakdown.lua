@@ -85,7 +85,7 @@ module = {
                 has_external = false
             }
 
-            local prefix = storageType == "item" and "Item" or "Fluid"
+            local prefix = storageType  -- "Item" or "Fluid" passed directly
             
             -- Get internal storage
             local ok, used = pcall(function() 

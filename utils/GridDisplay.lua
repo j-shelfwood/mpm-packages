@@ -246,15 +246,28 @@ end
 -- @param data - Array of items to display
 -- @param format_callback - Function(item) returning {lines={...}, colors={...}}
 --   colors can be per-line (array) or per-character (array of arrays)
--- @param center_text - Whether to center text in cells (default: true)
-function GridDisplay:display(data, format_callback, center_text)
-    if center_text == nil then
-        center_text = true
+-- @param options - Table or boolean for backwards compatibility:
+--   If boolean: treated as center_text
+--   If table: {center_text=true, skipClear=false, startY=1}
+function GridDisplay:display(data, format_callback, options)
+    -- Handle backwards compatibility: options can be boolean (center_text)
+    local center_text = true
+    local skipClear = false
+    local startY = nil
+
+    if type(options) == "boolean" then
+        center_text = options
+    elseif type(options) == "table" then
+        center_text = options.center_text ~= false
+        skipClear = options.skipClear == true
+        startY = options.startY
     end
 
     -- Handle nil/empty data
     if not data or #data == 0 then
-        self:displayMessage("No data", colors.lightGray)
+        if not skipClear then
+            self:displayMessage("No data", colors.lightGray)
+        end
         return
     end
 
@@ -269,8 +282,15 @@ function GridDisplay:display(data, format_callback, center_text)
     -- Calculate grid layout
     self:calculate_layout(#data, content_width, content_height)
 
-    -- Clear and render
-    self.monitor.clear()
+    -- Override start_y if specified (for header reservation)
+    if startY then
+        self.start_y = math.max(startY, self.start_y)
+    end
+
+    -- Clear and render (unless skipClear)
+    if not skipClear then
+        self.monitor.clear()
+    end
 
     local maxItems = self.rows * self.columns
     local content_area = self.cell_width - (self.cell_padding * 2)

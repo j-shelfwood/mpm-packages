@@ -138,15 +138,6 @@ module = {
             totalBuckets = totalBuckets + (fluid.amount / 1000)
         end
 
-        -- Draw header
-        self.monitor.clear()
-        self.monitor.setTextColor(colors.cyan)
-        self.monitor.setCursorPos(1, 1)
-        self.monitor.write("Fluids")
-        self.monitor.setTextColor(colors.gray)
-        local countStr = " (" .. #fluids .. " | " .. Text.formatNumber(totalBuckets, 0) .. "B)"
-        self.monitor.write(Text.truncateMiddle(countStr, self.width - 6))
-
         -- Limit display
         local maxFluids = 50
         local displayFluids = {}
@@ -154,11 +145,19 @@ module = {
             displayFluids[i] = fluids[i]
         end
 
-        -- Display fluids in grid
+        -- Display fluids in grid (let GridDisplay handle clearing)
         local warningBelow = self.warningBelow
         self.display:display(displayFluids, function(fluid)
             return module.formatFluid(fluid, warningBelow)
         end)
+
+        -- Draw header overlay after grid (so it doesn't get erased)
+        self.monitor.setTextColor(colors.cyan)
+        self.monitor.setCursorPos(1, 1)
+        self.monitor.write("Fluids")
+        self.monitor.setTextColor(colors.gray)
+        local countStr = " (" .. #fluids .. " | " .. Text.formatNumber(totalBuckets, 0) .. "B)"
+        self.monitor.write(Text.truncateMiddle(countStr, self.width - 6))
 
         self.monitor.setTextColor(colors.white)
     end
