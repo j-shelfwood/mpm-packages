@@ -10,6 +10,7 @@
     "core/Monitor.lua",
     "core/Zone.lua",
     "core/Terminal.lua",
+    "core/Controller.lua",
     "input/Menu.lua",
     "modes/headless.lua",
     "pocket/start.lua",
