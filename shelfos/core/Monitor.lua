@@ -35,7 +35,11 @@ local function calculateTextScale(width, height)
 end
 
 -- Create a new monitor manager
-function Monitor.new(config, onViewChange, settings)
+-- @param config Monitor configuration from shelfos.config
+-- @param onViewChange Callback for view changes
+-- @param settings Global settings
+-- @param index Monitor index (0-based) for staggering timers
+function Monitor.new(config, onViewChange, settings, index)
     local self = setmetatable({}, Monitor)
 
     self.peripheralName = config.peripheral
@@ -44,6 +48,7 @@ function Monitor.new(config, onViewChange, settings)
     self.viewConfig = config.viewConfig or {}
     self.onViewChange = onViewChange
     self.themeName = (settings and settings.theme) or "default"
+    self.index = index or 0  -- Used for staggering render timers
 
     -- Try to connect
     self.peripheral = peripheral.wrap(self.peripheralName)
@@ -153,9 +158,11 @@ function Monitor:loadView(viewName)
     end
 
     -- Clear, render immediately, then schedule next render
+    -- Stagger initial timer by monitor index to prevent all monitors
+    -- from rendering simultaneously (causes visual flashing)
     self.peripheral.clear()
     self:render()
-    self:scheduleRender()
+    self:scheduleRender(self.index * 0.05)  -- 50ms stagger per monitor
 
     return true
 end
@@ -295,10 +302,11 @@ function Monitor:render()
 end
 
 -- Schedule next render
-function Monitor:scheduleRender()
+-- @param offset Optional time offset to stagger initial renders (default 0)
+function Monitor:scheduleRender(offset)
     if self.inConfigMenu then return end
     local sleepTime = (self.view and self.view.sleepTime) or 1
-    self.renderTimer = os.startTimer(sleepTime)
+    self.renderTimer = os.startTimer(sleepTime + (offset or 0))
 end
 
 -- Handle touch event

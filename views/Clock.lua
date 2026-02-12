@@ -70,11 +70,7 @@ module = {
     end,
 
     render = function(self)
-        if not self.initialized then
-            self.monitor.clear()
-            self.initialized = true
-        end
-
+        -- Set colors before clear to avoid flash
         self.monitor.setBackgroundColor(colors.black)
         self.monitor.setTextColor(colors.white)
 

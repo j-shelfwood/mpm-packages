@@ -101,8 +101,9 @@ function Kernel:initializeMonitors()
     -- Get settings for theme etc.
     local settings = self.config.settings or {}
 
-    for _, monitorConfig in ipairs(self.config.monitors or {}) do
-        local monitor = Monitor.new(monitorConfig, onViewChange, settings)
+    for i, monitorConfig in ipairs(self.config.monitors or {}) do
+        -- Pass index (0-based) for timer staggering
+        local monitor = Monitor.new(monitorConfig, onViewChange, settings, i - 1)
 
         if monitor:isConnected() then
             table.insert(self.monitors, monitor)
@@ -159,10 +160,8 @@ function Kernel:run()
 
     self.running = true
 
-    -- Initial render for all monitors
-    for _, monitor in ipairs(self.monitors) do
-        monitor:render()
-    end
+    -- Note: Initial render already happened in loadView() during boot
+    -- No need to render again here
 
     -- Run single event loop (with optional network task in parallel)
     if self.channel then
