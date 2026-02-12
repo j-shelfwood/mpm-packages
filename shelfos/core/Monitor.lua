@@ -14,24 +14,37 @@ local List = mpm('ui/List')
 local Monitor = {}
 Monitor.__index = Monitor
 
--- Calculate optimal text scale based on monitor size
--- Returns scale that makes UI elements appropriately sized
-local function calculateTextScale(width, height)
-    -- CC:Tweaked supports 0.5 to 5 in 0.5 increments
-    -- Larger monitors can use smaller scale for more content
-    -- Smaller monitors need larger scale for readability
+-- Calculate optimal text scale based on NATIVE monitor size (at scale 1.0)
+-- This prevents feedback loops where changing scale changes dimensions
+-- @param monitor The monitor peripheral
+-- @return scale The calculated text scale
+local function calculateTextScale(monitor)
+    -- Get dimensions at native scale to determine physical monitor size
+    local currentScale = monitor.getTextScale()
+    monitor.setTextScale(1.0)
+    local nativeWidth, nativeHeight = monitor.getSize()
 
-    local pixels = width * height
+    -- Calculate scale based on native (physical) dimensions
+    -- A 2x2 monitor block is ~14x9 at scale 1.0
+    -- A 3x3 monitor block is ~29x19 at scale 1.0
+    -- A 4x4 monitor block is ~36x25 at scale 1.0
+    local pixels = nativeWidth * nativeHeight
 
-    if pixels >= 800 then
-        return 1.0  -- Large monitor: normal scale
-    elseif pixels >= 400 then
-        return 1.0  -- Medium: normal scale
-    elseif pixels >= 150 then
-        return 0.5  -- Small: half scale for more room
+    local scale
+    if pixels >= 400 then
+        scale = 1.0  -- 3x3 or larger: normal scale
     else
-        return 0.5  -- Very small: minimum scale
+        scale = 1.0  -- 2x2 or smaller: keep scale 1.0 for readability
+        -- Note: Using 0.5 on small monitors causes text to be too small
     end
+
+    -- Restore to calculated scale (or current if unchanged)
+    if scale ~= 1.0 then
+        monitor.setTextScale(scale)
+    end
+    -- If scale is 1.0, we already set it above
+
+    return scale
 end
 
 -- Create a new monitor manager
@@ -79,13 +92,9 @@ end
 function Monitor:initialize()
     if not self.connected then return end
 
-    -- Apply optimal text scale based on monitor size
-    local width, height = self.peripheral.getSize()
-    local scale = calculateTextScale(width, height)
-    self.peripheral.setTextScale(scale)
-
-    -- Re-get size after scale change (dimensions change with scale)
-    width, height = self.peripheral.getSize()
+    -- Apply optimal text scale based on physical monitor size
+    -- calculateTextScale handles getting native dimensions internally
+    self.currentScale = calculateTextScale(self.peripheral)
 
     -- Apply theme palette
     Theme.apply(self.peripheral, self.themeName)
@@ -109,10 +118,12 @@ end
 function Monitor:handleResize()
     if not self.connected then return end
 
-    -- Recalculate optimal text scale
-    local width, height = self.peripheral.getSize()
-    local scale = calculateTextScale(width, height)
-    self.peripheral.setTextScale(scale)
+    -- Guard against resize loops from setTextScale
+    if self.handlingResize then return end
+    self.handlingResize = true
+
+    -- Recalculate optimal text scale (uses native dimensions internally)
+    self.currentScale = calculateTextScale(self.peripheral)
 
     -- Reapply theme (palette persists but good practice)
     Theme.apply(self.peripheral, self.themeName)
@@ -124,6 +135,8 @@ function Monitor:handleResize()
     if self.viewName then
         self:loadView(self.viewName)
     end
+
+    self.handlingResize = false
 end
 
 -- Load a view by name
