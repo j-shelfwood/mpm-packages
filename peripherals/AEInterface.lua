@@ -56,18 +56,20 @@ function AEInterface:items()
     local raw = self.bridge.getItems() or {}
 
     -- Normalize and consolidate by registry name
-    -- ME Bridge returns: name, count, displayName, isCraftable, tags, maxStackSize
+    -- ME Bridge returns: name, amount, displayName, isCraftable, fingerprint, nbt, tags
+    -- Note: docs say 'amount' but some versions may use 'count' - support both
     local byId = {}
     for _, item in ipairs(raw) do
         local id = item.name  -- registry name like "minecraft:diamond"
         if id then
+            local itemCount = item.amount or item.count or 0
             if byId[id] then
-                byId[id].count = byId[id].count + (item.count or 0)
+                byId[id].count = byId[id].count + itemCount
             else
                 byId[id] = {
                     registryName = id,
                     displayName = item.displayName or id,
-                    count = item.count or 0,
+                    count = itemCount,
                     isCraftable = item.isCraftable or false
                 }
             end
@@ -93,7 +95,7 @@ function AEInterface:getItem(filter)
     return {
         registryName = item.name,
         displayName = item.displayName or item.name,
-        count = item.count or 0,
+        count = item.amount or item.count or 0,
         isCraftable = item.isCraftable or false
     }
 end
