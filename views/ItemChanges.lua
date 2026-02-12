@@ -205,6 +205,55 @@ module = {
         }
     end,
 
+    -- Draw a progress bar showing time until reset
+    -- @param monitor The monitor to draw on
+    -- @param y Y position for the bar
+    -- @param width Total width available
+    -- @param elapsed Seconds elapsed
+    -- @param total Total seconds in period
+    drawTimerBar = function(monitor, y, width, elapsed, total)
+        local progress = math.min(1, elapsed / total)
+        local remaining = math.max(0, total - elapsed)
+
+        -- Format remaining time
+        local timeStr
+        if remaining >= 3600 then
+            timeStr = string.format("%dh%dm", math.floor(remaining / 3600), math.floor((remaining % 3600) / 60))
+        elseif remaining >= 60 then
+            timeStr = string.format("%dm%ds", math.floor(remaining / 60), remaining % 60)
+        else
+            timeStr = remaining .. "s"
+        end
+
+        -- Bar width (leave room for time text)
+        local barWidth = math.max(4, width - #timeStr - 3)
+        local filledWidth = math.floor(barWidth * progress)
+        local emptyWidth = barWidth - filledWidth
+
+        -- Draw bar background
+        monitor.setCursorPos(1, y)
+        monitor.setBackgroundColor(colors.gray)
+        monitor.setTextColor(colors.white)
+
+        -- Filled portion (shows progress toward reset)
+        if filledWidth > 0 then
+            monitor.setBackgroundColor(colors.blue)
+            monitor.write(string.rep(" ", filledWidth))
+        end
+
+        -- Empty portion
+        if emptyWidth > 0 then
+            monitor.setBackgroundColor(colors.gray)
+            monitor.write(string.rep(" ", emptyWidth))
+        end
+
+        -- Time text (right-aligned)
+        monitor.setBackgroundColor(colors.black)
+        monitor.setTextColor(colors.lightGray)
+        monitor.setCursorPos(width - #timeStr + 1, y)
+        monitor.write(timeStr)
+    end,
+
     render = function(self)
         self.renderCount = self.renderCount + 1
         self.monitor.setBackgroundColor(colors.black)
@@ -233,6 +282,9 @@ module = {
                 self.monitor.clear()
                 MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) - 1, "Item Changes", colors.white)
                 MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) + 1, "Baseline captured: " .. count .. " items", colors.lime)
+
+                -- Draw timer bar at bottom
+                module.drawTimerBar(self.monitor, self.height, self.width, 0, self.periodSeconds)
                 return
             else
                 -- Failed to get data
@@ -262,6 +314,9 @@ module = {
                 self.monitor.clear()
                 MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) - 1, "Period Reset", colors.orange)
                 MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) + 1, "New baseline: " .. count .. " items", colors.gray)
+
+                -- Draw timer bar at bottom (just reset, so 0 elapsed)
+                module.drawTimerBar(self.monitor, self.height, self.width, 0, self.periodSeconds)
                 return
             end
         end
@@ -286,12 +341,6 @@ module = {
 
             MonitorHelpers.writeCentered(self.monitor, 1, "Item Changes", colors.white)
 
-            -- Time indicator
-            local timeStr = remaining .. "s"
-            self.monitor.setTextColor(colors.gray)
-            self.monitor.setCursorPos(math.max(1, self.width - #timeStr + 1), 1)
-            self.monitor.write(timeStr)
-
             -- Center message
             local centerY = math.floor(self.height / 2)
             MonitorHelpers.writeCentered(self.monitor, centerY - 1, "No changes detected", colors.gray)
@@ -300,14 +349,8 @@ module = {
             local infoStr = "Baseline: " .. self.baselineCount .. " | Current: " .. itemCount
             MonitorHelpers.writeCentered(self.monitor, centerY + 1, Text.truncateMiddle(infoStr, self.width - 2), colors.lightGray)
 
-            -- Mode indicator at bottom
-            local modeStr = "Mode: " .. self.showMode
-            if self.minChange > 1 then
-                modeStr = modeStr .. " (min " .. self.minChange .. ")"
-            end
-            self.monitor.setTextColor(colors.gray)
-            self.monitor.setCursorPos(1, self.height)
-            self.monitor.write(Text.truncateMiddle(modeStr, self.width))
+            -- Draw timer bar at bottom
+            module.drawTimerBar(self.monitor, self.height, self.width, elapsed, self.periodSeconds)
 
             return
         end
@@ -360,6 +403,9 @@ module = {
                 self.monitor.write("-" .. Text.formatNumber(totalLosses, 0))
             end
         end
+
+        -- Draw timer bar at bottom
+        module.drawTimerBar(self.monitor, self.height, self.width, elapsed, self.periodSeconds)
 
         self.monitor.setTextColor(colors.white)
     end
