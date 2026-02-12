@@ -2,14 +2,13 @@
 -- Displays a single item count with large numbers
 -- Configurable: item to monitor, warning threshold
 
+local BaseView = mpm('views/BaseView')
 local AEInterface = mpm('peripherals/AEInterface')
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Yield = mpm('utils/Yield')
 
-local module
-
-module = {
+return BaseView.custom({
     sleepTime = 1,
 
     configSchema = {
@@ -31,61 +30,28 @@ module = {
         }
     },
 
-    new = function(monitor, config)
-        config = config or {}
-        local width, height = monitor.getSize()
-
-        local self = {
-            monitor = monitor,
-            width = width,
-            height = height,
-            itemId = config.item,
-            warningBelow = config.warningBelow or 100,
-            interface = nil,
-            prevCount = nil,
-            changeIndicator = "",
-            initialized = false
-        }
-
-        local ok, interface = pcall(AEInterface.new)
-        if ok and interface then
-            self.interface = interface
-        end
-
-        return self
-    end,
-
     mount = function()
         return AEInterface.exists()
     end,
 
-    render = function(self)
-        if not self.initialized then
-            self.monitor.clear()
-            self.initialized = true
-        end
+    init = function(self, config)
+        self.interface = AEInterface.new()
+        self.itemId = config.item
+        self.warningBelow = config.warningBelow or 100
+        self.prevCount = nil
+        self.changeIndicator = ""
+    end,
 
-        self.monitor.setBackgroundColor(colors.black)
-        self.monitor.setTextColor(colors.white)
-
-        if not self.interface then
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "No ME Bridge", colors.red)
-            return
-        end
-
+    getData = function(self)
         if not self.itemId then
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) - 1, "Item Counter", colors.white)
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) + 1, "Configure to select item", colors.gray)
-            return
+            return nil
         end
 
         -- Fetch items
-        local ok, items = pcall(function() return self.interface:items() end)
+        local items = self.interface:items()
+        if not items then return nil end
+
         Yield.yield()
-        if not ok or not items then
-            MonitorHelpers.writeCentered(self.monitor, 1, "Error fetching items", colors.red)
-            return
-        end
 
         -- Find our item by registry name (with yields for large systems)
         local count = 0
@@ -114,6 +80,16 @@ module = {
         end
         self.prevCount = count
 
+        return {
+            count = count,
+            isCraftable = isCraftable,
+            changeIndicator = self.changeIndicator
+        }
+    end,
+
+    render = function(self, data)
+        local count = data.count
+
         -- Determine color based on warning threshold
         local countColor = colors.white
         local isWarning = count < self.warningBelow
@@ -126,9 +102,6 @@ module = {
             countColor = colors.lime
         end
 
-        -- Clear and render
-        self.monitor.clear()
-
         -- Row 1: Item name (prettified from registry name)
         local name = Text.truncateMiddle(Text.prettifyName(self.itemId), self.width)
         MonitorHelpers.writeCentered(self.monitor, 1, name, colors.white)
@@ -139,13 +112,13 @@ module = {
         MonitorHelpers.writeCentered(self.monitor, centerY, countStr, countColor)
 
         -- Change indicator
-        if self.changeIndicator ~= "" then
-            local indicatorColor = self.changeIndicator == "+" and colors.green or colors.red
+        if data.changeIndicator ~= "" then
+            local indicatorColor = data.changeIndicator == "+" and colors.green or colors.red
             local countX = math.floor((self.width - #countStr) / 2) + 1
             if countX + #countStr + 1 <= self.width then
                 self.monitor.setTextColor(indicatorColor)
                 self.monitor.setCursorPos(countX + #countStr + 1, centerY)
-                self.monitor.write(self.changeIndicator)
+                self.monitor.write(data.changeIndicator)
             end
         end
 
@@ -154,7 +127,7 @@ module = {
         if statusY <= self.height - 1 then
             if isWarning then
                 MonitorHelpers.writeCentered(self.monitor, statusY, "LOW STOCK!", colors.red)
-            elseif isCraftable then
+            elseif data.isCraftable then
                 MonitorHelpers.writeCentered(self.monitor, statusY, "[Craftable]", colors.lime)
             end
         end
@@ -165,7 +138,12 @@ module = {
         self.monitor.write("Warn <" .. self.warningBelow)
 
         self.monitor.setTextColor(colors.white)
-    end
-}
+    end,
 
-return module
+    renderEmpty = function(self)
+        MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) - 1, "Item Counter", colors.white)
+        MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) + 1, "Configure to select item", colors.gray)
+    end,
+
+    errorMessage = "Error fetching items"
+})

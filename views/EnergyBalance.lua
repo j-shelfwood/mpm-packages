@@ -2,14 +2,13 @@
 -- Displays AE2 energy input vs output balance with trend indicator
 -- Shows net energy flow (surplus/deficit) with history graph
 
+local BaseView = mpm('views/BaseView')
 local AEInterface = mpm('peripherals/AEInterface')
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Yield = mpm('utils/Yield')
 
-local module
-
-module = {
+return BaseView.custom({
     sleepTime = 1,
 
     configSchema = {
@@ -24,60 +23,30 @@ module = {
         }
     },
 
-    new = function(monitor, config)
-        config = config or {}
-        local width, height = monitor.getSize()
-
-        local self = {
-            monitor = monitor,
-            width = width,
-            height = height,
-            warningDeficit = config.warningDeficit or 100,
-            interface = nil,
-            history = {},
-            maxHistory = width,
-            initialized = false
-        }
-
-        local ok, interface = pcall(AEInterface.new)
-        if ok and interface then
-            self.interface = interface
-        end
-
-        return self
-    end,
-
     mount = function()
         return AEInterface.exists()
     end,
 
-    render = function(self)
-        if not self.initialized then
-            self.monitor.clear()
-            self.initialized = true
-        end
+    init = function(self, config)
+        self.interface = AEInterface.new()
+        self.warningDeficit = config.warningDeficit or 100
+        self.history = {}
+        self.maxHistory = self.width
+    end,
 
-        self.monitor.setBackgroundColor(colors.black)
-        self.monitor.setTextColor(colors.white)
-
-        if not self.interface then
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "No ME Bridge", colors.red)
-            return
-        end
-
+    getData = function(self)
         -- Get energy data (base methods from AEInterface)
-        local ok, energy = pcall(function() return self.interface:energy() end)
+        local energy = self.interface:energy()
+        if not energy then return nil end
+
         Yield.yield()
-        if not ok or not energy then
-            MonitorHelpers.writeCentered(self.monitor, 1, "Error fetching energy", colors.red)
-            return
-        end
 
         -- Get average input directly from bridge (not yet in AEInterface wrapper)
         local input = 0
         local inputOk = pcall(function()
             input = self.interface.bridge.getAverageEnergyInput() or 0
         end)
+
         Yield.yield()
 
         if not inputOk then
@@ -91,12 +60,25 @@ module = {
 
         -- Calculate net balance
         local netBalance = input - usage
-        local isSurplus = netBalance >= 0
-        local isDeficit = netBalance < 0
-        local isWarning = isDeficit and math.abs(netBalance) >= self.warningDeficit
 
         -- Record history (net balance)
         MonitorHelpers.recordHistory(self.history, netBalance, self.maxHistory)
+
+        return {
+            input = input,
+            stored = stored,
+            capacity = capacity,
+            usage = usage,
+            percentage = percentage,
+            netBalance = netBalance,
+            history = self.history
+        }
+    end,
+
+    render = function(self, data)
+        local isSurplus = data.netBalance >= 0
+        local isDeficit = data.netBalance < 0
+        local isWarning = isDeficit and math.abs(data.netBalance) >= self.warningDeficit
 
         -- Determine balance color
         local balanceColor = colors.lime
@@ -106,9 +88,6 @@ module = {
             balanceColor = colors.orange
         end
 
-        -- Clear and render
-        self.monitor.clear()
-
         -- Row 1: Title
         self.monitor.setTextColor(colors.white)
         self.monitor.setCursorPos(1, 1)
@@ -116,13 +95,13 @@ module = {
 
         -- Row 2: Input rate
         self.monitor.setTextColor(colors.green)
-        local inputStr = "IN:  " .. Text.formatNumber(input, 1) .. " AE/t"
+        local inputStr = "IN:  " .. Text.formatNumber(data.input, 1) .. " AE/t"
         self.monitor.setCursorPos(1, 2)
         self.monitor.write(Text.truncateMiddle(inputStr, self.width))
 
         -- Row 3: Output rate
         self.monitor.setTextColor(colors.orange)
-        local outputStr = "OUT: " .. Text.formatNumber(usage, 1) .. " AE/t"
+        local outputStr = "OUT: " .. Text.formatNumber(data.usage, 1) .. " AE/t"
         self.monitor.setCursorPos(1, 3)
         self.monitor.write(Text.truncateMiddle(outputStr, self.width))
 
@@ -130,11 +109,11 @@ module = {
         self.monitor.setTextColor(balanceColor)
         local balanceStr
         if isSurplus then
-            balanceStr = "+" .. Text.formatNumber(netBalance, 1) .. " AE/t"
+            balanceStr = "+" .. Text.formatNumber(data.netBalance, 1) .. " AE/t"
         else
-            balanceStr = Text.formatNumber(netBalance, 1) .. " AE/t"
+            balanceStr = Text.formatNumber(data.netBalance, 1) .. " AE/t"
         end
-        
+
         local indicator = isSurplus and "^" or "v"
         balanceStr = indicator .. " " .. balanceStr
 
@@ -144,17 +123,17 @@ module = {
         -- Row 5: Storage percentage bar
         if self.height >= 6 then
             local barColor = colors.green
-            if percentage <= 25 then
+            if data.percentage <= 25 then
                 barColor = colors.red
-            elseif percentage <= 50 then
+            elseif data.percentage <= 50 then
                 barColor = colors.yellow
             end
 
-            MonitorHelpers.drawProgressBar(self.monitor, 1, 6, self.width, percentage, barColor, colors.gray, true)
-            
+            MonitorHelpers.drawProgressBar(self.monitor, 1, 6, self.width, data.percentage, barColor, colors.gray, true)
+
             -- Show percentage on same row if room
             if self.width >= 12 then
-                local pctStr = string.format("%.1f%%", percentage)
+                local pctStr = string.format("%.1f%%", data.percentage)
                 self.monitor.setTextColor(colors.white)
                 self.monitor.setCursorPos(math.max(1, self.width - #pctStr + 1), 5)
                 self.monitor.write(pctStr)
@@ -180,10 +159,11 @@ module = {
             end
 
             -- Color function: green for positive, red/orange for negative
+            local warningDeficit = self.warningDeficit
             local colorFn = function(val)
                 if val >= 0 then
                     return colors.lime
-                elseif math.abs(val) >= self.warningDeficit then
+                elseif math.abs(val) >= warningDeficit then
                     return colors.red
                 else
                     return colors.orange
@@ -211,10 +191,10 @@ module = {
                 if i <= self.width then
                     local barColor = colorFn(value)
                     local barHeight = math.floor((math.abs(value) / maxAbsValue) * (graphHeight / 2))
-                    
+
                     if barHeight > 0 and value ~= 0 then
                         self.monitor.setBackgroundColor(barColor)
-                        
+
                         if value >= 0 then
                             -- Positive: draw upward from midY
                             for dy = 1, math.min(barHeight, midY - graphStartY - 1) do
@@ -244,7 +224,7 @@ module = {
         self.monitor.write(Text.truncateMiddle(warningStr, self.width))
 
         self.monitor.setTextColor(colors.white)
-    end
-}
+    end,
 
-return module
+    errorMessage = "Error fetching energy"
+})

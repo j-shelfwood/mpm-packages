@@ -2,15 +2,11 @@
 -- Displays all fluids in the ME network as a grid
 -- Shows fluid name and amount in buckets with color coding
 
+local BaseView = mpm('views/BaseView')
 local AEInterface = mpm('peripherals/AEInterface')
-local GridDisplay = mpm('utils/GridDisplay')
 local Text = mpm('utils/Text')
-local MonitorHelpers = mpm('utils/MonitorHelpers')
-local Yield = mpm('utils/Yield')
 
-local module
-
-module = {
+return BaseView.grid({
     sleepTime = 2,
 
     configSchema = {
@@ -35,87 +31,21 @@ module = {
         }
     },
 
-    new = function(monitor, config)
-        config = config or {}
-        local width, height = monitor.getSize()
-
-        local self = {
-            monitor = monitor,
-            width = width,
-            height = height,
-            warningBelow = config.warningBelow or 100,
-            sortBy = config.sortBy or "amount",
-            interface = nil,
-            display = GridDisplay.new(monitor),
-            initialized = false
-        }
-
-        local ok, interface = pcall(AEInterface.new)
-        if ok and interface then
-            self.interface = interface
-        end
-
-        return self
-    end,
-
     mount = function()
         return AEInterface.exists()
     end,
 
-    formatFluid = function(fluid, warningBelow)
-        local buckets = fluid.amount / 1000
-        
-        -- Color code by amount
-        local amountColor = colors.cyan
-        if buckets < warningBelow then
-            amountColor = colors.red
-        elseif buckets < warningBelow * 2 then
-            amountColor = colors.orange
-        end
-
-        local lines = {
-            Text.prettifyName(fluid.registryName or "Unknown"),
-            Text.formatNumber(buckets, 0) .. "B"
-        }
-        local lineColors = { colors.white, amountColor }
-
-        return {
-            lines = lines,
-            colors = lineColors
-        }
+    init = function(self, config)
+        self.interface = AEInterface.new()
+        self.warningBelow = config.warningBelow or 100
+        self.sortBy = config.sortBy or "amount"
+        self.totalBuckets = 0  -- Will be calculated in getData
     end,
 
-    render = function(self)
-        if not self.initialized then
-            self.monitor.clear()
-            self.initialized = true
-        end
-
-        self.monitor.setBackgroundColor(colors.black)
-        self.monitor.setTextColor(colors.white)
-
-        if not self.interface then
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "No AE2 peripheral", colors.red)
-            return
-        end
-
+    getData = function(self)
         -- Get all fluids
-        local ok, fluids = pcall(function() return self.interface:fluids() end)
-        if not ok or not fluids then
-            MonitorHelpers.writeCentered(self.monitor, 1, "Error fetching fluids", colors.red)
-            return
-        end
-
-        -- Yield after peripheral call
-        Yield.yield()
-
-        -- Handle no fluids
-        if #fluids == 0 then
-            self.monitor.clear()
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) - 1, "Fluids", colors.cyan)
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) + 1, "No fluids in network", colors.gray)
-            return
-        end
+        local fluids = self.interface:fluids()
+        if not fluids then return {} end
 
         -- Sort fluids
         if self.sortBy == "amount" then
@@ -133,34 +63,43 @@ module = {
         end
 
         -- Calculate total volume
-        local totalBuckets = 0
+        self.totalBuckets = 0
         for _, fluid in ipairs(fluids) do
-            totalBuckets = totalBuckets + (fluid.amount / 1000)
+            self.totalBuckets = self.totalBuckets + (fluid.amount / 1000)
         end
 
-        -- Limit display
-        local maxFluids = 50
-        local displayFluids = {}
-        for i = 1, math.min(#fluids, maxFluids) do
-            displayFluids[i] = fluids[i]
+        return fluids
+    end,
+
+    header = function(self, data)
+        return {
+            text = "Fluids",
+            color = colors.cyan,
+            secondary = " (" .. #data .. " | " .. Text.formatNumber(self.totalBuckets, 0) .. "B)",
+            secondaryColor = colors.gray
+        }
+    end,
+
+    formatItem = function(self, fluid)
+        local buckets = fluid.amount / 1000
+
+        -- Color code by amount
+        local amountColor = colors.cyan
+        if buckets < self.warningBelow then
+            amountColor = colors.red
+        elseif buckets < self.warningBelow * 2 then
+            amountColor = colors.orange
         end
 
-        -- Display fluids in grid (let GridDisplay handle clearing)
-        local warningBelow = self.warningBelow
-        self.display:display(displayFluids, function(fluid)
-            return module.formatFluid(fluid, warningBelow)
-        end)
+        return {
+            lines = {
+                Text.prettifyName(fluid.registryName or "Unknown"),
+                Text.formatNumber(buckets, 0) .. "B"
+            },
+            colors = { colors.white, amountColor }
+        }
+    end,
 
-        -- Draw header overlay after grid (so it doesn't get erased)
-        self.monitor.setTextColor(colors.cyan)
-        self.monitor.setCursorPos(1, 1)
-        self.monitor.write("Fluids")
-        self.monitor.setTextColor(colors.gray)
-        local countStr = " (" .. #fluids .. " | " .. Text.formatNumber(totalBuckets, 0) .. "B)"
-        self.monitor.write(Text.truncateMiddle(countStr, self.width - 6))
-
-        self.monitor.setTextColor(colors.white)
-    end
-}
-
-return module
+    emptyMessage = "No fluids in network",
+    maxItems = 50
+})

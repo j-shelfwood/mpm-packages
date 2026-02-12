@@ -1,12 +1,13 @@
 -- CraftingQueue.lua
 -- Displays all active crafting jobs across all CPUs in the AE2 network
 
+local BaseView = mpm('views/BaseView')
 local AEInterface = mpm('peripherals/AEInterface')
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Yield = mpm('utils/Yield')
 
-local module = {
+return BaseView.custom({
     sleepTime = 1,
 
     configSchema = {
@@ -22,58 +23,27 @@ local module = {
         }
     },
 
-    new = function(monitor, config)
-        config = config or {}
-        local width, height = monitor.getSize()
-
-        local self = {
-            monitor = monitor,
-            width = width,
-            height = height,
-            showCompleted = config.showCompleted or false,
-            interface = nil,
-            initialized = false
-        }
-
-        local ok, interface = pcall(AEInterface.new)
-        if ok and interface then
-            self.interface = interface
-        end
-
-        return self
-    end,
-
     mount = function()
         local exists, pType = AEInterface.exists()
         return exists and pType == "me_bridge"
     end,
 
-    render = function(self)
-        if not self.initialized then
-            self.monitor.clear()
-            self.initialized = true
-        end
+    init = function(self, config)
+        self.interface = AEInterface.new()
+        self.showCompleted = config.showCompleted or false
+    end,
 
-        self.monitor.setBackgroundColor(colors.black)
-        self.monitor.setTextColor(colors.white)
-
-        -- Check interface
-        if not self.interface then
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "No ME Bridge", colors.red)
-            return
-        end
-
+    getData = function(self)
         -- Get all crafting tasks
-        local ok, tasks = pcall(function() return self.interface:getCraftingTasks() end)
+        local tasks = self.interface:getCraftingTasks()
+        if not tasks then return {} end
+
         Yield.yield()
-        if not ok or not tasks then
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "Error fetching tasks", colors.red)
-            return
-        end
 
         -- Get CPU status for summary
         local cpusOk, cpus = pcall(function() return self.interface:getCraftingCPUs() end)
         Yield.yield()
+
         local busyCount = 0
         if cpusOk and cpus then
             for _, cpu in ipairs(cpus) do
@@ -83,11 +53,17 @@ local module = {
             end
         end
 
-        -- Clear screen
-        self.monitor.clear()
+        return {
+            tasks = tasks,
+            busyCount = busyCount
+        }
+    end,
+
+    render = function(self, data)
+        local tasks = data.tasks
+        local jobCount = #tasks
 
         -- Row 1: Header with count
-        local jobCount = #tasks
         local headerText = "Crafting Queue (" .. jobCount .. ")"
         MonitorHelpers.writeCentered(self.monitor, 1, headerText, colors.white)
 
@@ -144,24 +120,24 @@ local module = {
 
             -- Format: [>] Item Name - CPU Name
             self.monitor.setCursorPos(1, row)
-            
+
             -- Status indicator
             self.monitor.setTextColor(statusColor)
             self.monitor.write("[" .. status .. "]")
-            
+
             -- Item name
             self.monitor.setTextColor(colors.white)
             self.monitor.write(" ")
-            
+
             -- Calculate remaining width for item and CPU name
             local remainingWidth = self.width - 4  -- minus "[>] "
             local separator = " - "
             local cpuWidth = math.min(#cpuName, math.floor(remainingWidth * 0.3))
             local itemWidth = remainingWidth - cpuWidth - #separator
-            
+
             local truncatedItem = Text.truncateMiddle(itemName, itemWidth)
             local truncatedCPU = Text.truncateMiddle(cpuName, cpuWidth)
-            
+
             self.monitor.write(truncatedItem)
             self.monitor.setTextColor(colors.gray)
             self.monitor.write(separator)
@@ -172,19 +148,25 @@ local module = {
 
         -- Show "..." if more jobs exist
         if jobCount > availableRows then
-            self.monitor.setCursorPos(1, endRow)
-            self.monitor.setTextColor(colors.gray)
             MonitorHelpers.writeCentered(self.monitor, endRow, "... +" .. (jobCount - availableRows) .. " more", colors.gray)
         end
 
         -- Bottom row: Summary
         self.monitor.setCursorPos(1, self.height)
         self.monitor.setTextColor(colors.gray)
-        local summaryText = busyCount .. " CPU" .. (busyCount ~= 1 and "s" or "") .. " busy"
+        local summaryText = data.busyCount .. " CPU" .. (data.busyCount ~= 1 and "s" or "") .. " busy"
         self.monitor.write(summaryText)
 
         self.monitor.setTextColor(colors.white)
-    end
-}
+    end,
 
-return module
+    renderEmpty = function(self)
+        MonitorHelpers.writeCentered(self.monitor, 1, "Crafting Queue (0)", colors.white)
+        MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "No Active Jobs", colors.gray)
+        self.monitor.setCursorPos(1, self.height)
+        self.monitor.setTextColor(colors.gray)
+        self.monitor.write("0 CPUs busy")
+    end,
+
+    errorMessage = "Error fetching tasks"
+})

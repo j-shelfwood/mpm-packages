@@ -2,6 +2,7 @@
 -- Displays status of machines of a specific type
 -- Shows green when busy, gray when idle
 
+local BaseView = mpm('views/BaseView')
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Yield = mpm('utils/Yield')
@@ -32,9 +33,7 @@ local function getMachineTypes()
     return types
 end
 
-local module
-
-module = {
+return BaseView.custom({
     sleepTime = 1,
 
     configSchema = {
@@ -48,19 +47,14 @@ module = {
         }
     },
 
-    new = function(monitor, config)
-        config = config or {}
-        local width, height = monitor.getSize()
+    mount = function()
+        return true
+    end,
 
-        local self = {
-            monitor = monitor,
-            width = width,
-            height = height,
-            machineType = config.machine_type,
-            peripherals = {},
-            title = "",
-            initialized = false
-        }
+    init = function(self, config)
+        self.machineType = config.machine_type
+        self.peripherals = {}
+        self.title = ""
 
         if self.machineType then
             local _, _, machineTypeName = string.find(self.machineType, ":(.+)")
@@ -75,27 +69,11 @@ module = {
                 end
             end
         end
-
-        return self
     end,
 
-    mount = function()
-        return true
-    end,
-
-    render = function(self)
-        if not self.initialized then
-            self.monitor.clear()
-            self.initialized = true
-        end
-
-        self.monitor.setBackgroundColor(colors.black)
-        self.monitor.setTextColor(colors.white)
-
+    getData = function(self)
         if not self.machineType then
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) - 1, "Machine Status", colors.white)
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) + 1, "Configure to select type", colors.gray)
-            return
+            return nil
         end
 
         -- Fetch machine data (with yields for many machines)
@@ -116,8 +94,11 @@ module = {
             Yield.check(idx)
         end
 
-        if #machineData == 0 then
-            self.monitor.clear()
+        return machineData
+    end,
+
+    render = function(self, data)
+        if #data == 0 then
             MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) - 1, "No machines found", colors.orange)
             MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) + 1, self.machineType, colors.gray)
             return
@@ -126,18 +107,17 @@ module = {
         -- Calculate grid layout
         local barWidth = 7
         local barHeight = 4
-        local columns = math.min(2, #machineData)
-        local rows = math.ceil(#machineData / columns)
+        local columns = math.min(2, #data)
+        local rows = math.ceil(#data / columns)
 
         local totalGridHeight = rows * (barHeight + 1) - 1
         local topMargin = math.max(2, math.floor((self.height - totalGridHeight) / 2))
 
-        -- Clear and draw title
-        self.monitor.clear()
+        -- Draw title
         MonitorHelpers.writeCentered(self.monitor, 1, self.title, colors.white)
 
         -- Draw machine grid
-        for idx, machine in ipairs(machineData) do
+        for idx, machine in ipairs(data) do
             local column = (idx - 1) % columns
             local row = math.ceil(idx / columns)
             local x = column * (barWidth + 2) + 2
@@ -162,19 +142,22 @@ module = {
 
         -- Count busy
         local busyCount = 0
-        for _, m in ipairs(machineData) do
+        for _, m in ipairs(data) do
             if m.isBusy then busyCount = busyCount + 1 end
         end
 
         -- Bottom status
         self.monitor.setBackgroundColor(colors.black)
         self.monitor.setTextColor(colors.gray)
-        local statusStr = busyCount .. "/" .. #machineData .. " active"
+        local statusStr = busyCount .. "/" .. #data .. " active"
         self.monitor.setCursorPos(1, self.height)
         self.monitor.write(statusStr)
 
         self.monitor.setTextColor(colors.white)
-    end
-}
+    end,
 
-return module
+    renderEmpty = function(self)
+        MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) - 1, "Machine Status", colors.white)
+        MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) + 1, "Configure to select type", colors.gray)
+    end
+})

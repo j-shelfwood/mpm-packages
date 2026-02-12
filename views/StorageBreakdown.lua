@@ -2,14 +2,13 @@
 -- Displays internal vs external storage breakdown for AE2
 -- Shows separate bars for items/fluids with internal/external split
 
+local BaseView = mpm('views/BaseView')
 local AEInterface = mpm('peripherals/AEInterface')
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Yield = mpm('utils/Yield')
 
-local module
-
-module = {
+return BaseView.custom({
     sleepTime = 2,
 
     configSchema = {
@@ -35,46 +34,17 @@ module = {
         }
     },
 
-    new = function(monitor, config)
-        config = config or {}
-        local width, height = monitor.getSize()
-
-        local self = {
-            monitor = monitor,
-            width = width,
-            height = height,
-            showFluids = config.showFluids ~= false,
-            showExternal = config.showExternal ~= false,
-            interface = nil,
-            initialized = false
-        }
-
-        local ok, interface = pcall(AEInterface.new)
-        if ok and interface then
-            self.interface = interface
-        end
-
-        return self
-    end,
-
     mount = function()
         return AEInterface.exists()
     end,
 
-    render = function(self)
-        if not self.initialized then
-            self.monitor.clear()
-            self.initialized = true
-        end
+    init = function(self, config)
+        self.interface = AEInterface.new()
+        self.showFluids = config.showFluids ~= false
+        self.showExternal = config.showExternal ~= false
+    end,
 
-        self.monitor.setBackgroundColor(colors.black)
-        self.monitor.setTextColor(colors.white)
-
-        if not self.interface then
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "No ME Bridge", colors.red)
-            return
-        end
-
+    getData = function(self)
         -- Helper to get storage stats with error handling
         local function getStorageStats(storageType)
             local stats = {
@@ -86,14 +56,15 @@ module = {
             }
 
             local prefix = storageType  -- "Item" or "Fluid" passed directly
-            
+
             -- Get internal storage
-            local ok, used = pcall(function() 
+            local ok, used = pcall(function()
                 return self.interface.bridge["getUsed" .. prefix .. "Storage"]()
             end)
             if ok and used then stats.internal_used = used end
             Yield.yield()
 
+            local total
             ok, total = pcall(function()
                 return self.interface.bridge["getTotal" .. prefix .. "Storage"]()
             end)
@@ -123,6 +94,16 @@ module = {
             return stats
         end
 
+        local itemStats = getStorageStats("Item")
+        local fluidStats = self.showFluids and getStorageStats("Fluid") or nil
+
+        return {
+            items = itemStats,
+            fluids = fluidStats
+        }
+    end,
+
+    render = function(self, data)
         -- Helper to get color based on usage percentage
         local function getUsageColor(percent)
             if percent > 90 then return colors.red
@@ -141,14 +122,14 @@ module = {
             -- Internal storage
             local intPct = stats.internal_total > 0 and (stats.internal_used / stats.internal_total * 100) or 0
             local intColor = getUsageColor(intPct)
-            
+
             self.monitor.setTextColor(colors.lightGray)
             MonitorHelpers.writeAt(self.monitor, 2, y, "Internal:")
-            
+
             local usedStr = Text.formatNumber(stats.internal_used, 1) .. "B"
             local totalStr = Text.formatNumber(stats.internal_total, 1) .. "B"
             local infoStr = usedStr .. " / " .. totalStr
-            
+
             self.monitor.setTextColor(colors.gray)
             MonitorHelpers.writeAt(self.monitor, self.width - #infoStr + 1, y, infoStr)
             y = y + 1
@@ -163,14 +144,14 @@ module = {
             if self.showExternal and stats.has_external and stats.external_total > 0 then
                 local extPct = (stats.external_used / stats.external_total * 100)
                 local extColor = getUsageColor(extPct)
-                
+
                 self.monitor.setTextColor(colors.lightGray)
                 MonitorHelpers.writeAt(self.monitor, 2, y, "External:")
-                
+
                 usedStr = Text.formatNumber(stats.external_used, 1) .. "B"
                 totalStr = Text.formatNumber(stats.external_total, 1) .. "B"
                 infoStr = usedStr .. " / " .. totalStr
-                
+
                 self.monitor.setTextColor(colors.gray)
                 MonitorHelpers.writeAt(self.monitor, self.width - #infoStr + 1, y, infoStr)
                 y = y + 1
@@ -185,9 +166,6 @@ module = {
             return y + 1  -- Extra spacing after section
         end
 
-        -- Clear and render
-        self.monitor.clear()
-
         -- Row 1: Title
         local title = "Storage Breakdown"
         MonitorHelpers.writeCentered(self.monitor, 1, Text.truncateMiddle(title, self.width), colors.white)
@@ -195,24 +173,21 @@ module = {
         local currentY = 3
 
         -- Items section
-        local itemStats = getStorageStats("Item")
-        currentY = drawStorageSection(currentY, "Items", itemStats)
+        currentY = drawStorageSection(currentY, "Items", data.items)
 
         -- Fluids section
-        if self.showFluids and currentY < self.height - 4 then
-            local fluidStats = getStorageStats("Fluid")
-            currentY = drawStorageSection(currentY, "Fluids", fluidStats)
+        if data.fluids and currentY < self.height - 4 then
+            currentY = drawStorageSection(currentY, "Fluids", data.fluids)
         end
 
         -- Total summary at bottom if there's room
         if currentY < self.height - 2 then
-            local totalUsed = itemStats.internal_used + itemStats.external_used
-            local totalCapacity = itemStats.internal_total + itemStats.external_total
-            
-            if self.showFluids then
-                local fluidStats = getStorageStats("Fluid")
-                totalUsed = totalUsed + fluidStats.internal_used + fluidStats.external_used
-                totalCapacity = totalCapacity + fluidStats.internal_total + fluidStats.external_total
+            local totalUsed = data.items.internal_used + data.items.external_used
+            local totalCapacity = data.items.internal_total + data.items.external_total
+
+            if data.fluids then
+                totalUsed = totalUsed + data.fluids.internal_used + data.fluids.external_used
+                totalCapacity = totalCapacity + data.fluids.internal_total + data.fluids.external_total
             end
 
             local totalPct = totalCapacity > 0 and (totalUsed / totalCapacity * 100) or 0
@@ -220,7 +195,7 @@ module = {
 
             self.monitor.setTextColor(colors.white)
             MonitorHelpers.writeAt(self.monitor, 1, self.height - 2, "Total:")
-            
+
             self.monitor.setTextColor(totalColor)
             local pctStr = string.format("%.1f%%", totalPct)
             MonitorHelpers.writeAt(self.monitor, self.width - #pctStr + 1, self.height - 2, pctStr)
@@ -232,7 +207,7 @@ module = {
         end
 
         self.monitor.setTextColor(colors.white)
-    end
-}
+    end,
 
-return module
+    errorMessage = "Error reading storage"
+})

@@ -2,15 +2,11 @@
 -- Displays grid overview of all AE2 crafting CPUs
 -- Shows status (IDLE/BUSY) and current crafting task
 
+local BaseView = mpm('views/BaseView')
 local AEInterface = mpm('peripherals/AEInterface')
-local GridDisplay = mpm('utils/GridDisplay')
 local Text = mpm('utils/Text')
-local MonitorHelpers = mpm('utils/MonitorHelpers')
-local Yield = mpm('utils/Yield')
 
-local module
-
-module = {
+return BaseView.grid({
     sleepTime = 1,
 
     configSchema = {
@@ -26,34 +22,41 @@ module = {
         }
     },
 
-    new = function(monitor, config)
-        config = config or {}
-        local width, height = monitor.getSize()
-
-        local self = {
-            monitor = monitor,
-            width = width,
-            height = height,
-            showStorage = config.showStorage or false,
-            interface = nil,
-            display = GridDisplay.new(monitor),
-            initialized = false
-        }
-
-        local ok, interface = pcall(AEInterface.new)
-        if ok and interface then
-            self.interface = interface
-        end
-
-        return self
-    end,
-
     mount = function()
         local exists, pType = AEInterface.exists()
         return exists and pType == "me_bridge"
     end,
 
-    formatCPU = function(cpuData, tasks, showStorage)
+    init = function(self, config)
+        self.interface = AEInterface.new()
+        self.showStorage = config.showStorage or false
+        self.tasks = nil  -- Will be populated by getData
+    end,
+
+    getData = function(self)
+        -- Get all CPUs
+        local cpus = self.interface:getCraftingCPUs()
+        if not cpus then return {} end
+
+        -- Get crafting tasks (for busy CPUs)
+        local tasksOk, tasksData = pcall(function()
+            return self.interface:getCraftingTasks()
+        end)
+        self.tasks = tasksOk and tasksData or nil
+
+        return cpus
+    end,
+
+    header = function(self, data)
+        return {
+            text = "Crafting CPUs",
+            color = colors.white,
+            secondary = " (" .. #data .. ")",
+            secondaryColor = colors.gray
+        }
+    end,
+
+    formatItem = function(self, cpuData)
         local lines = {}
         local lineColors = {}
 
@@ -69,9 +72,9 @@ module = {
         table.insert(lineColors, statusColor)
 
         -- Line 3: Crafting item (if busy)
-        if cpuData.isBusy and tasks then
+        if cpuData.isBusy and self.tasks then
             local craftingItem = "..."
-            for _, task in ipairs(tasks) do
+            for _, task in ipairs(self.tasks) do
                 -- Match task to this CPU
                 if task.cpu == cpuData.name or (not task.cpu and cpuData.isBusy) then
                     local itemName = task.name or task.item or "Unknown"
@@ -82,7 +85,7 @@ module = {
             end
             table.insert(lines, craftingItem)
             table.insert(lineColors, colors.yellow)
-        elseif showStorage then
+        elseif self.showStorage then
             -- Show storage info if not busy and config enabled
             local storageStr = (cpuData.storage or 0) .. "B"
             if cpuData.coProcessors and cpuData.coProcessors > 0 then
@@ -98,60 +101,6 @@ module = {
         }
     end,
 
-    render = function(self)
-        if not self.initialized then
-            self.monitor.clear()
-            self.initialized = true
-        end
-
-        self.monitor.setBackgroundColor(colors.black)
-        self.monitor.setTextColor(colors.white)
-
-        if not self.interface then
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "No ME Bridge", colors.red)
-            return
-        end
-
-        -- Get all CPUs
-        local ok, cpus = pcall(function() return self.interface:getCraftingCPUs() end)
-        Yield.yield()
-        if not ok or not cpus then
-            MonitorHelpers.writeCentered(self.monitor, 1, "Error fetching CPUs", colors.red)
-            return
-        end
-
-        -- Handle no CPUs
-        if #cpus == 0 then
-            self.monitor.clear()
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) - 1, "Crafting CPUs", colors.white)
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) + 1, "No CPUs detected", colors.gray)
-            return
-        end
-
-        -- Get crafting tasks (for busy CPUs)
-        local tasks = nil
-        local tasksOk, tasksData = pcall(function() return self.interface:getCraftingTasks() end)
-        Yield.yield()
-        if tasksOk and tasksData then
-            tasks = tasksData
-        end
-
-        -- Clear and display CPUs in grid (let GridDisplay handle clearing)
-        local showStorage = self.showStorage
-        self.display:display(cpus, function(cpu)
-            return module.formatCPU(cpu, tasks, showStorage)
-        end)
-
-        -- Draw header overlay after grid (so it doesn't get erased)
-        self.monitor.setTextColor(colors.white)
-        self.monitor.setCursorPos(1, 1)
-        self.monitor.write("Crafting CPUs")
-        self.monitor.setTextColor(colors.gray)
-        local countStr = " (" .. #cpus .. ")"
-        self.monitor.write(countStr)
-
-        self.monitor.setTextColor(colors.white)
-    end
-}
-
-return module
+    emptyMessage = "No CPUs detected",
+    maxItems = 50
+})

@@ -3,14 +3,13 @@
 -- Requires: Applied Mekanistics addon for ME Bridge
 -- Configurable: chemical to monitor, warning threshold
 
+local BaseView = mpm('views/BaseView')
 local AEInterface = mpm('peripherals/AEInterface')
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Yield = mpm('utils/Yield')
 
-local module
-
-module = {
+return BaseView.custom({
     sleepTime = 1,
 
     configSchema = {
@@ -32,30 +31,6 @@ module = {
         }
     },
 
-    new = function(monitor, config)
-        config = config or {}
-        local width, height = monitor.getSize()
-
-        local self = {
-            monitor = monitor,
-            width = width,
-            height = height,
-            chemicalId = config.chemical,
-            warningBelow = config.warningBelow or 1000,
-            interface = nil,
-            history = {},
-            maxHistory = width,
-            initialized = false
-        }
-
-        local ok, interface = pcall(AEInterface.new)
-        if ok and interface then
-            self.interface = interface
-        end
-
-        return self
-    end,
-
     mount = function()
         local exists, bridge = AEInterface.exists()
         if not exists or not bridge then
@@ -67,40 +42,29 @@ module = {
         return hasChemicals
     end,
 
-    render = function(self)
-        if not self.initialized then
-            self.monitor.clear()
-            self.initialized = true
-        end
+    init = function(self, config)
+        self.interface = AEInterface.new()
+        self.chemicalId = config.chemical
+        self.warningBelow = config.warningBelow or 1000
+        self.history = {}
+        self.maxHistory = self.width
+    end,
 
-        self.monitor.setBackgroundColor(colors.black)
-        self.monitor.setTextColor(colors.white)
-
-        if not self.interface then
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "No ME Bridge", colors.red)
-            return
+    getData = function(self)
+        if not self.chemicalId then
+            return nil
         end
 
         -- Check if chemicals method exists
         if not self.interface.bridge.getChemicals then
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) - 1, "Applied Mekanistics", colors.white)
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) + 1, "addon not loaded", colors.gray)
-            return
-        end
-
-        if not self.chemicalId then
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) - 1, "Chemical Gauge", colors.white)
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) + 1, "Configure to select chemical", colors.gray)
-            return
+            return { error = "addon" }
         end
 
         -- Fetch chemicals (direct bridge access)
-        local ok, chemicals = pcall(function() return self.interface.bridge.getChemicals() end)
+        local chemicals = self.interface.bridge.getChemicals()
+        if not chemicals then return nil end
+
         Yield.yield()
-        if not ok or not chemicals then
-            MonitorHelpers.writeCentered(self.monitor, 1, "Error fetching chemicals", colors.red)
-            return
-        end
 
         -- Find our chemical by registry name (with yields for large systems)
         local amount = 0
@@ -120,6 +84,21 @@ module = {
         -- Record history
         MonitorHelpers.recordHistory(self.history, buckets, self.maxHistory)
 
+        return {
+            buckets = buckets,
+            history = self.history
+        }
+    end,
+
+    render = function(self, data)
+        if data.error == "addon" then
+            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) - 1, "Applied Mekanistics", colors.white)
+            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) + 1, "addon not loaded", colors.gray)
+            return
+        end
+
+        local buckets = data.buckets
+
         -- Determine color
         local gaugeColor = colors.lightBlue
         local isWarning = buckets < self.warningBelow
@@ -129,9 +108,6 @@ module = {
         elseif buckets < self.warningBelow * 2 then
             gaugeColor = colors.orange
         end
-
-        -- Clear and render
-        self.monitor.clear()
 
         -- Row 1: Chemical name
         local name = Text.truncateMiddle(Text.prettifyName(self.chemicalId), self.width)
@@ -195,7 +171,12 @@ module = {
         self.monitor.write("Warn <" .. self.warningBelow .. "B")
 
         self.monitor.setTextColor(colors.white)
-    end
-}
+    end,
 
-return module
+    renderEmpty = function(self)
+        MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) - 1, "Chemical Gauge", colors.white)
+        MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) + 1, "Configure to select chemical", colors.gray)
+    end,
+
+    errorMessage = "Error fetching chemicals"
+})

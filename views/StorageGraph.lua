@@ -2,14 +2,13 @@
 -- Displays AE2 storage capacity as a graph over time
 -- Configurable: storage type (items, fluids, both)
 
+local BaseView = mpm('views/BaseView')
 local AEInterface = mpm('peripherals/AEInterface')
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Yield = mpm('utils/Yield')
 
-local module
-
-module = {
+return BaseView.custom({
     sleepTime = 1,
 
     configSchema = {
@@ -26,63 +25,34 @@ module = {
         }
     },
 
-    new = function(monitor, config)
-        config = config or {}
-        local width, height = monitor.getSize()
-
-        local self = {
-            monitor = monitor,
-            width = width,
-            height = height,
-            storageType = config.storageType or "items",
-            interface = nil,
-            history = {},
-            maxHistory = width,
-            initialized = false
-        }
-
-        local ok, interface = pcall(AEInterface.new)
-        if ok and interface then
-            self.interface = interface
-        end
-
-        return self
-    end,
-
     mount = function()
         return AEInterface.exists()
     end,
 
-    render = function(self)
-        if not self.initialized then
-            self.monitor.clear()
-            self.initialized = true
-        end
+    init = function(self, config)
+        self.interface = AEInterface.new()
+        self.storageType = config.storageType or "items"
+        self.history = {}
+        self.maxHistory = self.width
+    end,
 
-        self.monitor.setBackgroundColor(colors.black)
-        self.monitor.setTextColor(colors.white)
-
-        if not self.interface then
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "No ME Bridge", colors.red)
-            return
-        end
-
+    getData = function(self)
         -- Get storage data (with yields after peripheral calls)
         local used, total = 0, 0
 
         if self.storageType == "items" or self.storageType == "both" then
-            local ok, status = pcall(function() return self.interface:itemStorage() end)
+            local status = self.interface:itemStorage()
             Yield.yield()
-            if ok and status then
+            if status then
                 used = used + (status.used or 0)
                 total = total + (status.total or 0)
             end
         end
 
         if self.storageType == "fluids" or self.storageType == "both" then
-            local ok, status = pcall(function() return self.interface:fluidStorage() end)
+            local status = self.interface:fluidStorage()
             Yield.yield()
-            if ok and status then
+            if status then
                 used = used + (status.used or 0)
                 total = total + (status.total or 0)
             end
@@ -93,18 +63,24 @@ module = {
         -- Record history
         MonitorHelpers.recordHistory(self.history, percentage, self.maxHistory)
 
+        return {
+            used = used,
+            total = total,
+            percentage = percentage,
+            history = self.history
+        }
+    end,
+
+    render = function(self, data)
         -- Determine color
         local barColor = colors.green
-        if percentage > 90 then
+        if data.percentage > 90 then
             barColor = colors.red
-        elseif percentage > 75 then
+        elseif data.percentage > 75 then
             barColor = colors.orange
-        elseif percentage > 50 then
+        elseif data.percentage > 50 then
             barColor = colors.yellow
         end
-
-        -- Clear and render
-        self.monitor.clear()
 
         -- Row 1: Title
         local typeLabel = self.storageType == "both" and "Storage" or (self.storageType:gsub("^%l", string.upper))
@@ -112,23 +88,23 @@ module = {
         MonitorHelpers.writeCentered(self.monitor, 1, Text.truncateMiddle(title, self.width), colors.white)
 
         -- Row 1 right: Current bytes
-        local bytesStr = Text.formatNumber(used, 1) .. "B"
+        local bytesStr = Text.formatNumber(data.used, 1) .. "B"
         self.monitor.setTextColor(colors.lightGray)
         self.monitor.setCursorPos(math.max(1, self.width - #bytesStr + 1), 1)
         self.monitor.write(bytesStr)
 
         -- Row 2: Percentage and total
-        local pctStr = string.format("%.1f%%", percentage)
+        local pctStr = string.format("%.1f%%", data.percentage)
         self.monitor.setTextColor(barColor)
         self.monitor.setCursorPos(1, 2)
         self.monitor.write(pctStr)
 
         self.monitor.setTextColor(colors.gray)
-        self.monitor.write(" / " .. Text.formatNumber(total, 1) .. "B")
+        self.monitor.write(" / " .. Text.formatNumber(data.total, 1) .. "B")
 
         -- Row 4: Progress bar
         if self.height >= 5 then
-            MonitorHelpers.drawProgressBar(self.monitor, 1, 4, self.width, percentage, barColor, colors.gray, true)
+            MonitorHelpers.drawProgressBar(self.monitor, 1, 4, self.width, data.percentage, barColor, colors.gray, true)
         end
 
         -- History graph (if room)
@@ -162,7 +138,7 @@ module = {
         self.monitor.write("0")
 
         self.monitor.setTextColor(colors.white)
-    end
-}
+    end,
 
-return module
+    errorMessage = "Error fetching storage"
+})

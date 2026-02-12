@@ -2,15 +2,11 @@
 -- Displays grid overview of all AE2 ME Drives
 -- Shows drive status, cell count, and storage usage
 
+local BaseView = mpm('views/BaseView')
 local AEInterface = mpm('peripherals/AEInterface')
-local GridDisplay = mpm('utils/GridDisplay')
 local Text = mpm('utils/Text')
-local MonitorHelpers = mpm('utils/MonitorHelpers')
-local Yield = mpm('utils/Yield')
 
-local module
-
-module = {
+return BaseView.grid({
     sleepTime = 5,
 
     configSchema = {
@@ -26,34 +22,44 @@ module = {
         }
     },
 
-    new = function(monitor, config)
-        config = config or {}
-        local width, height = monitor.getSize()
-
-        local self = {
-            monitor = monitor,
-            width = width,
-            height = height,
-            showEmpty = config.showEmpty ~= false,
-            interface = nil,
-            display = GridDisplay.new(monitor),
-            initialized = false
-        }
-
-        local ok, interface = pcall(AEInterface.new)
-        if ok and interface then
-            self.interface = interface
-        end
-
-        return self
-    end,
-
     mount = function()
         local exists, pType = AEInterface.exists()
         return exists and pType == "me_bridge"
     end,
 
-    formatDrive = function(driveData)
+    init = function(self, config)
+        self.interface = AEInterface.new()
+        self.showEmpty = config.showEmpty ~= false
+    end,
+
+    getData = function(self)
+        -- Get all drives
+        local drives = self.interface.bridge.getDrives()
+        if not drives then return {} end
+
+        -- Filter empty drives if configured
+        local filteredDrives = {}
+        for _, drive in ipairs(drives) do
+            local cells = drive.cells or {}
+            local hasCells = #cells > 0
+            if self.showEmpty or hasCells then
+                table.insert(filteredDrives, drive)
+            end
+        end
+
+        return filteredDrives
+    end,
+
+    header = function(self, data)
+        return {
+            text = "ME Drives",
+            color = colors.white,
+            secondary = " (" .. #data .. ")",
+            secondaryColor = colors.gray
+        }
+    end,
+
+    formatItem = function(self, driveData)
         local lines = {}
         local lineColors = {}
 
@@ -115,62 +121,6 @@ module = {
         }
     end,
 
-    render = function(self)
-        if not self.initialized then
-            self.monitor.clear()
-            self.initialized = true
-        end
-
-        self.monitor.setBackgroundColor(colors.black)
-        self.monitor.setTextColor(colors.white)
-
-        if not self.interface then
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "No ME Bridge", colors.red)
-            return
-        end
-
-        -- Get all drives
-        local ok, drives = pcall(function() return self.interface.bridge.getDrives() end)
-        Yield.yield()
-        if not ok or not drives then
-            MonitorHelpers.writeCentered(self.monitor, 1, "Error fetching drives", colors.red)
-            return
-        end
-
-        -- Filter empty drives if configured
-        local filteredDrives = {}
-        for _, drive in ipairs(drives) do
-            local cells = drive.cells or {}
-            local hasCells = #cells > 0
-            if self.showEmpty or hasCells then
-                table.insert(filteredDrives, drive)
-            end
-        end
-
-        -- Handle no drives
-        if #filteredDrives == 0 then
-            self.monitor.clear()
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) - 1, "ME Drives", colors.white)
-            local msg = #drives > 0 and "No drives with cells" or "No drives detected"
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) + 1, msg, colors.gray)
-            return
-        end
-
-        -- Display drives in grid (let GridDisplay handle clearing)
-        self.display:display(filteredDrives, function(drive)
-            return module.formatDrive(drive)
-        end)
-
-        -- Draw header overlay after grid (so it doesn't get erased)
-        self.monitor.setTextColor(colors.white)
-        self.monitor.setCursorPos(1, 1)
-        self.monitor.write("ME Drives")
-        self.monitor.setTextColor(colors.gray)
-        local countStr = " (" .. #filteredDrives .. ")"
-        self.monitor.write(countStr)
-
-        self.monitor.setTextColor(colors.white)
-    end
-}
-
-return module
+    emptyMessage = "No drives detected",
+    maxItems = 50
+})

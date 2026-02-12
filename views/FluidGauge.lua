@@ -2,14 +2,13 @@
 -- Displays a single fluid level as a vertical gauge
 -- Configurable: fluid to monitor, warning threshold
 
+local BaseView = mpm('views/BaseView')
 local AEInterface = mpm('peripherals/AEInterface')
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Yield = mpm('utils/Yield')
 
-local module
-
-module = {
+return BaseView.custom({
     sleepTime = 1,
 
     configSchema = {
@@ -31,61 +30,28 @@ module = {
         }
     },
 
-    new = function(monitor, config)
-        config = config or {}
-        local width, height = monitor.getSize()
-
-        local self = {
-            monitor = monitor,
-            width = width,
-            height = height,
-            fluidId = config.fluid,
-            warningBelow = config.warningBelow or 1000,
-            interface = nil,
-            history = {},
-            maxHistory = width,
-            initialized = false
-        }
-
-        local ok, interface = pcall(AEInterface.new)
-        if ok and interface then
-            self.interface = interface
-        end
-
-        return self
-    end,
-
     mount = function()
         return AEInterface.exists()
     end,
 
-    render = function(self)
-        if not self.initialized then
-            self.monitor.clear()
-            self.initialized = true
-        end
+    init = function(self, config)
+        self.interface = AEInterface.new()
+        self.fluidId = config.fluid
+        self.warningBelow = config.warningBelow or 1000
+        self.history = {}
+        self.maxHistory = self.width
+    end,
 
-        self.monitor.setBackgroundColor(colors.black)
-        self.monitor.setTextColor(colors.white)
-
-        if not self.interface then
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "No ME Bridge", colors.red)
-            return
-        end
-
+    getData = function(self)
         if not self.fluidId then
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) - 1, "Fluid Gauge", colors.white)
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) + 1, "Configure to select fluid", colors.gray)
-            return
+            return nil
         end
 
         -- Fetch fluids
-        local ok, fluids = pcall(function() return self.interface:fluids() end)
+        local fluids = self.interface:fluids()
+        if not fluids then return nil end
+
         Yield.yield()
-        if not ok or not fluids then
-            MonitorHelpers.writeCentered(self.monitor, 1, "Error fetching fluids", colors.red)
-            return
-        end
 
         -- Find our fluid by registry name (with yields for large systems)
         local amount = 0
@@ -105,6 +71,15 @@ module = {
         -- Record history
         MonitorHelpers.recordHistory(self.history, buckets, self.maxHistory)
 
+        return {
+            buckets = buckets,
+            history = self.history
+        }
+    end,
+
+    render = function(self, data)
+        local buckets = data.buckets
+
         -- Determine color
         local gaugeColor = colors.cyan
         local isWarning = buckets < self.warningBelow
@@ -114,9 +89,6 @@ module = {
         elseif buckets < self.warningBelow * 2 then
             gaugeColor = colors.orange
         end
-
-        -- Clear and render
-        self.monitor.clear()
 
         -- Row 1: Fluid name
         local name = Text.truncateMiddle(Text.prettifyName(self.fluidId), self.width)
@@ -180,7 +152,12 @@ module = {
         self.monitor.write("Warn <" .. self.warningBelow .. "B")
 
         self.monitor.setTextColor(colors.white)
-    end
-}
+    end,
 
-return module
+    renderEmpty = function(self)
+        MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) - 1, "Fluid Gauge", colors.white)
+        MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) + 1, "Configure to select fluid", colors.gray)
+    end,
+
+    errorMessage = "Error fetching fluids"
+})

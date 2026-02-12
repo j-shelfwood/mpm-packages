@@ -2,14 +2,12 @@
 -- Displays AE2 network energy status with history graph
 -- Configurable: warning threshold percentage
 
+local BaseView = mpm('views/BaseView')
 local AEInterface = mpm('peripherals/AEInterface')
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
-local Yield = mpm('utils/Yield')
 
-local module
-
-module = {
+return BaseView.custom({
     sleepTime = 1,
 
     configSchema = {
@@ -24,54 +22,21 @@ module = {
         }
     },
 
-    new = function(monitor, config)
-        config = config or {}
-        local width, height = monitor.getSize()
-
-        local self = {
-            monitor = monitor,
-            width = width,
-            height = height,
-            warningBelow = config.warningBelow or 25,
-            interface = nil,
-            history = {},
-            maxHistory = width,
-            initialized = false
-        }
-
-        local ok, interface = pcall(AEInterface.new)
-        if ok and interface then
-            self.interface = interface
-        end
-
-        return self
-    end,
-
     mount = function()
         return AEInterface.exists()
     end,
 
-    render = function(self)
-        if not self.initialized then
-            self.monitor.clear()
-            self.initialized = true
-        end
+    init = function(self, config)
+        self.interface = AEInterface.new()
+        self.warningBelow = config.warningBelow or 25
+        self.history = {}
+        self.maxHistory = self.width
+    end,
 
-        self.monitor.setBackgroundColor(colors.black)
-        self.monitor.setTextColor(colors.white)
-
-        if not self.interface then
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "No ME Bridge", colors.red)
-            return
-        end
-
+    getData = function(self)
         -- Get energy data
-        local ok, energy = pcall(function() return self.interface:energy() end)
-        Yield.yield()
-        if not ok or not energy then
-            MonitorHelpers.writeCentered(self.monitor, 1, "Error fetching energy", colors.red)
-            return
-        end
+        local energy = self.interface:energy()
+        if not energy then return nil end
 
         local stored = energy.stored or 0
         local capacity = energy.capacity or 1
@@ -81,42 +46,49 @@ module = {
         -- Record history
         MonitorHelpers.recordHistory(self.history, percentage, self.maxHistory)
 
+        return {
+            stored = stored,
+            capacity = capacity,
+            usage = usage,
+            percentage = percentage,
+            history = self.history
+        }
+    end,
+
+    render = function(self, data)
         -- Determine color
         local barColor = colors.green
-        if percentage <= self.warningBelow then
+        if data.percentage <= self.warningBelow then
             barColor = colors.red
-        elseif percentage <= self.warningBelow * 2 then
+        elseif data.percentage <= self.warningBelow * 2 then
             barColor = colors.yellow
         end
-
-        -- Clear and render
-        self.monitor.clear()
 
         -- Row 1: Title and percentage
         self.monitor.setTextColor(colors.white)
         self.monitor.setCursorPos(1, 1)
         self.monitor.write("AE2 Energy")
 
-        local pctStr = string.format("%.1f%%", percentage)
+        local pctStr = string.format("%.1f%%", data.percentage)
         self.monitor.setTextColor(barColor)
         self.monitor.setCursorPos(math.max(1, self.width - #pctStr + 1), 1)
         self.monitor.write(pctStr)
 
         -- Row 2: Stats
         self.monitor.setTextColor(colors.lightGray)
-        local statsStr = Text.formatNumber(stored, 1) .. " / " .. Text.formatNumber(capacity, 1) .. " AE"
+        local statsStr = Text.formatNumber(data.stored, 1) .. " / " .. Text.formatNumber(data.capacity, 1) .. " AE"
         self.monitor.setCursorPos(1, 2)
         self.monitor.write(Text.truncateMiddle(statsStr, self.width))
 
         -- Row 3: Usage
         self.monitor.setTextColor(colors.orange)
-        local usageStr = "Using: " .. Text.formatNumber(usage, 1) .. " AE/t"
+        local usageStr = "Using: " .. Text.formatNumber(data.usage, 1) .. " AE/t"
         self.monitor.setCursorPos(1, 3)
         self.monitor.write(Text.truncateMiddle(usageStr, self.width))
 
         -- Row 5: Energy bar
         if self.height >= 5 then
-            MonitorHelpers.drawProgressBar(self.monitor, 1, 5, self.width, percentage, barColor, colors.gray, true)
+            MonitorHelpers.drawProgressBar(self.monitor, 1, 5, self.width, data.percentage, barColor, colors.gray, true)
         end
 
         -- History graph (if room)
@@ -150,7 +122,7 @@ module = {
         self.monitor.write("Warn <" .. self.warningBelow .. "%")
 
         self.monitor.setTextColor(colors.white)
-    end
-}
+    end,
 
-return module
+    errorMessage = "Error fetching energy"
+})

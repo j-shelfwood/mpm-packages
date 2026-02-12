@@ -12,15 +12,40 @@
 --   patternType = "crafting" | "processing" | "smithing" | "stonecutting"
 -- }
 
+local BaseView = mpm('views/BaseView')
 local AEInterface = mpm('peripherals/AEInterface')
-local GridDisplay = mpm('utils/GridDisplay')
 local Text = mpm('utils/Text')
-local MonitorHelpers = mpm('utils/MonitorHelpers')
-local Yield = mpm('utils/Yield')
 
-local module
+-- Helper functions
+local function getDisplayName(pattern)
+    if pattern.primaryOutput and pattern.primaryOutput.displayName then
+        return pattern.primaryOutput.displayName
+    elseif pattern.outputs and #pattern.outputs > 0 and pattern.outputs[1].displayName then
+        return pattern.outputs[1].displayName
+    end
+    return "Unknown"
+end
 
-module = {
+local function countInputs(pattern)
+    if not pattern.inputs then return 0 end
+    return #pattern.inputs
+end
+
+local function getPatternTypeColor(patternType)
+    if patternType == "crafting" then
+        return colors.lime
+    elseif patternType == "processing" then
+        return colors.lightBlue
+    elseif patternType == "smithing" then
+        return colors.orange
+    elseif patternType == "stonecutting" then
+        return colors.gray
+    else
+        return colors.white
+    end
+end
+
+return BaseView.grid({
     sleepTime = 10,
 
     configSchema = {
@@ -45,189 +70,80 @@ module = {
         }
     },
 
-    new = function(monitor, config)
-        config = config or {}
-        local width, height = monitor.getSize()
-
-        local self = {
-            monitor = monitor,
-            width = width,
-            height = height,
-            sortBy = config.sortBy or "output",
-            maxDisplay = config.maxDisplay or 50,
-            interface = nil,
-            display = GridDisplay.new(monitor),
-            initialized = false
-        }
-
-        local ok, interface = pcall(AEInterface.new)
-        if ok and interface then
-            self.interface = interface
-        end
-
-        return self
-    end,
-
     mount = function()
         return AEInterface.exists()
     end,
 
-    -- Extract output name from pattern
-    getOutputName = function(pattern)
-        if pattern.primaryOutput and pattern.primaryOutput.name then
-            return pattern.primaryOutput.name
-        elseif pattern.outputs and #pattern.outputs > 0 and pattern.outputs[1].name then
-            return pattern.outputs[1].name
-        end
-        return "unknown"
+    init = function(self, config)
+        self.interface = AEInterface.new()
+        self.sortBy = config.sortBy or "output"
+        self.maxDisplay = config.maxDisplay or 50
+        self.totalPatterns = 0  -- Will be set in getData
     end,
 
-    -- Extract display name from pattern
-    getDisplayName = function(pattern)
-        if pattern.primaryOutput and pattern.primaryOutput.displayName then
-            return pattern.primaryOutput.displayName
-        elseif pattern.outputs and #pattern.outputs > 0 and pattern.outputs[1].displayName then
-            return pattern.outputs[1].displayName
-        end
-        return "Unknown"
-    end,
-
-    -- Count total inputs in pattern
-    countInputs = function(pattern)
-        if not pattern.inputs then return 0 end
-        return #pattern.inputs
-    end,
-
-    -- Get primary input display name
-    getPrimaryInputName = function(pattern)
-        if not pattern.inputs or #pattern.inputs == 0 then
-            return "No inputs"
-        end
-        
-        local firstInput = pattern.inputs[1]
-        if firstInput and firstInput.primaryInput then
-            if firstInput.primaryInput.displayName then
-                return firstInput.primaryInput.displayName
-            elseif firstInput.primaryInput.name then
-                return Text.prettifyName(firstInput.primaryInput.name)
-            end
-        end
-        
-        return "Unknown input"
-    end,
-
-    -- Get pattern type color
-    getPatternTypeColor = function(patternType)
-        if patternType == "crafting" then
-            return colors.lime
-        elseif patternType == "processing" then
-            return colors.lightBlue
-        elseif patternType == "smithing" then
-            return colors.orange
-        elseif patternType == "stonecutting" then
-            return colors.gray
-        else
-            return colors.white
-        end
-    end,
-
-    formatPattern = function(pattern)
-        local displayName = module.getDisplayName(pattern)
-        local inputCount = module.countInputs(pattern)
-        local patternType = pattern.patternType or "unknown"
-        local typeColor = module.getPatternTypeColor(patternType)
-
-        local lines = {
-            displayName,
-            inputCount .. " input" .. (inputCount ~= 1 and "s" or ""),
-            "[" .. (patternType:sub(1, 1):upper() .. patternType:sub(2)) .. "]"
-        }
-
-        local lineColors = {
-            colors.white,
-            colors.gray,
-            typeColor
-        }
-
-        return {
-            lines = lines,
-            colors = lineColors
-        }
-    end,
-
-    render = function(self)
-        if not self.initialized then
-            self.monitor.clear()
-            self.initialized = true
-        end
-
-        self.monitor.setBackgroundColor(colors.black)
-        self.monitor.setTextColor(colors.white)
-
-        if not self.interface then
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "No AE2 peripheral", colors.red)
-            return
-        end
-
+    getData = function(self)
         -- Get all patterns
-        local ok, patterns = pcall(function() 
-            return self.interface.bridge.getPatterns()
-        end)
-        
-        if not ok or not patterns then
-            MonitorHelpers.writeCentered(self.monitor, 1, "Error fetching patterns", colors.red)
-            return
-        end
+        local patterns = self.interface.bridge.getPatterns()
+        if not patterns then return {} end
 
-        -- Yield after peripheral call
-        Yield.yield()
-
-        -- Handle no patterns
-        if #patterns == 0 then
-            self.monitor.clear()
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) - 1, "No Patterns", colors.yellow)
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) + 1, "No crafting patterns found", colors.gray)
-            return
-        end
+        self.totalPatterns = #patterns
 
         -- Sort patterns
         if self.sortBy == "output" then
             table.sort(patterns, function(a, b)
-                local nameA = module.getDisplayName(a)
-                local nameB = module.getDisplayName(b)
+                local nameA = getDisplayName(a)
+                local nameB = getDisplayName(b)
                 return nameA < nameB
             end)
         elseif self.sortBy == "inputs" then
             table.sort(patterns, function(a, b)
-                local countA = module.countInputs(a)
-                local countB = module.countInputs(b)
+                local countA = countInputs(a)
+                local countB = countInputs(b)
                 if countA == countB then
-                    return module.getDisplayName(a) < module.getDisplayName(b)
+                    return getDisplayName(a) < getDisplayName(b)
                 end
                 return countA > countB
             end)
         end
 
         -- Limit display
-        local maxItems = self.maxDisplay
         local displayPatterns = {}
-        for i = 1, math.min(#patterns, maxItems) do
+        for i = 1, math.min(#patterns, self.maxDisplay) do
             displayPatterns[i] = patterns[i]
         end
 
-        -- Display patterns in grid (let GridDisplay handle clearing)
-        self.display:display(displayPatterns, module.formatPattern)
+        return displayPatterns
+    end,
 
-        -- Draw header overlay after grid (so it doesn't get erased)
-        self.monitor.setTextColor(colors.cyan)
-        self.monitor.setCursorPos(1, 1)
-        self.monitor.write("PATTERNS")
-        self.monitor.setTextColor(colors.gray)
-        local countStr = " (" .. #patterns .. " total)"
-        self.monitor.write(Text.truncateMiddle(countStr, self.width - 9))
+    header = function(self, data)
+        return {
+            text = "PATTERNS",
+            color = colors.cyan,
+            secondary = " (" .. self.totalPatterns .. " total)",
+            secondaryColor = colors.gray
+        }
+    end,
 
-        self.monitor.setTextColor(colors.white)
-    end
-}
+    formatItem = function(self, pattern)
+        local displayName = getDisplayName(pattern)
+        local inputCount = countInputs(pattern)
+        local patternType = pattern.patternType or "unknown"
+        local typeColor = getPatternTypeColor(patternType)
 
-return module
+        return {
+            lines = {
+                displayName,
+                inputCount .. " input" .. (inputCount ~= 1 and "s" or ""),
+                "[" .. (patternType:sub(1, 1):upper() .. patternType:sub(2)) .. "]"
+            },
+            colors = {
+                colors.white,
+                colors.gray,
+                typeColor
+            }
+        }
+    end,
+
+    emptyMessage = "No crafting patterns found",
+    maxItems = 50
+})

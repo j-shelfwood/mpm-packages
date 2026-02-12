@@ -2,12 +2,11 @@
 -- Displays storage cell status and health monitoring
 -- Shows usage percentages, warns on nearly-full cells
 
+local BaseView = mpm('views/BaseView')
 local AEInterface = mpm('peripherals/AEInterface')
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Yield = mpm('utils/Yield')
-
-local module
 
 -- Parse cell size from bytes (1k, 4k, 16k, 64k, 256k)
 local function getCellSize(bytes)
@@ -33,7 +32,7 @@ local function getCellType(typeStr)
     return lastPart:gsub("AE", ""):gsub("Key", ""):upper()
 end
 
-module = {
+return BaseView.custom({
     sleepTime = 5,
 
     configSchema = {
@@ -59,54 +58,22 @@ module = {
         }
     },
 
-    new = function(monitor, config)
-        config = config or {}
-        local width, height = monitor.getSize()
-
-        local self = {
-            monitor = monitor,
-            width = width,
-            height = height,
-            warningPercent = config.warningPercent or 90,
-            sortBy = config.sortBy or "usage",
-            interface = nil,
-            initialized = false
-        }
-
-        local ok, interface = pcall(AEInterface.new)
-        if ok and interface then
-            self.interface = interface
-        end
-
-        return self
-    end,
-
     mount = function()
         return AEInterface.exists()
     end,
 
-    render = function(self)
-        if not self.initialized then
-            self.monitor.clear()
-            self.initialized = true
-        end
+    init = function(self, config)
+        self.interface = AEInterface.new()
+        self.warningPercent = config.warningPercent or 90
+        self.sortBy = config.sortBy or "usage"
+    end,
 
-        self.monitor.setBackgroundColor(colors.black)
-        self.monitor.setTextColor(colors.white)
-
-        if not self.interface then
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "No ME Bridge", colors.red)
-            return
-        end
-
+    getData = function(self)
         -- Get cell data
-        local ok, cells = pcall(function() return self.interface:getCells() end)
-        Yield.yield()
+        local cells = self.interface:getCells()
+        if not cells then return {} end
 
-        if not ok or not cells then
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "Error reading cells", colors.red)
-            return
-        end
+        Yield.yield()
 
         -- Parse and calculate cell info
         local cellData = {}
@@ -139,25 +106,26 @@ module = {
             end)
         end
 
-        -- Clear and render
-        self.monitor.clear()
+        return cellData
+    end,
 
+    render = function(self, data)
         -- Row 1: Title
-        local title = "Storage Cells (" .. #cellData .. ")"
+        local title = "Storage Cells (" .. #data .. ")"
         MonitorHelpers.writeCentered(self.monitor, 1, title, colors.white)
 
         -- No cells case
-        if #cellData == 0 then
+        if #data == 0 then
             self.monitor.setTextColor(colors.gray)
             MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "No cells found", colors.gray)
             return
         end
 
         -- Calculate summary
-        local totalCells = #cellData
+        local totalCells = #data
         local totalUsage = 0
         local warningCount = 0
-        for _, cell in ipairs(cellData) do
+        for _, cell in ipairs(data) do
             totalUsage = totalUsage + cell.percentage
             if cell.percentage >= self.warningPercent then
                 warningCount = warningCount + 1
@@ -185,7 +153,7 @@ module = {
         local startY = 5
         local maxRows = self.height - startY + 1
 
-        for i, cell in ipairs(cellData) do
+        for i, cell in ipairs(data) do
             if i > maxRows then break end
 
             local y = startY + i - 1
@@ -232,7 +200,12 @@ module = {
         end
 
         self.monitor.setTextColor(colors.white)
-    end
-}
+    end,
 
-return module
+    renderEmpty = function(self)
+        MonitorHelpers.writeCentered(self.monitor, 1, "Storage Cells (0)", colors.white)
+        MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "No cells found", colors.gray)
+    end,
+
+    errorMessage = "Error reading cells"
+})

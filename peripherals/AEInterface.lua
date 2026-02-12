@@ -225,4 +225,93 @@ function AEInterface:getCells()
     return self.bridge.getCells() or {}
 end
 
+-- Get ME drives
+-- @return array of drive tables
+function AEInterface:getDrives()
+    return self.bridge.getDrives() or {}
+end
+
+-- Get crafting patterns
+-- @return array of pattern tables
+function AEInterface:getPatterns()
+    return self.bridge.getPatterns() or {}
+end
+
+-- Get craftable items
+-- @return array of craftable item tables
+function AEInterface:getCraftableItems()
+    return self.bridge.getCraftableItems() or {}
+end
+
+-- Get average energy input
+-- @return number AE/t input rate
+function AEInterface:getAverageEnergyInput()
+    return self.bridge.getAverageEnergyInput() or 0
+end
+
+-- Get chemicals (requires Applied Mekanistics)
+-- @return array of chemical tables, or empty if not supported
+function AEInterface:chemicals()
+    if not self.bridge.getChemicals then
+        return {}
+    end
+
+    local raw = self.bridge.getChemicals() or {}
+    local result = {}
+
+    for _, chem in ipairs(raw) do
+        table.insert(result, {
+            registryName = chem.name,
+            displayName = chem.displayName or chem.name,
+            amount = chem.count or chem.amount or 0
+        })
+    end
+
+    return result
+end
+
+-- Check if chemicals are supported (Applied Mekanistics loaded)
+function AEInterface:hasChemicalSupport()
+    return self.bridge.getChemicals ~= nil
+end
+
+-- Unified storage accessor using StorageType constants
+-- @param storageType StorageType.ITEMS, StorageType.FLUIDS, or StorageType.CHEMICALS
+-- @param external boolean - if true, get external storage stats
+-- @return {used, total, available} or nil if type not supported
+function AEInterface:getStorage(storageType, external)
+    local StorageType = mpm('peripherals/StorageType')
+
+    if not StorageType.isValid(storageType) then
+        error("Invalid storage type: " .. tostring(storageType))
+    end
+
+    local prefix = external and "External" or ""
+    local suffix = ""
+
+    if storageType == StorageType.ITEMS then
+        suffix = "Item"
+    elseif storageType == StorageType.FLUIDS then
+        suffix = "Fluid"
+    elseif storageType == StorageType.CHEMICALS then
+        suffix = "Chemical"
+    end
+
+    -- Build method names
+    local usedMethod = "getUsed" .. prefix .. suffix .. "Storage"
+    local totalMethod = "getTotal" .. prefix .. suffix .. "Storage"
+    local availMethod = "getAvailable" .. prefix .. suffix .. "Storage"
+
+    -- Check if methods exist
+    if not self.bridge[totalMethod] then
+        return nil  -- Storage type not supported
+    end
+
+    return {
+        used = (self.bridge[usedMethod] and self.bridge[usedMethod]()) or 0,
+        total = (self.bridge[totalMethod] and self.bridge[totalMethod]()) or 0,
+        available = (self.bridge[availMethod] and self.bridge[availMethod]()) or 0
+    }
+end
+
 return AEInterface
