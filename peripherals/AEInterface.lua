@@ -56,17 +56,18 @@ function AEInterface:items()
     local raw = self.bridge.getItems() or {}
 
     -- Normalize and consolidate by registry name
+    -- ME Bridge returns: name, count, displayName, isCraftable, tags, maxStackSize
     local byId = {}
     for _, item in ipairs(raw) do
         local id = item.name  -- registry name like "minecraft:diamond"
         if id then
             if byId[id] then
-                byId[id].count = byId[id].count + (item.amount or 0)
+                byId[id].count = byId[id].count + (item.count or 0)
             else
                 byId[id] = {
                     registryName = id,
                     displayName = item.displayName or id,
-                    count = item.amount or 0,
+                    count = item.count or 0,
                     isCraftable = item.isCraftable or false
                 }
             end
@@ -92,7 +93,7 @@ function AEInterface:getItem(filter)
     return {
         registryName = item.name,
         displayName = item.displayName or item.name,
-        count = item.amount or 0,
+        count = item.count or 0,
         isCraftable = item.isCraftable or false
     }
 end
@@ -103,17 +104,18 @@ function AEInterface:fluids()
     local raw = self.bridge.getFluids() or {}
 
     -- Consolidate by registry name
+    -- ME Bridge returns: name, count, displayName, tags (fluids use 'count' not 'amount')
     local byId = {}
     for _, fluid in ipairs(raw) do
         local id = fluid.name
         if id then
             if byId[id] then
-                byId[id].amount = byId[id].amount + (fluid.amount or 0)
+                byId[id].amount = byId[id].amount + (fluid.count or 0)
             else
                 byId[id] = {
                     registryName = id,
                     displayName = fluid.displayName or id,
-                    amount = fluid.amount or 0
+                    amount = fluid.count or 0
                 }
             end
         end
@@ -138,7 +140,7 @@ function AEInterface:getFluid(filter)
     return {
         registryName = fluid.name,
         displayName = fluid.displayName or fluid.name,
-        amount = fluid.amount or 0
+        amount = fluid.count or 0
     }
 end
 
