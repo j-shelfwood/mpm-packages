@@ -1,7 +1,7 @@
 {
   "name": "views",
   "description": "Display modules for ShelfOS monitors - single-purpose, configurable views",
-  "dependencies": ["utils", "peripherals"],
+  "dependencies": ["utils", "peripherals", "ui"],
   "files": [
     "Manager.lua",
     "ItemCounter.lua",

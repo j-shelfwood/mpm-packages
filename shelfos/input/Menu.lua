@@ -2,17 +2,8 @@
 -- Menu dialogs and key handling for ShelfOS
 -- Uses Controller abstraction for unified terminal/monitor support
 
-local Controller = mpm('shelfos/core/Controller')
-
-local Menu = {}
-
--- Key name to number mapping (keys.getName returns "one", "two", etc.)
-local keyToNum = {
-    one = 1, two = 2, three = 3, four = 4, five = 5,
-    six = 6, seven = 7, eight = 8, nine = 9,
-    numpad1 = 1, numpad2 = 2, numpad3 = 3, numpad4 = 4, numpad5 = 5,
-    numpad6 = 6, numpad7 = 7, numpad8 = 8, numpad9 = 9
-}
+local Controller = mpm('ui/Controller')
+local Keys = mpm('utils/Keys')
 
 -- Menu key mappings
 local menuKeys = {
@@ -380,7 +371,7 @@ function Menu.showViewSelect(monitor, availableViews, target)
                 end
 
                 -- Number selection (1-9)
-                local num = keyToNum[keyName]
+                local num = Keys.getNumber(keyName)
                 if num and num >= 1 and num <= #availableViews then
                     return availableViews[num]
                 end
@@ -501,7 +492,7 @@ function Menu.showLink(config, target)
             local keyName = keys.getName(p1)
             if keyName then
                 keyName = keyName:lower()
-                local num = keyToNum[keyName]
+                local num = Keys.getNumber(keyName)
                 if num and num >= 1 and num <= #options then
                     local selected = options[num].value
 

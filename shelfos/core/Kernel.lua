@@ -6,7 +6,7 @@ local Config = mpm('shelfos/core/Config')
 local Monitor = mpm('shelfos/core/Monitor')
 local Zone = mpm('shelfos/core/Zone')
 local Terminal = mpm('shelfos/core/Terminal')
-local Controller = mpm('shelfos/core/Controller')
+local Controller = mpm('ui/Controller')
 local Menu = mpm('shelfos/input/Menu')
 local ViewManager = mpm('views/Manager')
 

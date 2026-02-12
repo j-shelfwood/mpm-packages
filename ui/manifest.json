@@ -1,9 +1,10 @@
 {
   "name": "ui",
-  "description": "Touch UI primitives - zones, overlays, widgets for monitor interaction",
+  "description": "Touch UI primitives - zones, overlays, widgets, controller for monitor and terminal interaction",
   "dependencies": ["utils"],
   "files": [
     "Core.lua",
+    "Controller.lua",
     "TouchZones.lua",
     "Overlay.lua",
     "Button.lua",

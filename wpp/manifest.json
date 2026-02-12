@@ -1,5 +1,0 @@
-{
-  "name": "wpp",
-  "description": "Wireless Peripheral Package - Connect & call functions from peripherals remotely over Rednet",
-  "files": ["wpp_hub.lua", "wpp.lua"]
-}

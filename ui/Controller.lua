@@ -3,6 +3,7 @@
 -- Bridges keyboard menu navigation with touch UI components
 
 local Core = mpm('ui/Core')
+local Keys = mpm('utils/Keys')
 
 local Controller = {}
 
@@ -350,14 +351,7 @@ function Controller.selectFromList(target, title, options, opts)
                 end
 
                 -- Number selection (1-9)
-                -- keys.getName returns "one", "two", etc. - need to map to numbers
-                local keyToNum = {
-                    one = 1, two = 2, three = 3, four = 4, five = 5,
-                    six = 6, seven = 7, eight = 8, nine = 9,
-                    numpad1 = 1, numpad2 = 2, numpad3 = 3, numpad4 = 4, numpad5 = 5,
-                    numpad6 = 6, numpad7 = 7, numpad8 = 8, numpad9 = 9
-                }
-                local num = keyToNum[keyName]
+                local num = Keys.getNumber(keyName)
                 if num and num >= 1 and num <= #options then
                     return getValue(options[num])
                 end

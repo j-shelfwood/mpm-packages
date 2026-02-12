@@ -1,5 +1,0 @@
-{
-  "name": "reality",
-  "description": "Reality management package - Manage and interact with the virtual world",
-  "files": ["door.lua"]
-}
