@@ -7,9 +7,7 @@ local AEInterface = mpm('peripherals/AEInterface')
 local GridDisplay = mpm('utils/GridDisplay')
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
-
--- Yield every N items to prevent blocking the event loop
-local YIELD_INTERVAL = 100
+local Yield = mpm('utils/Yield')
 
 local module
 
@@ -52,14 +50,9 @@ module = {
             -- Initialize previous items (with yields for large systems)
             local itemsOk, items = pcall(function() return interface:items() end)
             if itemsOk and items then
-                local count = 0
-                for _, item in ipairs(items) do
+                Yield.forEach(items, function(item)
                     self.prevItems[item.registryName] = item.count
-                    count = count + 1
-                    if count % YIELD_INTERVAL == 0 then
-                        os.sleep(0)  -- Yield to allow event processing
-                    end
-                end
+                end)
             end
         end
 
@@ -108,45 +101,30 @@ module = {
         end
 
         -- Yield after peripheral call to allow queued events to process
-        os.sleep(0)
+        Yield.yield()
 
         -- Build current lookup (with periodic yields)
         local currLookup = {}
-        local count = 0
-        for _, item in ipairs(currItems) do
+        Yield.forEach(currItems, function(item)
             currLookup[item.registryName] = item.count
-            count = count + 1
-            if count % YIELD_INTERVAL == 0 then
-                os.sleep(0)
-            end
-        end
+        end)
 
         -- Calculate changes (with periodic yields)
-        count = 0
-        for id, itemCount in pairs(currLookup) do
+        Yield.forPairs(currLookup, function(id, itemCount)
             local prevCount = self.prevItems[id] or 0
             local change = itemCount - prevCount
             if change ~= 0 then
                 self.accumulatedChanges[id] = (self.accumulatedChanges[id] or 0) + change
             end
-            count = count + 1
-            if count % YIELD_INTERVAL == 0 then
-                os.sleep(0)
-            end
-        end
+        end)
 
         -- Check for removed items (with periodic yields)
-        count = 0
-        for id, prevCount in pairs(self.prevItems) do
+        Yield.forPairs(self.prevItems, function(id, prevCount)
             if not currLookup[id] then
                 local change = -prevCount
                 self.accumulatedChanges[id] = (self.accumulatedChanges[id] or 0) + change
             end
-            count = count + 1
-            if count % YIELD_INTERVAL == 0 then
-                os.sleep(0)
-            end
-        end
+        end)
 
         -- Update previous state
         self.prevItems = currLookup

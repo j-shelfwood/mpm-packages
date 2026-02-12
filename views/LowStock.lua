@@ -6,6 +6,7 @@ local AEInterface = mpm('peripherals/AEInterface')
 local GridDisplay = mpm('utils/GridDisplay')
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
+local Yield = mpm('utils/Yield')
 
 local module
 
@@ -109,13 +110,14 @@ module = {
             return
         end
 
-        -- Filter to low stock
-        local lowStock = {}
-        for _, item in ipairs(items) do
-            if (item.count or 0) < self.threshold then
-                table.insert(lowStock, item)
-            end
-        end
+        -- Yield after peripheral call
+        Yield.yield()
+
+        -- Filter to low stock (with yields for large systems)
+        local threshold = self.threshold
+        local lowStock = Yield.filter(items, function(item)
+            return (item.count or 0) < threshold
+        end)
 
         -- Sort by count ascending (lowest first)
         table.sort(lowStock, function(a, b)

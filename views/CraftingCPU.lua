@@ -5,6 +5,7 @@
 local AEInterface = mpm('peripherals/AEInterface')
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
+local Yield = mpm('utils/Yield')
 
 -- Get available CPUs for config picker
 local function getCPUOptions()
@@ -94,6 +95,7 @@ module = {
 
         -- Get all CPUs and find ours
         local ok, cpus = pcall(function() return self.interface:getCraftingCPUs() end)
+        Yield.yield()
         if not ok or not cpus then
             MonitorHelpers.writeCentered(self.monitor, 1, "Error fetching CPUs", colors.red)
             return
@@ -130,6 +132,7 @@ module = {
 
             -- Try to get current task info
             local tasksOk, tasks = pcall(function() return self.interface:getCraftingTasks() end)
+            Yield.yield()
             if tasksOk and tasks then
                 for _, task in ipairs(tasks) do
                     -- Find task matching this CPU (task.cpu matches cpu.name)

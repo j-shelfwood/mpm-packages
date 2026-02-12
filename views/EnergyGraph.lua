@@ -5,6 +5,7 @@
 local AEInterface = mpm('peripherals/AEInterface')
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
+local Yield = mpm('utils/Yield')
 
 local module
 
@@ -66,6 +67,7 @@ module = {
 
         -- Get energy data
         local ok, energy = pcall(function() return self.interface:energy() end)
+        Yield.yield()
         if not ok or not energy then
             MonitorHelpers.writeCentered(self.monitor, 1, "Error fetching energy", colors.red)
             return

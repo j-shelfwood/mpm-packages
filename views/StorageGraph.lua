@@ -5,6 +5,7 @@
 local AEInterface = mpm('peripherals/AEInterface')
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
+local Yield = mpm('utils/Yield')
 
 local module
 
@@ -66,11 +67,12 @@ module = {
             return
         end
 
-        -- Get storage data
+        -- Get storage data (with yields after peripheral calls)
         local used, total = 0, 0
 
         if self.storageType == "items" or self.storageType == "both" then
             local ok, status = pcall(function() return self.interface:itemStorage() end)
+            Yield.yield()
             if ok and status then
                 used = used + (status.used or 0)
                 total = total + (status.total or 0)
@@ -79,6 +81,7 @@ module = {
 
         if self.storageType == "fluids" or self.storageType == "both" then
             local ok, status = pcall(function() return self.interface:fluidStorage() end)
+            Yield.yield()
             if ok and status then
                 used = used + (status.used or 0)
                 total = total + (status.total or 0)

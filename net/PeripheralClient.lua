@@ -4,6 +4,7 @@
 
 local Protocol = mpm('net/Protocol')
 local RemoteProxy = mpm('net/RemoteProxy')
+local Yield = mpm('utils/Yield')
 
 local PeripheralClient = {}
 PeripheralClient.__index = PeripheralClient
@@ -139,10 +140,11 @@ function PeripheralClient:discover(timeout)
     local msg = Protocol.createPeriphDiscover()
     self.channel:broadcast(msg)
 
-    -- Poll for responses
+    -- Poll for responses (with yields to allow event processing)
     local deadline = os.epoch("utc") + (timeout * 1000)
     while os.epoch("utc") < deadline do
         self.channel:poll(0.1)
+        Yield.yield()  -- Allow other events to process
     end
 
     return self:getCount()
@@ -263,10 +265,11 @@ function PeripheralClient:call(hostId, peripheralName, methodName, args, timeout
     -- Send request
     self.channel:send(hostId, msg)
 
-    -- Wait for response
+    -- Wait for response (with yields to allow event processing)
     local deadline = os.epoch("utc") + (timeout * 1000)
     while not done and os.epoch("utc") < deadline do
         self.channel:poll(0.05)
+        Yield.yield()
     end
 
     -- Clean up if timed out

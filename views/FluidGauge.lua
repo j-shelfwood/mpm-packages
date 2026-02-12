@@ -5,6 +5,7 @@
 local AEInterface = mpm('peripherals/AEInterface')
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
+local Yield = mpm('utils/Yield')
 
 local module
 
@@ -80,18 +81,23 @@ module = {
 
         -- Fetch fluids
         local ok, fluids = pcall(function() return self.interface:fluids() end)
+        Yield.yield()
         if not ok or not fluids then
             MonitorHelpers.writeCentered(self.monitor, 1, "Error fetching fluids", colors.red)
             return
         end
 
-        -- Find our fluid by registry name
+        -- Find our fluid by registry name (with yields for large systems)
         local amount = 0
+        local fluidId = self.fluidId
+        local count = 0
         for _, fluid in ipairs(fluids) do
-            if fluid.registryName == self.fluidId then
+            if fluid.registryName == fluidId then
                 amount = fluid.amount or 0
                 break
             end
+            count = count + 1
+            Yield.check(count)
         end
 
         local buckets = amount / 1000

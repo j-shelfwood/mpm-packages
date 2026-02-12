@@ -4,6 +4,7 @@
 
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
+local Yield = mpm('utils/Yield')
 
 -- Moon phase names
 local MOON_PHASES = {
@@ -118,6 +119,9 @@ module = {
             if dimOk and d then
                 dimension = Text.prettifyName(d)
             end
+
+            -- Yield after all detector calls
+            Yield.yield()
         else
             time = os.time()
         end

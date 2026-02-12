@@ -5,6 +5,7 @@
 local AEInterface = mpm('peripherals/AEInterface')
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
+local Yield = mpm('utils/Yield')
 
 local module
 
@@ -80,20 +81,25 @@ module = {
 
         -- Fetch items
         local ok, items = pcall(function() return self.interface:items() end)
+        Yield.yield()
         if not ok or not items then
             MonitorHelpers.writeCentered(self.monitor, 1, "Error fetching items", colors.red)
             return
         end
 
-        -- Find our item by registry name
+        -- Find our item by registry name (with yields for large systems)
         local count = 0
         local isCraftable = false
+        local itemId = self.itemId
+        local iterCount = 0
         for _, item in ipairs(items) do
-            if item.registryName == self.itemId then
+            if item.registryName == itemId then
                 count = item.count or 0
                 isCraftable = item.isCraftable or false
                 break
             end
+            iterCount = iterCount + 1
+            Yield.check(iterCount)
         end
 
         -- Track change direction

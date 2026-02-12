@@ -3,6 +3,7 @@
 
 local Crypto = mpm('net/Crypto')
 local Protocol = mpm('net/Protocol')
+local Yield = mpm('utils/Yield')
 
 local Channel = {}
 Channel.__index = Channel
@@ -117,7 +118,7 @@ function Channel:request(targetId, message, timeout)
         return nil, "Failed to send"
     end
 
-    -- Wait for response with matching requestId
+    -- Wait for response with matching requestId (with yields)
     local deadline = os.epoch("utc") + (timeout * 1000)
 
     while os.epoch("utc") < deadline do
@@ -126,6 +127,7 @@ function Channel:request(targetId, message, timeout)
         if response and response.requestId == message.requestId then
             return response, nil
         end
+        Yield.yield()
     end
 
     return nil, "Timeout"

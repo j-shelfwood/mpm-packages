@@ -4,6 +4,7 @@
 
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
+local Yield = mpm('utils/Yield')
 
 -- Get available machine types from connected peripherals
 local function getMachineTypes()
@@ -97,11 +98,12 @@ module = {
             return
         end
 
-        -- Fetch machine data
+        -- Fetch machine data (with yields for many machines)
         local machineData = {}
-        for _, machine in ipairs(self.peripherals) do
+        local machineType = self.machineType
+        for idx, machine in ipairs(self.peripherals) do
             local fullName = peripheral.getName(machine)
-            local _, _, shortName = string.find(fullName, self.machineType .. "_(.+)")
+            local _, _, shortName = string.find(fullName, machineType .. "_(.+)")
             shortName = shortName or fullName
 
             local busyOk, isBusy = pcall(machine.isBusy)
@@ -111,6 +113,7 @@ module = {
                 name = shortName,
                 isBusy = isBusy
             })
+            Yield.check(idx)
         end
 
         if #machineData == 0 then

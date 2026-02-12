@@ -1,6 +1,8 @@
 -- Manager.lua
 -- View loading and lifecycle management for ShelfOS
 
+local Yield = mpm('utils/Yield')
+
 local Manager = {}
 
 -- Cache of loaded views
@@ -76,15 +78,17 @@ function Manager.canMount(viewName)
     return ok and canMount
 end
 
--- Get list of views that can mount
+-- Get list of views that can mount (with yields for responsiveness)
 function Manager.getMountableViews()
     local available = Manager.getAvailableViews()
     local mountable = {}
 
-    for _, viewName in ipairs(available) do
+    for idx, viewName in ipairs(available) do
         if Manager.canMount(viewName) then
             table.insert(mountable, viewName)
         end
+        -- Yield between mount checks since they may call peripheral.find()
+        Yield.check(idx, 5)  -- Lower interval since each check can be slow
     end
 
     return mountable
@@ -160,8 +164,9 @@ function Manager.suggestView()
         { check = function() return peripheral.find("environment_detector") end, view = "Clock", reason = "Environment detector found" },
     }
 
-    for _, suggestion in ipairs(suggestions) do
+    for idx, suggestion in ipairs(suggestions) do
         local ok, result = pcall(suggestion.check)
+        Yield.yield()  -- Yield after each peripheral.find()
         if ok and result then
             -- Verify view is loadable
             if Manager.canMount(suggestion.view) then
@@ -197,11 +202,16 @@ function Manager.suggestViewsForMonitors(monitorCount)
         return suggestions
     end
 
-    -- Build prioritized list based on peripherals
+    -- Build prioritized list based on peripherals (with yields)
     local prioritized = {}
 
     -- Check for ME/RS bridge first
-    if peripheral.find("me_bridge") or peripheral.find("rsBridge") then
+    local hasMeBridge = peripheral.find("me_bridge")
+    Yield.yield()
+    local hasRsBridge = peripheral.find("rsBridge")
+    Yield.yield()
+
+    if hasMeBridge or hasRsBridge then
         for _, v in ipairs({"StorageGraph", "EnergyGraph", "ItemCounter", "FluidGauge", "ItemChanges", "LowStock", "CraftingCPU"}) do
             for _, m in ipairs(mountable) do
                 if m == v then
@@ -213,7 +223,10 @@ function Manager.suggestViewsForMonitors(monitorCount)
     end
 
     -- Add energy if available
-    if peripheral.find("energyStorage") then
+    local hasEnergy = peripheral.find("energyStorage")
+    Yield.yield()
+
+    if hasEnergy then
         for _, m in ipairs(mountable) do
             if m == "EnergyGraph" then
                 table.insert(prioritized, m)
