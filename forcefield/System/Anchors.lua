@@ -24,14 +24,22 @@ this = {
 
         -- Save the anchors to the `anchors.json` file
         local file = fs.open("anchors.json", "w")
-        file.write(textutils.serializeJSON(anchors))
-        file.close()
-        print('Anchors saved to `anchors.json`!')
+        if file then
+            file.write(textutils.serializeJSON(anchors))
+            file.close()
+            print('Anchors saved to `anchors.json`!')
+        else
+            print('[!] Could not save anchors.json')
+        end
         return anchors
     end,
     load = function()
         print('Loading anchors...')
         local file = fs.open("anchors.json", "r")
+        if not file then
+            print('[!] Could not read anchors.json')
+            return {}
+        end
         local anchors = textutils.unserializeJSON(file.readAll())
         file.close()
         return anchors

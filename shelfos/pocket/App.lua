@@ -35,9 +35,14 @@ function App:init()
 
     if fs.exists(secretPath) then
         local file = fs.open(secretPath, "r")
-        secret = file.readAll()
-        file.close()
-        print("[*] Loaded secret from file")
+        if file then
+            secret = file.readAll()
+            file.close()
+            print("[*] Loaded secret from file")
+        else
+            print("[!] Could not read secret file")
+            return false
+        end
     else
         print("[!] No secret configured")
         print("    Enter the shared secret from your zone computer:")
@@ -50,9 +55,14 @@ function App:init()
         end
 
         local file = fs.open(secretPath, "w")
-        file.write(secret)
-        file.close()
-        print("[*] Secret saved")
+        if file then
+            file.write(secret)
+            file.close()
+            print("[*] Secret saved")
+        else
+            print("[!] Could not save secret file")
+            return false
+        end
     end
 
     Crypto.setSecret(secret)
