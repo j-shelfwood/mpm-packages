@@ -42,8 +42,13 @@ function Manager.getAvailableViews()
 
     local views = {}
     for _, filename in ipairs(manifest.files or {}) do
-        -- Skip utility files (not actual views)
-        if filename ~= "Manager.lua" and filename ~= "BaseView.lua" then
+        -- Skip utility files and factories (not actual views)
+        -- Utility files: Manager.lua, BaseView.lua
+        -- Factories: anything in subdirectories (contains '/')
+        local isUtility = filename == "Manager.lua" or filename == "BaseView.lua"
+        local isSubdirectory = filename:find("/") ~= nil
+
+        if not isUtility and not isSubdirectory then
             -- Remove .lua extension
             local viewName = filename:gsub("%.lua$", "")
             table.insert(views, viewName)
