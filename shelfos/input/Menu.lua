@@ -475,6 +475,7 @@ function Menu.showLink(config, target)
         options = {
             { value = "show_code", label = "Show pairing code" },
             { value = "host", label = "Host pairing session" },
+            { value = "pocket_accept", label = "Accept from pocket" },
             { value = "disconnect", label = "Disconnect from swarm" },
             { value = "back", label = "Back" }
         }
@@ -482,6 +483,7 @@ function Menu.showLink(config, target)
         options = {
             { value = "show_code", label = "Show pairing code" },
             { value = "host", label = "Host pairing session" },
+            { value = "pocket_accept", label = "Accept from pocket" },
             { value = "join", label = "Join existing swarm" },
             { value = "back", label = "Back" }
         }
@@ -570,6 +572,8 @@ function Menu.showLink(config, target)
                         return nil
                     elseif selected == "host" then
                         return "link_host"
+                    elseif selected == "pocket_accept" then
+                        return "link_pocket_accept"
                     elseif selected == "disconnect" then
                         return "link_disconnect"
                     elseif selected == "join" then
@@ -612,6 +616,8 @@ function Menu.showLink(config, target)
                         return nil
                     elseif selected == "host" then
                         return "link_host"
+                    elseif selected == "pocket_accept" then
+                        return "link_pocket_accept"
                     elseif selected == "disconnect" then
                         return "link_disconnect"
                     elseif selected == "join" then

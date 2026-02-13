@@ -314,6 +314,8 @@ function Kernel:handleMenuKey(key, runningRef)
             self:hostPairing()
         elseif result == "link_join" and code then
             self:joinNetwork(code)
+        elseif result == "link_pocket_accept" then
+            self:acceptPocketPairing()
         elseif result == "link_disconnect" then
             -- Close existing network connection
             if self.channel then
@@ -561,6 +563,151 @@ function Kernel:joinNetwork(code)
     end
 
     rednet.close(modemName)
+end
+
+-- Accept pairing from a pocket computer
+function Kernel:acceptPocketPairing()
+    local Protocol = mpm('net/Protocol')
+    local PAIR_PROTOCOL = "shelfos_pair"
+    local TOKEN_VALIDITY = 60  -- seconds
+
+    -- Generate a random token
+    local function generateToken()
+        local chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+        local token = ""
+        for i = 1, 16 do
+            local idx = math.random(1, #chars)
+            token = token .. chars:sub(idx, idx)
+        end
+        return token
+    end
+
+    -- Check for modem
+    local modem = peripheral.find("modem")
+    if not modem then
+        print("")
+        print("[!] No modem found")
+        print("    Attach a wireless or ender modem")
+        EventUtils.sleep(2)
+        return
+    end
+
+    local modemName = peripheral.getName(modem)
+    local modemType = modem.isWireless() and "wireless" or "wired"
+
+    -- Generate one-time token
+    local token = generateToken()
+    local computerId = os.getComputerID()
+    local computerLabel = os.getComputerLabel() or ("Computer #" .. computerId)
+
+    -- Close existing channel temporarily
+    local hadChannel = self.channel ~= nil
+    if self.channel then
+        rednet.unhost("shelfos")
+        self.channel:close()
+        self.channel = nil
+    end
+
+    -- Open modem for pairing protocol
+    rednet.open(modemName)
+
+    -- Display pairing screen
+    print("")
+    print("=====================================")
+    print("   Waiting for Pocket Pairing")
+    print("=====================================")
+    print("")
+    print("  Computer: " .. computerLabel)
+    print("  Modem: " .. modemType)
+    print("")
+    print("On your pocket computer:")
+    print("  Open 'Add Computer to Swarm'")
+    print("  and tap this computer to pair.")
+    print("")
+    print("Press [Q] to cancel")
+
+    -- Broadcast PAIR_READY
+    local msg = Protocol.createPairReady(token, computerLabel, computerId)
+    rednet.broadcast(msg, PAIR_PROTOCOL)
+
+    -- Wait for response or timeout
+    local startTime = os.epoch("utc")
+    local deadline = startTime + (TOKEN_VALIDITY * 1000)
+    local lastBroadcast = startTime
+    local success = false
+
+    while os.epoch("utc") < deadline do
+        -- Re-broadcast every 3 seconds
+        local now = os.epoch("utc")
+        if now - lastBroadcast > 3000 then
+            rednet.broadcast(msg, PAIR_PROTOCOL)
+            lastBroadcast = now
+        end
+
+        -- Check for response or key press
+        local timer = os.startTimer(0.5)
+        local event, p1, p2, p3 = os.pullEvent()
+
+        if event == "rednet_message" then
+            local senderId = p1
+            local response = p2
+            local msgProtocol = p3
+
+            if msgProtocol == PAIR_PROTOCOL and type(response) == "table" then
+                if response.type == Protocol.MessageType.PAIR_DELIVER then
+                    -- Verify token
+                    if response.data and response.data.token == token then
+                        -- Token matches! Save the secret
+                        self.config.network = self.config.network or {}
+                        self.config.network.secret = response.data.secret
+                        self.config.network.enabled = true
+                        self.config.network.pairingCode = response.data.pairingCode
+
+                        if response.data.zoneId then
+                            self.config.zone = self.config.zone or {}
+                            self.config.zone.id = response.data.zoneId
+                        end
+
+                        Config.save(self.config)
+
+                        -- Send confirmation
+                        local complete = Protocol.createPairComplete(computerLabel)
+                        rednet.send(senderId, complete, PAIR_PROTOCOL)
+
+                        print("")
+                        print("[*] Pairing successful!")
+                        print("    Joined swarm from pocket #" .. senderId)
+                        print("")
+                        print("[*] Restart ShelfOS to connect.")
+                        success = true
+                        break
+                    end
+
+                elseif response.type == Protocol.MessageType.PAIR_REJECT then
+                    print("")
+                    print("[!] Pairing rejected by pocket")
+                    break
+                end
+            end
+
+        elseif event == "key" then
+            if p1 == keys.q then
+                local reject = Protocol.createPairReject("User cancelled")
+                rednet.broadcast(reject, PAIR_PROTOCOL)
+                print("")
+                print("[*] Pairing cancelled")
+                break
+            end
+        end
+    end
+
+    if not success and os.epoch("utc") >= deadline then
+        print("")
+        print("[!] Pairing timed out")
+    end
+
+    rednet.close(modemName)
+    EventUtils.sleep(2)
 end
 
 -- Network event loop

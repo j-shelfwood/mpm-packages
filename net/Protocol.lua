@@ -48,6 +48,12 @@ Protocol.MessageType = {
     PERIPH_RESULT = "periph_result",        -- Result of peripheral call
     PERIPH_ERROR = "periph_error",          -- Error from peripheral call
 
+    -- Pocket Pairing (bootstrap without crypto)
+    PAIR_READY = "pair_ready",              -- Computer → Pocket: ready to receive secret
+    PAIR_DELIVER = "pair_deliver",          -- Pocket → Computer: delivering swarm secret
+    PAIR_COMPLETE = "pair_complete",        -- Computer → Pocket: pairing successful
+    PAIR_REJECT = "pair_reject",            -- Either direction: pairing cancelled
+
     -- System
     ERROR = "error",
     OK = "ok"
@@ -275,6 +281,59 @@ end
 -- Check if message is a response
 function Protocol.isResponse(msg)
     return msg.requestId ~= nil
+end
+
+-- ============================================================================
+-- Pocket Pairing Messages (bootstrap without crypto)
+-- ============================================================================
+
+-- Create pair ready message (computer broadcasts when ready to receive secret)
+-- @param token One-time token for verification
+-- @param computerLabel Computer label/name
+-- @param computerId Computer ID
+-- @return Pair ready message
+function Protocol.createPairReady(token, computerLabel, computerId)
+    return Protocol.createMessage(Protocol.MessageType.PAIR_READY, {
+        token = token,
+        label = computerLabel or ("Computer #" .. (computerId or "?")),
+        computerId = computerId
+    })
+end
+
+-- Create pair deliver message (pocket sends swarm secret to computer)
+-- @param token The token from PAIR_READY (for verification)
+-- @param secret The swarm secret
+-- @param pairingCode The swarm pairing code
+-- @param zoneId Zone ID to join
+-- @param zoneName Zone name
+-- @return Pair deliver message
+function Protocol.createPairDeliver(token, secret, pairingCode, zoneId, zoneName)
+    return Protocol.createMessage(Protocol.MessageType.PAIR_DELIVER, {
+        token = token,
+        secret = secret,
+        pairingCode = pairingCode,
+        zoneId = zoneId,
+        zoneName = zoneName
+    })
+end
+
+-- Create pair complete message (computer confirms successful pairing)
+-- @param computerLabel Computer label after joining
+-- @return Pair complete message
+function Protocol.createPairComplete(computerLabel)
+    return Protocol.createMessage(Protocol.MessageType.PAIR_COMPLETE, {
+        label = computerLabel,
+        success = true
+    })
+end
+
+-- Create pair reject message (either side cancels pairing)
+-- @param reason Rejection reason
+-- @return Pair reject message
+function Protocol.createPairReject(reason)
+    return Protocol.createMessage(Protocol.MessageType.PAIR_REJECT, {
+        reason = reason or "Cancelled"
+    })
 end
 
 return Protocol
