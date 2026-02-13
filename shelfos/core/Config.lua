@@ -112,9 +112,8 @@ function Config.load()
     -- Try migration from displays.config first
     local migrated = migrateFromDisplays()
     if migrated then
-        -- Ensure network secret exists for migrated configs
-        Config.ensureNetworkSecret(migrated)
-        -- Save the new config
+        -- Note: Do NOT auto-generate network secret
+        -- Zone must be paired with pocket to join swarm
         Config.save(migrated)
         -- Delete old config
         fs.delete("displays.config")
@@ -142,9 +141,11 @@ function Config.load()
     -- Merge with defaults to ensure all fields exist
     config = merge(DEFAULT_CONFIG, config)
 
-    -- Ensure network secret always exists (fixes configs without secret)
-    local changed = Config.ensureNetworkSecret(config)
-    if changed then
+    -- Note: Do NOT auto-generate network secret here
+    -- Zone must be paired with pocket to join swarm
+    -- Only ensure pairing code exists IF secret already exists
+    if config.network and config.network.secret and not config.network.pairingCode then
+        config.network.pairingCode = Config.generatePairingCode()
         Config.save(config)
     end
 
@@ -247,27 +248,30 @@ function Config.setNetworkSecret(config, secret)
     config.network.enabled = secret ~= nil
 end
 
--- Ensure network secret exists (auto-generate if missing)
+-- Ensure pairing code exists (only if secret already exists)
+-- DOES NOT auto-generate secret - zones must pair with pocket
 -- @param config Configuration table
--- @return true if secret was generated, false if already existed
-function Config.ensureNetworkSecret(config)
-    if config.network and config.network.secret then
-        -- Also ensure pairing code exists
-        if not config.network.pairingCode then
-            config.network.pairingCode = Config.generatePairingCode()
-            return true
-        end
+-- @return true if pairing code was generated, false otherwise
+function Config.ensurePairingCode(config)
+    if not config.network or not config.network.secret then
+        -- No secret = not in swarm, don't generate anything
         return false
     end
 
-    -- Generate secret and pairing code
-    local Crypto = mpm('net/Crypto')
-    config.network = config.network or {}
-    config.network.secret = Crypto.generateSecret()
-    config.network.enabled = true
-    config.network.pairingCode = config.network.pairingCode or Config.generatePairingCode()
+    -- Secret exists, ensure pairing code
+    if not config.network.pairingCode then
+        config.network.pairingCode = Config.generatePairingCode()
+        return true
+    end
 
-    return true
+    return false
+end
+
+-- Check if zone is paired with a swarm
+-- @param config Configuration table
+-- @return true if has valid secret
+function Config.isInSwarm(config)
+    return config and config.network and config.network.secret ~= nil
 end
 
 -- Get default config
@@ -302,7 +306,6 @@ end
 -- @return config, monitorsFound
 function Config.autoCreate()
     local ViewManager = mpm('views/Manager')
-    local Crypto = mpm('net/Crypto')
 
     -- Generate zone identity
     local zoneId = "zone_" .. os.getComputerID() .. "_" .. (os.epoch("utc") % 100000)
@@ -312,11 +315,9 @@ function Config.autoCreate()
     config.zone.id = zoneId
     config.zone.name = zoneName
 
-    -- Auto-generate network secret for seamless networking
-    -- This enables networking by default - computers just need to pair
-    config.network.secret = Crypto.generateSecret()
-    config.network.enabled = true
-    config.network.pairingCode = Config.generatePairingCode()
+    -- Note: Do NOT auto-generate network secret
+    -- Zone starts unpaired - must pair with pocket to join swarm
+    -- network.secret = nil, network.enabled = false (from DEFAULT_CONFIG)
 
     -- Discover monitors
     local monitors = {}

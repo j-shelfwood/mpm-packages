@@ -1,13 +1,11 @@
 -- link.lua
 -- Network linking tool for ShelfOS swarm pairing
--- Handles both hosting (listening for pair requests) and joining networks
+-- Uses the consolidated Pairing module
 
 local Config = mpm('shelfos/core/Config')
-local Crypto = mpm('net/Crypto')
+local Pairing = mpm('net/Pairing')
 
 local link = {}
-
-local PROTOCOL = "shelfos_pair"
 
 -- Show current link status
 local function showStatus()
@@ -26,8 +24,8 @@ local function showStatus()
     print("  Zone ID: " .. (config.zone.id or "Unknown"))
     print("")
 
-    if config.network and config.network.secret then
-        print("  Network: Enabled")
+    if Config.isInSwarm(config) then
+        print("  Swarm: Connected")
         print("  Pairing Code: " .. (config.network.pairingCode or "Not set"))
 
         -- Check for modem
@@ -36,19 +34,24 @@ local function showStatus()
             local modemType = modem.isWireless() and "Wireless/Ender" or "Wired"
             print("  Modem: " .. modemType)
         else
-            print("  Modem: Not found (required for network)")
+            print("  Modem: Not found")
         end
     else
-        print("  Network: Not configured")
+        print("  Swarm: Not connected")
+        print("")
+        print("  To join a swarm:")
+        print("    1. Run: mpm run shelfos/tools/pair_accept")
+        print("    2. Pair from pocket computer")
     end
 
     print("")
     print("Commands:")
-    print("  mpm run shelfos link new     - Host pairing session")
-    print("  mpm run shelfos link <CODE>  - Join with pairing code")
+    print("  mpm run shelfos link          - Show status")
+    print("  mpm run shelfos link host     - Host pairing (if in swarm)")
+    print("  mpm run shelfos link <CODE>   - Join with code (if in swarm)")
 end
 
--- Host a pairing session (blocking - waits for clients)
+-- Host a pairing session (requires being in swarm already)
 local function hostPairing()
     local config = Config.load()
 
@@ -57,36 +60,25 @@ local function hostPairing()
         return
     end
 
-    -- Check for modem
-    local modem = peripheral.find("modem")
-    if not modem then
-        print("[!] No modem found")
-        print("    Attach a wireless or ender modem")
+    if not Config.isInSwarm(config) then
+        print("[!] Not in swarm yet")
+        print("    Use pocket computer to join first")
+        print("    Or run: mpm run shelfos/tools/pair_accept")
         return
     end
 
-    -- Ensure we have a secret and pairing code
-    if not config.network.secret then
-        config.network.secret = Crypto.generateSecret()
-        config.network.enabled = true
-    end
-
+    -- Ensure pairing code exists
     if not config.network.pairingCode then
-        config.network.pairingCode = Config.generatePairingCode()
+        config.network.pairingCode = Pairing.generateCode()
+        Config.save(config)
     end
 
-    Config.save(config)
-
-    -- Open modem
-    local modemName = peripheral.getName(modem)
-    rednet.open(modemName)
-
-    -- Display pairing info
+    -- Display info
     term.clear()
     term.setCursorPos(1, 1)
 
     print("=====================================")
-    print("    ShelfOS Network Pairing")
+    print("    ShelfOS Swarm Pairing")
     print("=====================================")
     print("")
     print("  PAIRING CODE:")
@@ -98,159 +90,85 @@ local function hostPairing()
     print("On other computers, run:")
     print("  mpm run shelfos link " .. config.network.pairingCode)
     print("")
-    print("Waiting for computers to connect...")
+    print("Or use pocket: 'Join Swarm' with this code")
+    print("")
     print("Press Q to stop hosting")
     print("")
 
-    -- Listen for pairing requests
-    local running = true
-    local clientsJoined = 0
-
-    while running do
-        -- Use parallel to handle both rednet and keyboard
-        local timer = os.startTimer(0.5)
-        local event, p1, p2, p3 = os.pullEvent()
-
-        if event == "rednet_message" then
-            local senderId = p1
-            local message = p2
-            local msgProtocol = p3
-
-            if msgProtocol == PROTOCOL and type(message) == "table" then
-                if message.type == "pair_request" then
-                    -- Validate pairing code
-                    if message.code == config.network.pairingCode then
-                        -- Send success response with secret and swarm pairing code
-                        local response = {
-                            type = "pair_response",
-                            success = true,
-                            secret = config.network.secret,
-                            pairingCode = config.network.pairingCode,  -- Share swarm code
-                            zoneId = config.zone.id,
-                            zoneName = config.zone.name
-                        }
-                        rednet.send(senderId, response, PROTOCOL)
-
-                        clientsJoined = clientsJoined + 1
-                        print("[+] Computer #" .. senderId .. " joined! (" .. clientsJoined .. " total)")
-                    else
-                        -- Invalid code
-                        local response = {
-                            type = "pair_response",
-                            success = false,
-                            error = "Invalid pairing code"
-                        }
-                        rednet.send(senderId, response, PROTOCOL)
-                        print("[-] Computer #" .. senderId .. " - invalid code")
-                    end
-                end
-            end
-
-        elseif event == "key" then
-            if p1 == keys.q then
-                running = false
-            end
-
-        elseif event == "timer" and p1 == timer then
-            -- Just keep looping
+    -- Use Pairing module to host
+    local callbacks = {
+        onJoin = function(computerId)
+            print("[+] Computer #" .. computerId .. " joined!")
+        end,
+        onCancel = function()
+            print("")
+            print("[*] Hosting stopped")
         end
-    end
+    }
 
-    rednet.close(modemName)
+    local clientsJoined = Pairing.hostSession(
+        config.network.secret,
+        config.network.pairingCode,
+        config.zone.id,
+        config.zone.name,
+        callbacks
+    )
 
     print("")
-    print("[*] Pairing session ended")
-    print("    " .. clientsJoined .. " computer(s) joined")
+    print("[*] " .. clientsJoined .. " computer(s) joined")
 
     if clientsJoined > 0 then
-        print("")
-        print("[*] Restart ShelfOS to connect with paired computers")
+        print("[*] They should restart to connect")
     end
 end
 
--- Join an existing network
-local function joinNetwork(code)
-    if not code or #code < 8 then
+-- Join an existing swarm with code (requires being in swarm already)
+-- This is for adding THIS computer to another zone's swarm
+local function joinWithCode(code)
+    if not code or #code < 4 then
         print("[!] Invalid pairing code")
-        print("    Get the code from the network host")
         return
-    end
-
-    -- Normalize code (remove dashes, uppercase)
-    code = code:upper():gsub("-", "")
-    -- Re-add dash in correct position for comparison
-    if #code == 8 then
-        code = code:sub(1, 4) .. "-" .. code:sub(5, 8)
     end
 
     local config = Config.load()
+
     if not config then
-        print("[!] Run 'mpm run shelfos' first to configure")
+        print("[!] Run 'mpm run shelfos' first")
         return
     end
 
-    -- Check for modem
-    local modem = peripheral.find("modem")
-    if not modem then
-        print("[!] No modem found")
-        print("    Attach a wireless or ender modem")
-        return
-    end
+    -- Normalize code
+    code = code:upper():gsub("[%-%s]", "")
 
     print("")
-    print("[ShelfOS] Joining Network")
-    print("  Code: " .. code)
-    print("")
+    print("[*] Searching for swarm host...")
 
-    -- Open modem for discovery
-    local modemName = peripheral.getName(modem)
-    rednet.open(modemName)
-
-    print("[*] Searching for network host...")
-
-    -- Broadcast discovery request
-    rednet.broadcast({ type = "pair_request", code = code }, PROTOCOL)
-
-    -- Wait for response (10 second timeout)
-    local senderId, response = rednet.receive(PROTOCOL, 10)
-
-    if not response then
-        print("[!] No response from network host")
-        print("")
-        print("Make sure:")
-        print("  1. Host is running: mpm run shelfos link new")
-        print("  2. Both computers have ender modems")
-        print("  3. Pairing code is correct")
-        rednet.close(modemName)
-        return
-    end
-
-    if type(response) == "table" and response.type == "pair_response" then
-        if response.success then
-            -- Got the secret!
-            config.network.secret = response.secret
-            config.network.enabled = true
-            config.zone.id = response.zoneId or config.zone.id
-
-            -- Generate our own pairing code for future use
-            if not config.network.pairingCode then
-                config.network.pairingCode = Config.generatePairingCode()
-            end
-
-            Config.save(config)
-
-            print("[*] Successfully joined network!")
-            print("  Zone: " .. (response.zoneName or "Unknown"))
-            print("")
-            print("[*] Restart ShelfOS to connect")
-        else
-            print("[!] Pairing failed: " .. (response.error or "Unknown error"))
+    local callbacks = {
+        onStatus = function(msg)
+            print("[*] " .. msg)
+        end,
+        onSuccess = function(response)
+            print("[*] Joined swarm!")
+            print("    Zone: " .. (response.zoneName or "Unknown"))
+        end,
+        onFail = function(err)
+            print("[!] Failed: " .. err)
         end
-    else
-        print("[!] Invalid response from host")
-    end
+    }
 
-    rednet.close(modemName)
+    local success, secret, pairingCode, zoneId, zoneName = Pairing.joinWithCode(code, callbacks)
+
+    if success then
+        -- Save credentials
+        Config.setNetworkSecret(config, secret)
+        if pairingCode then
+            config.network.pairingCode = pairingCode
+        end
+        Config.save(config)
+
+        print("")
+        print("[*] Restart ShelfOS to connect")
+    end
 end
 
 -- Regenerate pairing code
@@ -258,11 +176,16 @@ local function regenerateCode()
     local config = Config.load()
 
     if not config then
-        print("[!] Run 'mpm run shelfos' first to configure")
+        print("[!] Run 'mpm run shelfos' first")
         return
     end
 
-    config.network.pairingCode = Config.generatePairingCode()
+    if not Config.isInSwarm(config) then
+        print("[!] Not in swarm - nothing to regenerate")
+        return
+    end
+
+    config.network.pairingCode = Pairing.generateCode()
     Config.save(config)
 
     print("[*] New pairing code: " .. config.network.pairingCode)
@@ -272,12 +195,12 @@ end
 function link.run(codeOrCommand)
     if not codeOrCommand then
         showStatus()
-    elseif codeOrCommand == "new" or codeOrCommand == "host" then
+    elseif codeOrCommand == "host" or codeOrCommand == "new" then
         hostPairing()
     elseif codeOrCommand == "regen" or codeOrCommand == "regenerate" then
         regenerateCode()
     else
-        joinNetwork(codeOrCommand)
+        joinWithCode(codeOrCommand)
     end
 end
 

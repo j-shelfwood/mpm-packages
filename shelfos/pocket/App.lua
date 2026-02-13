@@ -5,6 +5,7 @@ local Channel = mpm('net/Channel')
 local Crypto = mpm('net/Crypto')
 local Protocol = mpm('net/Protocol')
 local Discovery = mpm('net/Discovery')
+local Pairing = mpm('net/Pairing')
 local Notifications = mpm('shelfos/pocket/Notifications')
 local EventUtils = mpm('utils/EventUtils')
 
@@ -360,21 +361,13 @@ function App:createSwarm()
     print("=== Create Swarm ===")
     print("")
 
-    -- Generate new secret
-    local secret = Crypto.generateSecret()
+    -- Generate new secret using Pairing module
+    local secret = Pairing.generateSecret()
+    local pairingCode = Pairing.generateCode()
 
-    -- Save it
+    -- Save secret
     self:saveSecret(secret)
     self:initNetwork(secret)
-
-    -- Generate pairing code
-    local chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-    local pairingCode = ""
-    for i = 1, 8 do
-        if i == 5 then pairingCode = pairingCode .. "-" end
-        local idx = math.random(1, #chars)
-        pairingCode = pairingCode .. chars:sub(idx, idx)
-    end
 
     -- Save config
     local configPath = "/shelfos_pocket.config"
@@ -571,13 +564,7 @@ function App:addComputerToSwarm()
 
     -- If no pairing code, generate one for the swarm
     if not pairingCode then
-        local chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-        pairingCode = ""
-        for i = 1, 8 do
-            if i == 5 then pairingCode = pairingCode .. "-" end
-            local idx = math.random(1, #chars)
-            pairingCode = pairingCode .. chars:sub(idx, idx)
-        end
+        pairingCode = Pairing.generateCode()
 
         -- Save it
         local config = { pairingCode = pairingCode, zoneId = zoneId, zoneName = zoneName }

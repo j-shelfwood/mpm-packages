@@ -63,21 +63,20 @@ function headless.run()
             "zone_" .. os.getComputerID() .. "_" .. os.epoch("utc"),
             os.getComputerLabel() or ("Peripheral Node " .. os.getComputerID())
         )
+        Config.save(config)
         print("[ShelfOS] Created new configuration")
     end
 
-    -- Auto-generate network secret if not set
-    if not config.network then
-        config.network = {}
-    end
-
-    if not config.network.secret then
-        config.network.secret = Crypto.generateSecret()
-        config.network.enabled = true
-        config.network.pairingCode = Config.generatePairingCode()
-        Config.save(config)
-        print("[ShelfOS] Generated network credentials")
-        print("[ShelfOS] Pairing code: " .. config.network.pairingCode)
+    -- Check if paired with swarm
+    if not config.network or not config.network.secret then
+        print("")
+        print("[ShelfOS] Not in swarm yet")
+        print("[ShelfOS] Run: mpm run shelfos/tools/pair_accept")
+        print("[ShelfOS] Then pair from pocket computer")
+        print("")
+        print("Press any key to exit...")
+        os.pullEvent("key")
+        return
     end
 
     -- Initialize crypto with secret
