@@ -9,7 +9,8 @@
 
 local TimerDispatch = {
     monitors = nil,
-    enabled = false
+    enabled = false,
+    debug = false  -- Set to true for diagnostic output
 }
 
 -- Set up dispatcher with monitor list
@@ -30,13 +31,28 @@ end
 -- @return true if any monitor handled it
 function TimerDispatch.dispatch(timerId)
     if not TimerDispatch.enabled or not TimerDispatch.monitors then
+        if TimerDispatch.debug then
+            print("[TD] dispatch(" .. tostring(timerId) .. ") - not enabled or no monitors")
+        end
         return false
     end
 
+    if TimerDispatch.debug then
+        print("[TD] dispatch(" .. tostring(timerId) .. ") to " .. #TimerDispatch.monitors .. " monitors")
+    end
+
     local handled = false
-    for _, monitor in ipairs(TimerDispatch.monitors) do
-        if monitor.handleTimer and monitor:handleTimer(timerId) then
-            handled = true
+    for i, monitor in ipairs(TimerDispatch.monitors) do
+        if monitor.handleTimer then
+            local result = monitor:handleTimer(timerId)
+            if TimerDispatch.debug then
+                local name = monitor.peripheralName or ("mon" .. i)
+                local rt = monitor.renderTimer or "nil"
+                print("[TD]   " .. name .. " rt=" .. tostring(rt) .. " -> " .. tostring(result))
+            end
+            if result then
+                handled = true
+            end
         end
     end
     return handled
@@ -47,15 +63,29 @@ end
 -- @param filter Event type to wait for (e.g., "monitor_touch")
 -- @return event, p1, p2, p3, ... when filter matches
 function TimerDispatch.pullEvent(filter)
+    if TimerDispatch.debug then
+        print("[TD] pullEvent(" .. tostring(filter) .. ") started")
+    end
+
     while true do
         local event = {os.pullEvent()}
 
         if event[1] == "timer" then
             -- Dispatch timer to monitors, then continue waiting
+            if TimerDispatch.debug then
+                print("[TD] got timer(" .. tostring(event[2]) .. ")")
+            end
             TimerDispatch.dispatch(event[2])
         elseif filter == nil or event[1] == filter then
             -- This is the event we want
+            if TimerDispatch.debug then
+                print("[TD] returning " .. tostring(event[1]))
+            end
             return table.unpack(event)
+        else
+            if TimerDispatch.debug then
+                print("[TD] ignoring " .. tostring(event[1]))
+            end
         end
         -- Other events (key, char, etc.) are discarded while UI is blocking
         -- This is acceptable for modal UI that only cares about touches

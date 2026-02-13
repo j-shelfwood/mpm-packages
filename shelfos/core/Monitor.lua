@@ -438,6 +438,10 @@ end
 -- @param offset Optional time offset to stagger initial renders (default 0)
 function Monitor:scheduleRender(offset)
     if self.inConfigMenu then return end
+    -- Cancel any existing render timer to prevent orphaned timers
+    if self.renderTimer then
+        os.cancelTimer(self.renderTimer)
+    end
     local sleepTime = (self.view and self.view.sleepTime) or 1
     self.renderTimer = os.startTimer(sleepTime + (offset or 0))
 end
@@ -470,7 +474,14 @@ function Monitor:handleTimer(timerId)
         self:hideSettingsButton()
         return true
     elseif timerId == self.renderTimer then
-        self:render()
+        -- Protect render with pcall to ensure scheduleRender is always called
+        local ok, err = pcall(function()
+            self:render()
+        end)
+        if not ok then
+            print("[Monitor] Render error on " .. (self.peripheralName or "unknown") .. ": " .. tostring(err))
+        end
+        -- Always schedule next render to keep the loop alive
         self:scheduleRender()
         return true
     end
