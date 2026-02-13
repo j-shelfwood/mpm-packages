@@ -10,6 +10,7 @@ local Controller = mpm('ui/Controller')
 local Menu = mpm('shelfos/input/Menu')
 local ViewManager = mpm('views/Manager')
 local EventUtils = mpm('utils/EventUtils')
+local TimerDispatch = mpm('utils/TimerDispatch')
 
 local Kernel = {}
 Kernel.__index = Kernel
@@ -231,10 +232,12 @@ function Kernel:eventLoop()
             -- Find and dispatch to the touched monitor
             local target = self:getMonitorByPeripheral(p1)
             if target then
+                -- Set up timer dispatch before potential blocking UI
+                -- This allows config menus to dispatch timer events to other monitors
+                TimerDispatch.setup(self.monitors)
                 target:handleTouch(p1, p2, p3)
-                -- IMPORTANT: Touch may have opened config menu which blocks
-                -- with os.pullEvent("monitor_touch"), discarding timer events.
-                -- Reschedule all monitors to recover lost timers.
+                TimerDispatch.clear()
+                -- Reschedule all monitors after blocking operation
                 self:rescheduleAllMonitors()
             end
 
@@ -246,9 +249,12 @@ function Kernel:eventLoop()
             end
 
         elseif event == "key" then
+            -- Set up timer dispatch before potential blocking menu
+            TimerDispatch.setup(self.monitors)
             -- Handle menu keys
             self:handleMenuKey(p1)
-            -- Menu operations may block with filtered pullEvent, discarding timers
+            TimerDispatch.clear()
+            -- Reschedule all monitors after blocking operation
             self:rescheduleAllMonitors()
 
         elseif event == "peripheral" or event == "peripheral_detach" then
@@ -381,7 +387,7 @@ function Kernel:createNetwork()
     print("")
     print("Share this code with other computers.")
     print("Press any key to continue...")
-    EventUtils.pullEvent("key")
+    TimerDispatch.pullEvent("key")
 end
 
 -- Join an existing network

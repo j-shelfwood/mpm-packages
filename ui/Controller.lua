@@ -4,7 +4,7 @@
 
 local Core = mpm('ui/Core')
 local Keys = mpm('utils/Keys')
-local EventUtils = mpm('utils/EventUtils')
+local TimerDispatch = mpm('utils/TimerDispatch')
 
 local Controller = {}
 
@@ -101,7 +101,7 @@ function Controller.showInfo(target, title, lines, opts)
             end
         end
     else
-        EventUtils.pullEvent("key")
+        TimerDispatch.pullEvent("key")
     end
 end
 
@@ -182,7 +182,7 @@ function Controller.showConfirm(target, title, message, opts)
     else
         -- Terminal: just wait for Y/N key
         while true do
-            local event, key = EventUtils.pullEvent("key")
+            local event, key = TimerDispatch.pullEvent("key")
             local keyName = keys.getName(key)
             if keyName then
                 keyName = keyName:lower()

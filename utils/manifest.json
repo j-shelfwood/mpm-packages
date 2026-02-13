@@ -8,6 +8,7 @@
     "Theme.lua",
     "Keys.lua",
     "Yield.lua",
-    "EventUtils.lua"
+    "EventUtils.lua",
+    "TimerDispatch.lua"
   ]
 }

@@ -9,7 +9,7 @@ local Core = mpm('ui/Core')
 local List = mpm('ui/List')
 local Stepper = mpm('ui/Stepper')
 local Toggle = mpm('ui/Toggle')
-local EventUtils = mpm('utils/EventUtils')
+local TimerDispatch = mpm('utils/TimerDispatch')
 
 local ConfigUI = {}
 
@@ -170,7 +170,7 @@ function ConfigUI.drawNumberInput(monitor, title, currentValue, min, max, preset
         Core.resetColors(monitor)
 
         -- Wait for touch
-        local event, side, x, y = EventUtils.pullEvent("monitor_touch")
+        local event, side, x, y = TimerDispatch.pullEvent("monitor_touch")
 
         -- Save
         if y == saveY then
@@ -237,7 +237,7 @@ function ConfigUI.drawBooleanInput(monitor, title, currentValue)
         Core.resetColors(monitor)
 
         -- Wait for touch
-        local event, side, x, y = EventUtils.pullEvent("monitor_touch")
+        local event, side, x, y = TimerDispatch.pullEvent("monitor_touch")
 
         -- Save
         if y == saveY then
@@ -345,7 +345,7 @@ function ConfigUI.drawConfigMenu(monitor, viewName, schema, currentConfig)
         Core.resetColors(monitor)
 
         -- Wait for touch
-        local event, side, x, y = EventUtils.pullEvent("monitor_touch")
+        local event, side, x, y = TimerDispatch.pullEvent("monitor_touch")
 
         -- Save
         if y == saveY then
