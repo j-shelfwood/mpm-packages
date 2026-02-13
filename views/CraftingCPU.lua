@@ -152,9 +152,23 @@ return BaseView.custom({
                 itemName = Text.truncateMiddle(itemName, self.width - 2)
                 MonitorHelpers.writeCentered(self.monitor, centerY + 1, itemName, colors.yellow)
 
+                -- Progress bar for active job
+                local completion = data.currentTask.completion
+                if type(completion) == "number" and centerY + 2 < self.height then
+                    local percent = completion * 100
+                    local barColor = colors.orange
+                    if percent >= 75 then
+                        barColor = colors.lime
+                    elseif percent >= 50 then
+                        barColor = colors.yellow
+                    end
+                    MonitorHelpers.drawProgressBar(self.monitor, 1, centerY + 2, self.width, percent, barColor, colors.gray, true)
+                end
+
+                -- Detail text below progress bar
                 local detail = buildTaskDetail(data.currentTask)
-                if detail and centerY + 2 < self.height then
-                    MonitorHelpers.writeCentered(self.monitor, centerY + 2, detail, colors.gray)
+                if detail and centerY + 3 < self.height then
+                    MonitorHelpers.writeCentered(self.monitor, centerY + 3, detail, colors.gray)
                 end
             end
         else

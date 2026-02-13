@@ -8,6 +8,7 @@ local AEInterface = mpm('peripherals/AEInterface')
 local GridDisplay = mpm('utils/GridDisplay')
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
+local Core = mpm('ui/Core')
 local Yield = mpm('utils/Yield')
 
 -- Take a snapshot of current item counts
@@ -130,6 +131,86 @@ local function formatChange(item)
     }
 end
 
+-- Show item detail overlay (blocking)
+local function showItemDetail(self, item)
+    local monitor = self.monitor
+    local width, height = monitor.getSize()
+
+    -- Calculate overlay bounds
+    local overlayWidth = math.min(width - 2, 28)
+    local overlayHeight = math.min(height - 2, 8)
+    local x1 = math.floor((width - overlayWidth) / 2) + 1
+    local y1 = math.floor((height - overlayHeight) / 2) + 1
+    local x2 = x1 + overlayWidth - 1
+    local y2 = y1 + overlayHeight - 1
+
+    local monitorName = self.peripheralName
+
+    while true do
+        -- Draw background
+        monitor.setBackgroundColor(colors.gray)
+        for y = y1, y2 do
+            monitor.setCursorPos(x1, y)
+            monitor.write(string.rep(" ", overlayWidth))
+        end
+
+        -- Title bar
+        local titleColor = item.change > 0 and colors.lime or colors.red
+        monitor.setBackgroundColor(titleColor)
+        monitor.setTextColor(colors.black)
+        monitor.setCursorPos(x1, y1)
+        monitor.write(string.rep(" ", overlayWidth))
+        monitor.setCursorPos(x1 + 1, y1)
+        local sign = item.change > 0 and "+" or ""
+        monitor.write(Core.truncate(sign .. Text.formatNumber(item.change, 0), overlayWidth - 2))
+
+        -- Content
+        monitor.setBackgroundColor(colors.gray)
+        local contentY = y1 + 2
+
+        -- Item name
+        local itemName = Text.prettifyName(item.id)
+        monitor.setTextColor(colors.white)
+        monitor.setCursorPos(x1 + 1, contentY)
+        monitor.write(Core.truncate(itemName, overlayWidth - 2))
+        contentY = contentY + 1
+
+        -- Registry name (smaller)
+        monitor.setTextColor(colors.lightGray)
+        monitor.setCursorPos(x1 + 1, contentY)
+        monitor.write(Core.truncate(item.id, overlayWidth - 2))
+        contentY = contentY + 2
+
+        -- Baseline → Current
+        monitor.setTextColor(colors.white)
+        monitor.setCursorPos(x1 + 1, contentY)
+        monitor.write("Was: ")
+        monitor.setTextColor(colors.yellow)
+        monitor.write(Text.formatNumber(item.baseline, 0))
+        monitor.setTextColor(colors.gray)
+        monitor.write(" -> ")
+        monitor.setTextColor(colors.cyan)
+        monitor.write(Text.formatNumber(item.current, 0))
+
+        -- Close button
+        local buttonY = y2 - 1
+        monitor.setBackgroundColor(colors.gray)
+        monitor.setTextColor(colors.white)
+        monitor.setCursorPos(x1 + math.floor((overlayWidth - 7) / 2), buttonY)
+        monitor.write("[Close]")
+
+        Core.resetColors(monitor)
+
+        -- Wait for touch
+        local event, side, tx, ty = os.pullEvent("monitor_touch")
+
+        if side == monitorName then
+            -- Any touch closes
+            return
+        end
+    end
+end
+
 -- Draw a progress bar showing time until reset
 local function drawTimerBar(monitor, y, width, elapsed, total)
     local progress = math.min(1, elapsed / total)
@@ -228,6 +309,9 @@ return BaseView.custom({
 
         -- State machine: "init", "baseline_set", "tracking"
         self.state = "init"
+
+        -- Touch tracking
+        self.lastChanges = {}
 
         -- Baseline snapshot (frozen at period start)
         self.baseline = {}
@@ -434,6 +518,38 @@ return BaseView.custom({
         drawTimerBar(self.monitor, self.height, self.width, data.elapsed, self.periodSeconds)
 
         self.monitor.setTextColor(colors.white)
+
+        -- Store changes for touch lookup
+        self.lastChanges = data.changes or {}
+    end,
+
+    onTouch = function(self, x, y)
+        -- Find which item was touched based on grid position
+        if #self.lastChanges == 0 then
+            return false
+        end
+
+        -- Grid layout: 2 lines per item, starting at row 3 (after header/summary)
+        local itemsPerRow = math.floor(self.width / 12) -- Approximate item width
+        if itemsPerRow < 1 then itemsPerRow = 1 end
+
+        local startY = 3
+        local itemHeight = 2
+        local itemWidth = math.floor(self.width / itemsPerRow)
+
+        -- Calculate which item was touched
+        if y >= startY and y < self.height then
+            local row = math.floor((y - startY) / itemHeight)
+            local col = math.floor((x - 1) / itemWidth)
+            local index = row * itemsPerRow + col + 1
+
+            if index >= 1 and index <= #self.lastChanges then
+                showItemDetail(self, self.lastChanges[index])
+                return true
+            end
+        end
+
+        return false
     end,
 
     errorMessage = "Error tracking changes"
