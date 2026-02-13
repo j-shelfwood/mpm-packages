@@ -84,13 +84,14 @@ end
 
 -- Draw the menu bar
 function Kernel:drawMenu()
+    local pairingCode = self.config.network and self.config.network.pairingCode or nil
     Terminal.drawMenu({
         { key = "m", label = "Monitors" },
         { key = "s", label = "Status" },
         { key = "l", label = "Link" },
         { key = "r", label = "Reset" },
         { key = "q", label = "Quit" }
-    })
+    }, pairingCode)
 end
 
 -- Initialize all configured monitors
@@ -144,7 +145,10 @@ function Kernel:initializeNetwork()
     if ok then
         print("[ShelfOS] Network: " .. modemType .. " modem")
 
-        -- Set up zone discovery
+        -- Register with native CC:Tweaked service discovery
+        rednet.host("shelfos", self.zone:getId())
+
+        -- Set up zone discovery (for rich metadata exchange)
         local Discovery = mpm('net/Discovery')
         self.discovery = Discovery.new(self.channel)
         self.discovery:setIdentity(self.zone:getId(), self.zone:getName())
@@ -466,6 +470,8 @@ function Kernel:shutdown()
 
     -- Close network
     if self.channel then
+        -- Unregister from native service discovery
+        rednet.unhost("shelfos")
         self.channel:close()
     end
 

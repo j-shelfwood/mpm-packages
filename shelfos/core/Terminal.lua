@@ -91,7 +91,9 @@ function Terminal.log(text)
 end
 
 -- Draw menu bar
-function Terminal.drawMenu(items)
+-- @param items Array of {key, label} menu items
+-- @param pairingCode Optional pairing code to display on right side
+function Terminal.drawMenu(items, pairingCode)
     Terminal.init()
 
     local old = term.redirect(menuWindow)
@@ -102,16 +104,30 @@ function Terminal.drawMenu(items)
     for _, item in ipairs(items) do
         table.insert(parts, "[" .. item.key:upper() .. "] " .. item.label)
     end
-    local menuStr = table.concat(parts, "  ")
+    local menuStr = table.concat(parts, " ")
 
-    -- Clear and draw centered
+    -- Build pairing code suffix if provided
+    local codeStr = ""
+    if pairingCode then
+        codeStr = "Pair:" .. pairingCode
+    end
+
+    -- Clear with gray background
     menuWindow.setBackgroundColor(colors.gray)
     menuWindow.clear()
     menuWindow.setTextColor(colors.white)
 
-    local x = math.floor((w - #menuStr) / 2) + 1
-    menuWindow.setCursorPos(x, 1)
-    menuWindow.write(menuStr)
+    -- Draw menu items on left
+    menuWindow.setCursorPos(1, 1)
+    menuWindow.write(" " .. menuStr)
+
+    -- Draw pairing code on right (highlighted)
+    if #codeStr > 0 and w > (#menuStr + #codeStr + 4) then
+        menuWindow.setCursorPos(w - #codeStr, 1)
+        menuWindow.setTextColor(colors.yellow)
+        menuWindow.write(codeStr)
+        menuWindow.setTextColor(colors.white)
+    end
 
     term.redirect(old)
 end

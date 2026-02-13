@@ -112,6 +112,8 @@ function Config.load()
     -- Try migration from displays.config first
     local migrated = migrateFromDisplays()
     if migrated then
+        -- Ensure network secret exists for migrated configs
+        Config.ensureNetworkSecret(migrated)
         -- Save the new config
         Config.save(migrated)
         -- Delete old config
@@ -138,7 +140,15 @@ function Config.load()
     end
 
     -- Merge with defaults to ensure all fields exist
-    return merge(DEFAULT_CONFIG, config)
+    config = merge(DEFAULT_CONFIG, config)
+
+    -- Ensure network secret always exists (fixes configs without secret)
+    local changed = Config.ensureNetworkSecret(config)
+    if changed then
+        Config.save(config)
+    end
+
+    return config
 end
 
 -- Save configuration to disk
@@ -235,6 +245,29 @@ function Config.setNetworkSecret(config, secret)
     config.network = config.network or {}
     config.network.secret = secret
     config.network.enabled = secret ~= nil
+end
+
+-- Ensure network secret exists (auto-generate if missing)
+-- @param config Configuration table
+-- @return true if secret was generated, false if already existed
+function Config.ensureNetworkSecret(config)
+    if config.network and config.network.secret then
+        -- Also ensure pairing code exists
+        if not config.network.pairingCode then
+            config.network.pairingCode = Config.generatePairingCode()
+            return true
+        end
+        return false
+    end
+
+    -- Generate secret and pairing code
+    local Crypto = mpm('net/Crypto')
+    config.network = config.network or {}
+    config.network.secret = Crypto.generateSecret()
+    config.network.enabled = true
+    config.network.pairingCode = config.network.pairingCode or Config.generatePairingCode()
+
+    return true
 end
 
 -- Get default config

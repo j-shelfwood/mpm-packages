@@ -42,15 +42,8 @@ function Discovery:start()
         self.ownsChannel = true
     end
 
-    -- Register handlers
-    self.channel:on(Protocol.MessageType.PING, function(senderId, msg)
-        self:handlePing(senderId, msg)
-    end)
-
-    self.channel:on(Protocol.MessageType.PONG, function(senderId, msg)
-        self:handlePong(senderId, msg)
-    end)
-
+    -- Register handlers for rich metadata exchange
+    -- Note: Basic presence uses native rednet.host/lookup (set up in Kernel)
     self.channel:on(Protocol.MessageType.ANNOUNCE, function(senderId, msg)
         self:handleAnnounce(senderId, msg)
     end)
@@ -70,22 +63,7 @@ function Discovery:stop()
     end
 end
 
--- Handle incoming ping
-function Discovery:handlePing(senderId, msg)
-    if not self.zoneId then return end
-
-    local pong = Protocol.createPong(msg, self.zoneId, self.zoneName)
-    self.channel:send(senderId, pong)
-end
-
--- Handle incoming pong
-function Discovery:handlePong(senderId, msg)
-    if msg.data and msg.data.zoneId then
-        self:registerZone(senderId, msg.data.zoneId, msg.data.zoneName)
-    end
-end
-
--- Handle zone announcement
+-- Handle zone announcement (rich metadata from peers)
 function Discovery:handleAnnounce(senderId, msg)
     if msg.data and msg.data.zoneId then
         self:registerZone(senderId, msg.data.zoneId, msg.data.zoneName, msg.data.monitors)
@@ -118,28 +96,35 @@ function Discovery:announce(monitors)
     self.lastAnnounce = os.epoch("utc")
 end
 
--- Discover other zones (sends ping, waits for responses)
+-- Discover other zones using native rednet.lookup + rich metadata request
 -- @param timeout How long to wait for responses
 -- @return Array of discovered zones
 function Discovery:discover(timeout)
     timeout = timeout or 3
 
-    if not self.channel then
-        return {}
+    -- First, use native CC:Tweaked service discovery
+    local peerIds = {rednet.lookup("shelfos")}
+
+    if #peerIds > 0 then
+        -- Request rich metadata from discovered peers
+        local discoverMsg = Protocol.createMessage(Protocol.MessageType.DISCOVER, {
+            zoneId = self.zoneId,
+            zoneName = self.zoneName
+        })
+
+        -- Broadcast discover request (peers will respond with ANNOUNCE)
+        if self.channel then
+            self.channel:broadcast(discoverMsg)
+
+            -- Collect responses
+            local deadline = os.epoch("utc") + (timeout * 1000)
+            while os.epoch("utc") < deadline do
+                self.channel:poll(0.1)
+            end
+        end
     end
 
-    -- Send ping
-    local ping = Protocol.createPing(self.zoneId)
-    self.channel:broadcast(ping)
-
-    -- Collect responses
-    local deadline = os.epoch("utc") + (timeout * 1000)
-
-    while os.epoch("utc") < deadline do
-        self.channel:poll(0.1)
-    end
-
-    -- Return known zones
+    -- Return known zones (populated by ANNOUNCE responses)
     return self:getZones()
 end
 
@@ -192,6 +177,19 @@ function Discovery:findByName(namePattern)
     end
 
     return results
+end
+
+-- Get peer count using native rednet.lookup (fast, no metadata)
+-- @return Number of ShelfOS peers on network
+function Discovery:getPeerCount()
+    local peerIds = {rednet.lookup("shelfos")}
+    return #peerIds
+end
+
+-- Get peer IDs using native rednet.lookup
+-- @return Array of computer IDs running ShelfOS
+function Discovery:getPeerIds()
+    return {rednet.lookup("shelfos")}
 end
 
 return Discovery
