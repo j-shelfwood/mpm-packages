@@ -119,7 +119,10 @@ end
 -- @param senderId Requesting computer ID
 -- @param msg The discover message
 function PeripheralHost:handleDiscover(senderId, msg)
-    local response = Protocol.createPeriphList(msg, self:getPeripheralList())
+    print("[PeripheralHost] Discovery request from #" .. senderId)
+    local peripherals = self:getPeripheralList()
+    print("[PeripheralHost] Responding with " .. #peripherals .. " peripheral(s)")
+    local response = Protocol.createPeriphList(msg, peripherals)
     self.channel:send(senderId, response)
 end
 

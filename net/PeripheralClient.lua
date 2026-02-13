@@ -67,11 +67,17 @@ end
 -- Handle peripheral list response
 function PeripheralClient:handlePeriphList(senderId, msg)
     local data = msg.data
-    if not data or not data.peripherals then return end
+    if not data or not data.peripherals then
+        print("[PeripheralClient] Received empty/invalid PERIPH_LIST from #" .. senderId)
+        return
+    end
+
+    print("[PeripheralClient] Received " .. #data.peripherals .. " peripheral(s) from #" .. senderId)
 
     -- Register peripherals
     for _, pInfo in ipairs(data.peripherals) do
         self:registerRemote(senderId, pInfo.name, pInfo.type, pInfo.methods)
+        print("[PeripheralClient] Registered: " .. pInfo.name .. " [" .. pInfo.type .. "]")
     end
 
     -- Resolve pending request if any
@@ -130,6 +136,7 @@ function PeripheralClient:discover(timeout)
     timeout = timeout or 3
 
     if not self.channel then
+        print("[PeripheralClient] No channel available for discovery")
         return 0
     end
 
@@ -137,15 +144,20 @@ function PeripheralClient:discover(timeout)
     self:registerHandlers()
 
     -- Send discovery request
+    print("[PeripheralClient] Broadcasting PERIPH_DISCOVER...")
     local msg = Protocol.createPeriphDiscover()
-    self.channel:broadcast(msg)
+    local sent = self.channel:broadcast(msg)
+    print("[PeripheralClient] Broadcast sent: " .. tostring(sent))
 
     -- Poll for responses (with yields to allow event processing)
     local deadline = os.epoch("utc") + (timeout * 1000)
+    local pollCount = 0
     while os.epoch("utc") < deadline do
         self.channel:poll(0.1)
+        pollCount = pollCount + 1
         Yield.yield()  -- Allow other events to process
     end
+    print("[PeripheralClient] Polled " .. pollCount .. " times, found " .. self:getCount() .. " peripheral(s)")
 
     return self:getCount()
 end

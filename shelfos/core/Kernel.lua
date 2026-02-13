@@ -173,9 +173,12 @@ function Kernel:initializeNetwork()
 
         -- Discover remote peripherals (non-blocking, short timeout)
         print("[ShelfOS] Discovering remote peripherals...")
+        print("[ShelfOS] Crypto ready: " .. tostring(Crypto.hasSecret()))
         local count = self.peripheralClient:discover(2)
         if count > 0 then
             print("[ShelfOS] Found " .. count .. " remote peripheral(s)")
+        else
+            print("[ShelfOS] No remote peripherals found")
         end
     else
         print("[ShelfOS] Network: no modem found")
