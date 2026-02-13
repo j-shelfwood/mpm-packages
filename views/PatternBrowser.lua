@@ -65,7 +65,8 @@ local function getPatternTypeShort(patternType)
 end
 
 -- Pattern detail overlay (blocking)
-local function showPatternDetail(monitor, pattern)
+local function showPatternDetail(self, pattern)
+    local monitor = self.monitor
     local width, height = monitor.getSize()
 
     -- Calculate overlay bounds
@@ -76,7 +77,8 @@ local function showPatternDetail(monitor, pattern)
     local x2 = x1 + overlayWidth - 1
     local y2 = y1 + overlayHeight - 1
 
-    local monitorName = peripheral.getName(monitor)
+    -- Use stored peripheral name (monitor is a window buffer, not a peripheral)
+    local monitorName = self.peripheralName
 
     while true do
         -- Draw background
@@ -261,7 +263,7 @@ return BaseView.interactive({
 
     onItemTouch = function(self, pattern, action)
         -- Show pattern detail overlay (blocking)
-        showPatternDetail(self.monitor, pattern)
+        showPatternDetail(self, pattern)
     end,
 
     footer = function(self, data)

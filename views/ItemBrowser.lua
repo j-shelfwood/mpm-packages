@@ -21,7 +21,8 @@ local function showItemDetail(self, item)
     local x2 = x1 + overlayWidth - 1
     local y2 = y1 + overlayHeight - 1
 
-    local monitorName = peripheral.getName(monitor)
+    -- Use stored peripheral name (monitor is a window buffer, not a peripheral)
+    local monitorName = self.peripheralName
     local craftAmount = 1
     local statusMessage = nil
     local statusColor = colors.gray

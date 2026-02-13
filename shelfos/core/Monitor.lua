@@ -204,7 +204,8 @@ function Monitor:loadView(viewName)
 
     -- Create view instance with BUFFER (not raw peripheral)
     -- This enables flicker-free rendering via window API
-    local ok, instance = pcall(View.new, self.buffer, self.viewConfig)
+    -- Pass peripheral name for overlay event filtering
+    local ok, instance = pcall(View.new, self.buffer, self.viewConfig, self.peripheralName)
     if ok then
         self.viewInstance = instance
     else
@@ -457,7 +458,14 @@ function Monitor:handleTouch(monitorName, x, y)
         return false
     end
 
-    -- Check for settings button click first
+    -- Header touch (y=1) always opens view selector
+    -- This ensures users can always change views, even with interactive views
+    if y == 1 then
+        self:openConfigMenu()
+        return true
+    end
+
+    -- Check for settings button click
     if self.showingSettings and self:isSettingsButtonTouch(x, y) then
         self:openConfigMenu()
         return true
@@ -628,6 +636,10 @@ function Monitor:runLoop(running)
             if p1 == self.peripheralName then
                 if self.inConfigMenu then
                     -- Config menu handles its own touches
+                elseif p3 == 1 then
+                    -- Header touch (y=1) always opens view selector
+                    -- This ensures users can always change views, even with interactive views
+                    self:openConfigMenu()
                 elseif self.showingSettings and self:isSettingsButtonTouch(p2, p3) then
                     -- Settings button tapped - open config menu
                     -- This blocks, but that's OK - we have our own event queue

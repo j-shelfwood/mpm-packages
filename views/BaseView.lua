@@ -84,14 +84,19 @@ local function defaultRenderError(self, message)
 end
 
 -- Render header at top of screen
+-- Header row is touchable to open view selector (indicated by [*])
 local function renderHeader(self, header)
     if not header then return 1 end
+
+    -- Reserve space for [*] indicator (3 chars)
+    local indicatorWidth = 3
+    local contentWidth = self.width - indicatorWidth
 
     self.monitor.setCursorPos(1, 1)
 
     if type(header) == "string" then
         self.monitor.setTextColor(colors.white)
-        self.monitor.write(Text.truncateMiddle(header, self.width))
+        self.monitor.write(Text.truncateMiddle(header, contentWidth))
     elseif type(header) == "table" then
         -- Primary text
         self.monitor.setTextColor(header.color or colors.white)
@@ -101,10 +106,17 @@ local function renderHeader(self, header)
         -- Secondary text (count, etc.)
         if header.secondary then
             self.monitor.setTextColor(header.secondaryColor or colors.gray)
-            local remaining = self.width - #text
-            self.monitor.write(Text.truncateMiddle(header.secondary, remaining))
+            local remaining = contentWidth - #text
+            if remaining > 0 then
+                self.monitor.write(Text.truncateMiddle(header.secondary, remaining))
+            end
         end
     end
+
+    -- Draw [*] indicator at end of header row to show it's touchable
+    self.monitor.setCursorPos(self.width - 2, 1)
+    self.monitor.setTextColor(colors.gray)
+    self.monitor.write("[*]")
 
     return 2  -- Content starts at row 2
 end
@@ -350,13 +362,17 @@ function BaseView.create(definition)
         mount = definition.mount or function() return true end,
 
         -- Create new instance
-        new = function(monitor, config)
+        -- @param monitor Window buffer (from Monitor.lua)
+        -- @param config View configuration
+        -- @param peripheralName Name of the monitor peripheral (for overlay event filtering)
+        new = function(monitor, config, peripheralName)
             config = config or {}
             local width, height = monitor.getSize()
 
             local self = {
                 monitor = monitor,
                 config = config,
+                peripheralName = peripheralName,  -- For overlay touch event filtering
                 width = width,
                 height = height,
                 _initialized = false,
