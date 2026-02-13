@@ -12,6 +12,8 @@
     "Stepper.lua",
     "Select.lua",
     "List.lua",
-    "Dialog.lua"
+    "Dialog.lua",
+    "ScrollableList.lua",
+    "ItemDetail.lua"
   ]
 }

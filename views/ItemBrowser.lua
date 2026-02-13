@@ -1,7 +1,6 @@
--- CraftableItems.lua
--- Interactive browser for craftable items with one-tap crafting
--- Touch an item to see details and trigger crafting
--- Replaces LowStock.lua functionality via showMode config
+-- ItemBrowser.lua
+-- Full ME network inventory browser with search and interactive details
+-- Touch an item to see details and craft if available
 
 local BaseView = mpm('views/BaseView')
 local AEInterface = mpm('peripherals/AEInterface')
@@ -9,14 +8,14 @@ local Text = mpm('utils/Text')
 local Core = mpm('ui/Core')
 local Yield = mpm('utils/Yield')
 
--- Item detail overlay with craft button (blocking)
+-- Item detail overlay (blocking)
 local function showItemDetail(self, item)
     local monitor = self.monitor
     local width, height = monitor.getSize()
 
     -- Calculate overlay bounds
     local overlayWidth = math.min(width - 2, 30)
-    local overlayHeight = math.min(height - 2, 10)
+    local overlayHeight = math.min(height - 2, 9)
     local x1 = math.floor((width - overlayWidth) / 2) + 1
     local y1 = math.floor((height - overlayHeight) / 2) + 1
     local x2 = x1 + overlayWidth - 1
@@ -36,12 +35,12 @@ local function showItemDetail(self, item)
         end
 
         -- Title bar
+        local displayName = item.displayName or Text.prettifyName(item.registryName or "Unknown")
         monitor.setBackgroundColor(colors.lightGray)
         monitor.setTextColor(colors.black)
         monitor.setCursorPos(x1, y1)
         monitor.write(string.rep(" ", overlayWidth))
         monitor.setCursorPos(x1 + 1, y1)
-        local displayName = item.displayName or Text.prettifyName(item.registryName or "Unknown")
         monitor.write(Core.truncate(displayName, overlayWidth - 2))
 
         -- Content
@@ -72,27 +71,29 @@ local function showItemDetail(self, item)
             contentY = contentY + 1
         end
 
-        -- Craft amount selector
-        contentY = contentY + 1
-        monitor.setTextColor(colors.white)
-        monitor.setCursorPos(x1 + 1, contentY)
-        monitor.write("Craft: ")
+        -- Craftable indicator and amount selector
+        if item.isCraftable then
+            contentY = contentY + 1
+            monitor.setTextColor(colors.white)
+            monitor.setCursorPos(x1 + 1, contentY)
+            monitor.write("Craft: ")
 
-        -- Amount buttons
-        local amounts = {1, 16, 64, 256}
-        local buttonX = x1 + 8
-        for _, amt in ipairs(amounts) do
-            local label = tostring(amt)
-            if amt == craftAmount then
-                monitor.setBackgroundColor(colors.cyan)
-                monitor.setTextColor(colors.black)
-            else
-                monitor.setBackgroundColor(colors.lightGray)
-                monitor.setTextColor(colors.gray)
+            -- Amount buttons
+            local amounts = {1, 16, 64}
+            local buttonX = x1 + 8
+            for _, amt in ipairs(amounts) do
+                local label = tostring(amt)
+                if amt == craftAmount then
+                    monitor.setBackgroundColor(colors.cyan)
+                    monitor.setTextColor(colors.black)
+                else
+                    monitor.setBackgroundColor(colors.lightGray)
+                    monitor.setTextColor(colors.gray)
+                end
+                monitor.setCursorPos(buttonX, contentY)
+                monitor.write(" " .. label .. " ")
+                buttonX = buttonX + #label + 3
             end
-            monitor.setCursorPos(buttonX, contentY)
-            monitor.write(" " .. label .. " ")
-            buttonX = buttonX + #label + 3
         end
 
         -- Status message
@@ -107,10 +108,12 @@ local function showItemDetail(self, item)
         local buttonY = y2 - 1
         monitor.setBackgroundColor(colors.gray)
 
-        -- Craft button
-        monitor.setTextColor(colors.lime)
-        monitor.setCursorPos(x1 + 2, buttonY)
-        monitor.write("[Craft]")
+        -- Craft button (only if craftable)
+        if item.isCraftable then
+            monitor.setTextColor(colors.lime)
+            monitor.setCursorPos(x1 + 2, buttonY)
+            monitor.write("[Craft]")
+        end
 
         -- Close button
         monitor.setTextColor(colors.red)
@@ -130,8 +133,7 @@ local function showItemDetail(self, item)
             end
 
             -- Craft button
-            if ty == buttonY and tx >= x1 + 2 and tx <= x1 + 8 then
-                -- Trigger crafting
+            if item.isCraftable and ty == buttonY and tx >= x1 + 2 and tx <= x1 + 8 then
                 if self.interface then
                     local ok, result = pcall(function()
                         return self.interface:craftItem({name = item.registryName, count = craftAmount})
@@ -150,8 +152,9 @@ local function showItemDetail(self, item)
                 end
             end
 
-            -- Amount selection
-            if ty == contentY then
+            -- Amount selection (if craftable)
+            if item.isCraftable and ty == contentY then
+                local amounts = {1, 16, 64}
                 buttonX = x1 + 8
                 for _, amt in ipairs(amounts) do
                     local label = tostring(amt)
@@ -171,24 +174,24 @@ return BaseView.interactive({
 
     configSchema = {
         {
-            key = "showMode",
+            key = "sortBy",
             type = "select",
-            label = "Show",
+            label = "Sort By",
             options = {
-                { value = "all", label = "All Craftable" },
-                { value = "lowStock", label = "Low Stock Only" },
-                { value = "zeroStock", label = "Out of Stock" }
+                { value = "count", label = "Count (High)" },
+                { value = "count_asc", label = "Count (Low)" },
+                { value = "name", label = "Name (A-Z)" }
             },
-            default = "all"
+            default = "count"
         },
         {
-            key = "lowThreshold",
+            key = "minCount",
             type = "number",
-            label = "Low Stock Threshold",
-            default = 64,
-            min = 1,
-            max = 1000,
-            presets = {16, 32, 64, 128, 256}
+            label = "Min Count",
+            default = 0,
+            min = 0,
+            max = 10000,
+            presets = {0, 1, 64, 1000}
         }
     },
 
@@ -199,100 +202,73 @@ return BaseView.interactive({
     init = function(self, config)
         local ok, interface = pcall(AEInterface.new)
         self.interface = ok and interface or nil
-        self.showMode = config.showMode or "all"
-        self.lowThreshold = config.lowThreshold or 64
-        self.totalCraftable = 0
+        self.sortBy = config.sortBy or "count"
+        self.minCount = config.minCount or 0
+        self.totalItems = 0
     end,
 
     getData = function(self)
         if not self.interface then return nil end
 
-        -- Get craftable items from ME Bridge
-        local craftableItems = self.interface.bridge.getCraftableItems()
-        if not craftableItems then return {} end
+        local items = self.interface:items()
+        if not items then return {} end
+
+        self.totalItems = #items
 
         Yield.yield()
 
-        self.totalCraftable = #craftableItems
-
-        -- Get current stock levels
-        local allItems = self.interface:items()
-        if not allItems then return {} end
-
-        Yield.yield()
-
-        -- Build lookup for stock counts
-        local stockLookup = {}
-        for _, item in ipairs(allItems) do
-            if item.registryName then
-                stockLookup[item.registryName] = item.count or 0
-            end
-        end
-
-        -- Combine data: craftable items with current stock
-        local displayItems = {}
-        for _, craftable in ipairs(craftableItems) do
-            if craftable.name then
-                local count = stockLookup[craftable.name] or 0
-
-                -- Apply filter based on showMode
-                local include = false
-                if self.showMode == "all" then
-                    include = true
-                elseif self.showMode == "zeroStock" then
-                    include = (count == 0)
-                elseif self.showMode == "lowStock" then
-                    include = (count < self.lowThreshold)
-                end
-
-                if include then
-                    table.insert(displayItems, {
-                        registryName = craftable.name,
-                        displayName = craftable.displayName or craftable.name,
-                        count = count,
-                        isCraftable = true
-                    })
-                end
+        -- Filter by minimum count
+        local filtered = {}
+        for _, item in ipairs(items) do
+            if (item.count or 0) >= self.minCount then
+                table.insert(filtered, item)
             end
         end
 
         Yield.yield()
 
-        -- Sort by count (lowest first)
-        table.sort(displayItems, function(a, b)
-            if a.count == b.count then
-                return (a.displayName or "") < (b.displayName or "")
-            end
-            return a.count < b.count
-        end)
+        -- Sort
+        if self.sortBy == "count" then
+            table.sort(filtered, function(a, b)
+                return (a.count or 0) > (b.count or 0)
+            end)
+        elseif self.sortBy == "count_asc" then
+            table.sort(filtered, function(a, b)
+                return (a.count or 0) < (b.count or 0)
+            end)
+        elseif self.sortBy == "name" then
+            table.sort(filtered, function(a, b)
+                local nameA = a.displayName or a.registryName or ""
+                local nameB = b.displayName or b.registryName or ""
+                return nameA < nameB
+            end)
+        end
 
-        return displayItems
+        return filtered
     end,
 
     header = function(self, data)
-        local headerText = "CRAFTABLE"
-        local headerColor = colors.cyan
-
-        if self.showMode == "zeroStock" then
-            headerText = "OUT OF STOCK"
-            headerColor = colors.red
-        elseif self.showMode == "lowStock" then
-            headerText = "LOW STOCK"
-            headerColor = colors.orange
-        end
-
         return {
-            text = headerText,
-            color = headerColor,
-            secondary = " (" .. #data .. "/" .. self.totalCraftable .. ")",
+            text = "ITEMS",
+            color = colors.cyan,
+            secondary = " (" .. #data .. "/" .. self.totalItems .. ")",
             secondaryColor = colors.gray
         }
     end,
 
     formatItem = function(self, item)
         local count = item.count or 0
-        local countColor = colors.lime
+        local countStr = Text.formatNumber(count)
 
+        local nameColor = colors.white
+        local countColor = colors.gray
+
+        -- Highlight craftable items
+        if item.isCraftable then
+            nameColor = colors.lime
+        end
+
+        -- Highlight low counts
         if count == 0 then
             countColor = colors.red
         elseif count < 64 then
@@ -302,25 +278,24 @@ return BaseView.interactive({
         return {
             lines = {
                 item.displayName or Text.prettifyName(item.registryName or "Unknown"),
-                Text.formatNumber(count)
+                countStr
             },
-            colors = { colors.white, countColor },
+            colors = { nameColor, countColor },
             touchAction = "detail",
             touchData = item
         }
     end,
 
     onItemTouch = function(self, item, action)
-        -- Show item detail overlay with craft button (blocking)
         showItemDetail(self, item)
     end,
 
     footer = function(self, data)
         return {
-            text = "Touch to craft",
+            text = "Touch for details",
             color = colors.gray
         }
     end,
 
-    emptyMessage = "No craftable items"
+    emptyMessage = "No items in storage"
 })

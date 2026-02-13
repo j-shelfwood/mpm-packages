@@ -28,9 +28,10 @@ local BaseView = {}
 
 -- View types
 BaseView.Type = {
-    GRID = "grid",       -- Grid of items using GridDisplay
-    LIST = "list",       -- Vertical list of items
-    CUSTOM = "custom"    -- Fully custom rendering
+    GRID = "grid",           -- Grid of items using GridDisplay
+    LIST = "list",           -- Vertical list of items
+    CUSTOM = "custom",       -- Fully custom rendering
+    INTERACTIVE = "interactive"  -- Interactive list with touch handling
 }
 
 -- Validate view definition at load time
@@ -47,6 +48,11 @@ local function validateDefinition(def)
         if not def.formatItem then
             error(viewType .. " views must define formatItem(self, item) function")
         end
+    elseif viewType == BaseView.Type.INTERACTIVE then
+        if not def.formatItem then
+            error("Interactive views must define formatItem(self, item) function")
+        end
+        -- onItemTouch is optional but recommended
     elseif viewType == BaseView.Type.CUSTOM then
         if not def.render then
             error("Custom views must define render(self, data) function")
@@ -168,6 +174,99 @@ local function renderList(self, data, formatItem, startY, def)
     end
 end
 
+-- Render interactive list layout with touch zones
+-- Stores touch zones in self._touchZones for handleTouch
+local function renderInteractiveList(self, data, formatItem, startY, def)
+    local footerHeight = def.footer and 1 or 0
+    local pageIndicatorHeight = 1
+    local availableRows = self.height - startY - footerHeight - pageIndicatorHeight
+
+    -- Initialize pagination state if needed
+    if not self._scrollOffset then
+        self._scrollOffset = 0
+    end
+    if not self._pageSize then
+        self._pageSize = math.max(1, availableRows)
+    end
+
+    -- Store data reference for touch handling
+    self._data = data
+    self._touchZones = {}
+
+    -- Calculate pagination
+    local totalItems = #data
+    local totalPages = math.max(1, math.ceil(totalItems / self._pageSize))
+    local currentPage = math.floor(self._scrollOffset / self._pageSize) + 1
+
+    -- Render visible items
+    local visibleCount = math.min(self._pageSize, totalItems - self._scrollOffset)
+
+    for i = 1, visibleCount do
+        local itemIndex = i + self._scrollOffset
+        local item = data[itemIndex]
+
+        if item then
+            local y = startY + i - 1
+            local formatted = formatItem(self, item)
+
+            -- Store touch zone for this item
+            self._touchZones[y] = {
+                item = item,
+                index = itemIndex,
+                action = formatted.touchAction or "select",
+                data = formatted.touchData or item
+            }
+
+            -- Render item
+            if formatted.lines then
+                local line = formatted.lines[1] or ""
+                local color = formatted.colors and formatted.colors[1] or colors.white
+
+                self.monitor.setCursorPos(1, y)
+                self.monitor.setTextColor(color)
+                self.monitor.write(Text.truncateMiddle(line, self.width - 1))
+
+                -- Second line if space permits
+                if formatted.lines[2] and i < visibleCount then
+                    -- Compact: show on same line right-aligned
+                    local line2 = formatted.lines[2]
+                    local color2 = formatted.colors and formatted.colors[2] or colors.gray
+                    local x = self.width - #line2
+                    if x > #line + 2 then
+                        self.monitor.setCursorPos(x, y)
+                        self.monitor.setTextColor(color2)
+                        self.monitor.write(line2)
+                    end
+                end
+            end
+        end
+    end
+
+    -- Scroll indicators
+    self.monitor.setTextColor(colors.gray)
+    if self._scrollOffset > 0 then
+        self.monitor.setCursorPos(self.width, startY)
+        self.monitor.write("^")
+        self._touchZones["scroll_up"] = { y = startY, x = self.width }
+    end
+
+    local lastVisibleY = startY + visibleCount - 1
+    if self._scrollOffset + self._pageSize < totalItems then
+        self.monitor.setCursorPos(self.width, lastVisibleY)
+        self.monitor.write("v")
+        self._touchZones["scroll_down"] = { y = lastVisibleY, x = self.width }
+    end
+
+    -- Page indicator
+    local pageY = self.height - footerHeight
+    local pageText = "Page " .. currentPage .. "/" .. totalPages
+    local pageX = math.floor((self.width - #pageText) / 2)
+    self.monitor.setTextColor(colors.gray)
+    self.monitor.setCursorPos(pageX, pageY)
+    self.monitor.write(pageText)
+    self._touchZones["page_indicator"] = { y = pageY }
+end
+
 -- Create a view from a definition
 function BaseView.create(definition)
     -- Validate at creation time
@@ -229,6 +328,8 @@ function BaseView.create(definition)
             end
         elseif viewType == BaseView.Type.LIST then
             renderList(self, data, definition.formatItem, startY, definition)
+        elseif viewType == BaseView.Type.INTERACTIVE then
+            renderInteractiveList(self, data, definition.formatItem, startY, definition)
         end
 
         -- Render footer
@@ -259,7 +360,12 @@ function BaseView.create(definition)
                 width = width,
                 height = height,
                 _initialized = false,
-                _gridDisplay = nil
+                _gridDisplay = nil,
+                -- Interactive state
+                _scrollOffset = 0,
+                _pageSize = nil,
+                _touchZones = {},
+                _data = nil
             }
 
             -- Call user's init to set up instance state
@@ -269,6 +375,73 @@ function BaseView.create(definition)
 
             return self
         end,
+
+        -- Handle touch event (for interactive views)
+        -- @return true if touch was handled, false otherwise
+        handleTouch = viewType == BaseView.Type.INTERACTIVE and function(self, x, y)
+            if not self._touchZones then return false end
+
+            -- Check scroll up
+            local scrollUp = self._touchZones["scroll_up"]
+            if scrollUp and y == scrollUp.y and x == self.width then
+                self._scrollOffset = math.max(0, self._scrollOffset - 1)
+                return true
+            end
+
+            -- Check scroll down
+            local scrollDown = self._touchZones["scroll_down"]
+            if scrollDown and y == scrollDown.y and x == self.width then
+                local maxOffset = math.max(0, #(self._data or {}) - (self._pageSize or 1))
+                self._scrollOffset = math.min(maxOffset, self._scrollOffset + 1)
+                return true
+            end
+
+            -- Check page indicator (left = prev, right = next)
+            local pageInd = self._touchZones["page_indicator"]
+            if pageInd and y == pageInd.y then
+                local pageSize = self._pageSize or 1
+                local totalItems = #(self._data or {})
+                if x < self.width / 2 then
+                    -- Previous page
+                    self._scrollOffset = math.max(0, self._scrollOffset - pageSize)
+                else
+                    -- Next page
+                    local maxOffset = math.max(0, totalItems - pageSize)
+                    self._scrollOffset = math.min(maxOffset, self._scrollOffset + pageSize)
+                end
+                return true
+            end
+
+            -- Check item touch zones
+            local zone = self._touchZones[y]
+            if zone and zone.item then
+                -- Call view's onItemTouch handler (blocking overlay pattern)
+                if definition.onItemTouch then
+                    definition.onItemTouch(self, zone.item, zone.action)
+                    return true
+                end
+            end
+
+            return false
+        end or nil,
+
+        -- Get current scroll state (for persistence)
+        getState = viewType == BaseView.Type.INTERACTIVE and function(self)
+            return {
+                scrollOffset = self._scrollOffset or 0,
+                pageSize = self._pageSize
+            }
+        end or nil,
+
+        -- Set scroll state
+        setState = viewType == BaseView.Type.INTERACTIVE and function(self, state)
+            if state then
+                self._scrollOffset = state.scrollOffset or 0
+                if state.pageSize then
+                    self._pageSize = state.pageSize
+                end
+            end
+        end or nil,
 
         -- ================================================================
         -- TWO-PHASE RENDER API (for Monitor.lua window buffering)
@@ -341,6 +514,17 @@ end
 -- Helper to create a custom view
 function BaseView.custom(def)
     def.type = BaseView.Type.CUSTOM
+    return BaseView.create(def)
+end
+
+-- Helper to create an interactive view with touch handling
+-- Interactive views support:
+--   - Scrollable list with pagination
+--   - Touch zones auto-registered from formatItem
+--   - onItemTouch handler for blocking overlays
+--   - getState/setState for scroll persistence
+function BaseView.interactive(def)
+    def.type = BaseView.Type.INTERACTIVE
     return BaseView.create(def)
 end
 

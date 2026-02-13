@@ -1,6 +1,6 @@
 -- PatternBrowser.lua
--- Displays all crafting patterns in the ME network
--- Shows pattern outputs, inputs, and type (crafting/processing/etc.)
+-- Interactive browser for all crafting patterns in the ME network
+-- Touch a pattern to see detailed inputs/outputs in overlay
 --
 -- Pattern structure from ME Bridge:
 -- {
@@ -15,6 +15,7 @@
 local BaseView = mpm('views/BaseView')
 local AEInterface = mpm('peripherals/AEInterface')
 local Text = mpm('utils/Text')
+local Core = mpm('ui/Core')
 
 -- Helper functions
 local function getDisplayName(pattern)
@@ -40,17 +41,6 @@ local function getOutputCount(pattern)
     return nil
 end
 
-local function getFirstInputName(pattern)
-    if not pattern.inputs or #pattern.inputs == 0 then return nil end
-    local input = pattern.inputs[1]
-    if input.primaryInput and input.primaryInput.displayName then
-        return input.primaryInput.displayName
-    elseif input.primaryInput and input.primaryInput.name then
-        return Text.prettifyName(input.primaryInput.name)
-    end
-    return nil
-end
-
 local function getPatternTypeColor(patternType)
     if patternType == "crafting" then
         return colors.lime
@@ -65,7 +55,120 @@ local function getPatternTypeColor(patternType)
     end
 end
 
-return BaseView.grid({
+local function getPatternTypeShort(patternType)
+    if patternType == "crafting" then return "C"
+    elseif patternType == "processing" then return "P"
+    elseif patternType == "smithing" then return "S"
+    elseif patternType == "stonecutting" then return "X"
+    else return "?"
+    end
+end
+
+-- Pattern detail overlay (blocking)
+local function showPatternDetail(monitor, pattern)
+    local width, height = monitor.getSize()
+
+    -- Calculate overlay bounds
+    local overlayWidth = math.min(width - 2, 35)
+    local overlayHeight = math.min(height - 2, 12)
+    local x1 = math.floor((width - overlayWidth) / 2) + 1
+    local y1 = math.floor((height - overlayHeight) / 2) + 1
+    local x2 = x1 + overlayWidth - 1
+    local y2 = y1 + overlayHeight - 1
+
+    local monitorName = peripheral.getName(monitor)
+
+    while true do
+        -- Draw background
+        monitor.setBackgroundColor(colors.gray)
+        for y = y1, y2 do
+            monitor.setCursorPos(x1, y)
+            monitor.write(string.rep(" ", overlayWidth))
+        end
+
+        -- Title bar
+        local displayName = getDisplayName(pattern)
+        monitor.setBackgroundColor(colors.lightGray)
+        monitor.setTextColor(colors.black)
+        monitor.setCursorPos(x1, y1)
+        monitor.write(string.rep(" ", overlayWidth))
+        monitor.setCursorPos(x1 + 1, y1)
+        monitor.write(Core.truncate(displayName, overlayWidth - 2))
+
+        -- Content
+        monitor.setBackgroundColor(colors.gray)
+        local contentY = y1 + 2
+        local contentWidth = overlayWidth - 2
+
+        -- Pattern type
+        local patternType = pattern.patternType or "unknown"
+        monitor.setTextColor(getPatternTypeColor(patternType))
+        monitor.setCursorPos(x1 + 1, contentY)
+        monitor.write("Type: " .. patternType)
+        contentY = contentY + 1
+
+        -- Output count
+        local outputCount = getOutputCount(pattern)
+        if outputCount then
+            monitor.setTextColor(colors.white)
+            monitor.setCursorPos(x1 + 1, contentY)
+            monitor.write("Output: x" .. Text.formatNumber(outputCount, 0))
+            contentY = contentY + 1
+        end
+
+        -- Inputs header
+        monitor.setTextColor(colors.cyan)
+        monitor.setCursorPos(x1 + 1, contentY)
+        monitor.write("Inputs (" .. countInputs(pattern) .. "):")
+        contentY = contentY + 1
+
+        -- List inputs (up to available space)
+        local maxInputs = y2 - contentY - 1  -- Leave room for close button
+        if pattern.inputs then
+            for i = 1, math.min(#pattern.inputs, maxInputs) do
+                local input = pattern.inputs[i]
+                local inputName = "?"
+                local inputCount = 1
+
+                if input.primaryInput then
+                    inputName = input.primaryInput.displayName or input.primaryInput.name or "?"
+                    inputCount = input.primaryInput.count or 1
+                end
+
+                monitor.setTextColor(colors.lightGray)
+                monitor.setCursorPos(x1 + 2, contentY)
+                local inputText = "- " .. Core.truncate(inputName, contentWidth - 8) .. " x" .. inputCount
+                monitor.write(inputText)
+                contentY = contentY + 1
+            end
+
+            if #pattern.inputs > maxInputs then
+                monitor.setTextColor(colors.gray)
+                monitor.setCursorPos(x1 + 2, contentY)
+                monitor.write("+" .. (#pattern.inputs - maxInputs) .. " more...")
+            end
+        end
+
+        -- Close button
+        monitor.setTextColor(colors.red)
+        monitor.setCursorPos(x1 + math.floor((overlayWidth - 7) / 2), y2 - 1)
+        monitor.write("[Close]")
+
+        Core.resetColors(monitor)
+
+        -- Wait for touch
+        local event, side, tx, ty = os.pullEvent("monitor_touch")
+
+        if side == monitorName then
+            -- Close button or outside overlay
+            if ty == y2 - 1 or tx < x1 or tx > x2 or ty < y1 or ty > y2 then
+                return
+            end
+        end
+    end
+end
+
+return BaseView.interactive({
     sleepTime = 10,
 
     configSchema = {
@@ -75,18 +178,10 @@ return BaseView.grid({
             label = "Sort By",
             options = {
                 { value = "output", label = "Output Name" },
-                { value = "inputs", label = "Input Count" }
+                { value = "inputs", label = "Input Count" },
+                { value = "type", label = "Pattern Type" }
             },
             default = "output"
-        },
-        {
-            key = "maxDisplay",
-            type = "number",
-            label = "Max Items",
-            default = 50,
-            min = 10,
-            max = 200,
-            presets = {25, 50, 100}
         }
     },
 
@@ -98,15 +193,12 @@ return BaseView.grid({
         local ok, interface = pcall(AEInterface.new)
         self.interface = ok and interface or nil
         self.sortBy = config.sortBy or "output"
-        self.maxDisplay = config.maxDisplay or 50
-        self.totalPatterns = 0  -- Will be set in getData
+        self.totalPatterns = 0
     end,
 
     getData = function(self)
-        -- Check interface is available
         if not self.interface then return nil end
 
-        -- Get all patterns
         local patterns = self.interface.bridge.getPatterns()
         if not patterns then return {} end
 
@@ -115,9 +207,7 @@ return BaseView.grid({
         -- Sort patterns
         if self.sortBy == "output" then
             table.sort(patterns, function(a, b)
-                local nameA = getDisplayName(a)
-                local nameB = getDisplayName(b)
-                return nameA < nameB
+                return getDisplayName(a) < getDisplayName(b)
             end)
         elseif self.sortBy == "inputs" then
             table.sort(patterns, function(a, b)
@@ -128,59 +218,58 @@ return BaseView.grid({
                 end
                 return countA > countB
             end)
+        elseif self.sortBy == "type" then
+            table.sort(patterns, function(a, b)
+                local typeA = a.patternType or "z"
+                local typeB = b.patternType or "z"
+                if typeA == typeB then
+                    return getDisplayName(a) < getDisplayName(b)
+                end
+                return typeA < typeB
+            end)
         end
 
-        -- Limit display
-        local displayPatterns = {}
-        for i = 1, math.min(#patterns, self.maxDisplay) do
-            displayPatterns[i] = patterns[i]
-        end
-
-        return displayPatterns
+        return patterns
     end,
 
     header = function(self, data)
         return {
             text = "PATTERNS",
             color = colors.cyan,
-            secondary = " (" .. self.totalPatterns .. " total)",
+            secondary = " (" .. self.totalPatterns .. ")",
             secondaryColor = colors.gray
         }
     end,
 
     formatItem = function(self, pattern)
         local displayName = getDisplayName(pattern)
-        local inputCount = countInputs(pattern)
         local outputCount = getOutputCount(pattern)
-        local firstInput = getFirstInputName(pattern)
         local patternType = pattern.patternType or "unknown"
         local typeColor = getPatternTypeColor(patternType)
-        local detailParts = {}
 
-        if outputCount then
-            table.insert(detailParts, "x" .. Text.formatNumber(outputCount, 0))
-        end
-        if firstInput then
-            table.insert(detailParts, "in: " .. firstInput)
-        else
-            table.insert(detailParts, inputCount .. " input" .. (inputCount ~= 1 and "s" or ""))
-        end
-        local detailLine = table.concat(detailParts, " ")
+        -- Compact display: name | count | type indicator
+        local countStr = outputCount and ("x" .. Text.formatNumber(outputCount, 0)) or ""
+        local typeChar = "[" .. getPatternTypeShort(patternType) .. "]"
 
         return {
-            lines = {
-                displayName,
-                detailLine,
-                "[" .. (patternType:sub(1, 1):upper() .. patternType:sub(2)) .. "]"
-            },
-            colors = {
-                colors.white,
-                colors.gray,
-                typeColor
-            }
+            lines = { displayName, countStr .. " " .. typeChar },
+            colors = { colors.white, typeColor },
+            touchAction = "detail",
+            touchData = pattern
         }
     end,
 
-    emptyMessage = "No crafting patterns found",
-    maxItems = 50
+    onItemTouch = function(self, pattern, action)
+        -- Show pattern detail overlay (blocking)
+        showPatternDetail(self.monitor, pattern)
+    end,
+
+    footer = function(self, data)
+        return {
+            text = "Touch pattern for details",
+            color = colors.gray
+        }
+    end,
+
+    emptyMessage = "No crafting patterns found"
 })

@@ -457,10 +457,21 @@ function Monitor:handleTouch(monitorName, x, y)
         return false
     end
 
-    -- Check for settings button click
+    -- Check for settings button click first
     if self.showingSettings and self:isSettingsButtonTouch(x, y) then
         self:openConfigMenu()
         return true
+    end
+
+    -- Forward touch to view if it supports handleTouch (interactive views)
+    -- View can handle touch for item selection, scrolling, etc.
+    if self.view and self.view.handleTouch and self.viewInstance then
+        local handled = self.view.handleTouch(self.viewInstance, x, y)
+        if handled then
+            -- Re-render immediately to show updated state
+            self:render()
+            return true
+        end
     end
 
     -- Any other touch: show settings button
@@ -622,8 +633,20 @@ function Monitor:runLoop(running)
                     -- This blocks, but that's OK - we have our own event queue
                     self:openConfigMenu()
                 else
-                    -- Any other touch shows settings button
-                    self:drawSettingsButton()
+                    -- Forward touch to view if it supports handleTouch (interactive views)
+                    local viewHandled = false
+                    if self.view and self.view.handleTouch and self.viewInstance then
+                        viewHandled = self.view.handleTouch(self.viewInstance, p2, p3)
+                        if viewHandled then
+                            -- Re-render immediately to show updated state
+                            self:render()
+                        end
+                    end
+
+                    -- If view didn't handle it, show settings button
+                    if not viewHandled then
+                        self:drawSettingsButton()
+                    end
                 end
             end
 

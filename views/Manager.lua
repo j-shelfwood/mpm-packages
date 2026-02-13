@@ -221,7 +221,7 @@ function Manager.suggestViewsForMonitors(monitorCount)
     Yield.yield()
 
     if hasMeBridge or hasRsBridge then
-        for _, v in ipairs({"StorageGraph", "EnergyGraph", "EnergyBalance", "CraftingQueue", "CPUOverview", "CellHealth", "ItemCounter", "FluidGauge", "FluidList", "ItemChanges", "LowStock", "CraftingCPU", "StorageBreakdown", "CraftableItems", "PatternBrowser", "DriveStatus"}) do
+        for _, v in ipairs({"NetworkDashboard", "StorageGraph", "EnergyGraph", "EnergyFlow", "EnergyBalance", "CraftingQueue", "CPUOverview", "CellHealth", "ItemCounter", "ItemBrowser", "FluidGauge", "FluidList", "ItemChanges", "CraftingCPU", "StorageBreakdown", "CraftableItems", "PatternBrowser", "DriveStatus"}) do
             for _, m in ipairs(mountable) do
                 if m == v then
                     table.insert(prioritized, v)
