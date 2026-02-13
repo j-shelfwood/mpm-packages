@@ -19,65 +19,40 @@ function App.new()
     self.notifications = Notifications.new()
     self.running = false
     self.selectedZone = nil
+    self.hasSecret = false
+    self.modemType = nil
 
     return self
 end
 
--- Initialize the app
-function App:init()
-    print("ShelfOS Pocket Companion")
-    print("========================")
-    print("")
-
-    -- Load or create secret
-    local secretPath = "/shelfos_secret.txt"
-    local secret = nil
-
-    if fs.exists(secretPath) then
-        local file = fs.open(secretPath, "r")
-        if file then
-            secret = file.readAll()
-            file.close()
-            print("[*] Loaded secret from file")
-        else
-            print("[!] Could not read secret file")
-            return false
-        end
-    else
-        print("[!] No secret configured")
-        print("    Enter the shared secret from your zone computer:")
-        write("> ")
-        secret = read()
-
-        if #secret < 16 then
-            print("[!] Secret too short (min 16 chars)")
-            return false
-        end
-
-        local file = fs.open(secretPath, "w")
-        if file then
-            file.write(secret)
-            file.close()
-            print("[*] Secret saved")
-        else
-            print("[!] Could not save secret file")
-            return false
-        end
+-- Initialize basic modem (no crypto)
+function App:initModem()
+    local modem = peripheral.find("modem")
+    if not modem then
+        return false, nil
     end
 
-    Crypto.setSecret(secret)
+    local modemName = peripheral.getName(modem)
+    self.modemType = modem.isWireless() and "wireless" or "wired"
 
-    -- Open network
+    -- Open for rednet (needed for pairing protocol)
+    rednet.open(modemName)
+
+    return true, self.modemType
+end
+
+-- Initialize full networking (with crypto)
+function App:initNetwork(secret)
+    Crypto.setSecret(secret)
+    self.hasSecret = true
+
+    -- Open channel for encrypted communication
     self.channel = Channel.new()
     local ok, modemType = self.channel:open(true)
 
     if not ok then
-        print("[!] No wireless modem found")
-        print("    Attach a wireless or ender modem")
         return false
     end
-
-    print("[*] Network: " .. modemType .. " modem")
 
     -- Set up discovery
     self.discovery = Discovery.new(self.channel)
@@ -86,6 +61,68 @@ function App:init()
 
     -- Register message handlers
     self:registerHandlers()
+
+    return true
+end
+
+-- Load secret from file
+function App:loadSecret()
+    local secretPath = "/shelfos_secret.txt"
+
+    if fs.exists(secretPath) then
+        local file = fs.open(secretPath, "r")
+        if file then
+            local secret = file.readAll()
+            file.close()
+            if secret and #secret >= 16 then
+                return secret
+            end
+        end
+    end
+
+    return nil
+end
+
+-- Save secret to file
+function App:saveSecret(secret)
+    local secretPath = "/shelfos_secret.txt"
+    local file = fs.open(secretPath, "w")
+    if file then
+        file.write(secret)
+        file.close()
+        return true
+    end
+    return false
+end
+
+-- Initialize the app
+function App:init()
+    term.clear()
+    term.setCursorPos(1, 1)
+    print("ShelfOS Pocket")
+    print("==============")
+    print("")
+
+    -- Check modem first
+    local ok, modemType = self:initModem()
+    if not ok then
+        print("[!] No modem found")
+        print("Attach wireless/ender")
+        return false
+    end
+    print("[*] " .. modemType .. " modem")
+
+    -- Try to load existing secret
+    local secret = self:loadSecret()
+    if secret then
+        print("[*] Swarm configured")
+        self:initNetwork(secret)
+    else
+        print("[!] Not in swarm")
+        print("")
+        print("Select 'Join Swarm' to")
+        print("connect to existing zone")
+    end
 
     return true
 end
@@ -193,13 +230,211 @@ function App:showMainMenu()
 
     print("=== ShelfOS Pocket ===")
     print("")
-    print("1. Discover Zones")
-    print("2. Add Computer to Swarm")
-    print("3. View Notifications (" .. self.notifications:count() .. ")")
-    print("4. Settings")
-    print("5. Exit")
+
+    if self.hasSecret then
+        -- Full menu when in swarm
+        print("1. Discover Zones")
+        print("2. Add Computer")
+        print("3. Notifications (" .. self.notifications:count() .. ")")
+        print("4. Leave Swarm")
+        print("5. Exit")
+    else
+        -- Limited menu when not paired
+        print("1. Join Swarm")
+        print("2. Create Swarm")
+        print("3. Exit")
+        print("")
+        print("(Join existing zone")
+        print(" or create new swarm)")
+    end
+
     print("")
     write("Select: ")
+end
+
+-- Join an existing swarm by pairing with a zone
+function App:joinSwarm()
+    term.clear()
+    term.setCursorPos(1, 1)
+
+    print("=== Join Swarm ===")
+    print("")
+    print("Enter pairing code")
+    print("from zone computer:")
+    print("")
+    write("> ")
+
+    local code = read():upper():gsub("%s", "")
+
+    if #code < 4 then
+        print("")
+        print("[!] Code too short")
+        EventUtils.sleep(2)
+        return
+    end
+
+    print("")
+    print("Searching for zone...")
+
+    -- Use rednet.lookup to find ShelfOS hosts
+    local peerIds = {rednet.lookup("shelfos")}
+
+    if #peerIds == 0 then
+        print("[!] No zones found")
+        print("Ensure zone is running")
+        EventUtils.sleep(2)
+        return
+    end
+
+    -- Try to pair with each zone using the code
+    local PAIR_PROTOCOL = "shelfos_pair"
+
+    for _, peerId in ipairs(peerIds) do
+        local request = {
+            type = "pair_request",
+            code = code
+        }
+
+        rednet.send(peerId, request, PAIR_PROTOCOL)
+    end
+
+    -- Wait for response
+    local deadline = os.epoch("utc") + 5000
+
+    while os.epoch("utc") < deadline do
+        local timer = os.startTimer(0.5)
+        local event, p1, p2, p3 = os.pullEvent()
+
+        if event == "rednet_message" then
+            local senderId = p1
+            local response = p2
+            local msgProtocol = p3
+
+            if msgProtocol == PAIR_PROTOCOL and type(response) == "table" then
+                if response.type == "pair_response" and response.success then
+                    -- Got the secret!
+                    if response.secret and #response.secret >= 16 then
+                        self:saveSecret(response.secret)
+                        self:initNetwork(response.secret)
+
+                        -- Save pairing code for future use
+                        local configPath = "/shelfos_pocket.config"
+                        local config = {
+                            pairingCode = response.pairingCode or code,
+                            zoneId = response.zoneId,
+                            zoneName = response.zoneName
+                        }
+                        local file = fs.open(configPath, "w")
+                        if file then
+                            file.write(textutils.serialize(config))
+                            file.close()
+                        end
+
+                        print("")
+                        print("[*] Joined swarm!")
+                        print("Zone: " .. (response.zoneName or "Unknown"))
+                        EventUtils.sleep(2)
+                        return
+                    end
+                elseif response.type == "pair_response" and not response.success then
+                    print("")
+                    print("[!] Wrong code")
+                    EventUtils.sleep(2)
+                    return
+                end
+            end
+        end
+    end
+
+    print("")
+    print("[!] No response")
+    print("Check code & retry")
+    EventUtils.sleep(2)
+end
+
+-- Create a new swarm (this pocket becomes controller)
+function App:createSwarm()
+    term.clear()
+    term.setCursorPos(1, 1)
+
+    print("=== Create Swarm ===")
+    print("")
+
+    -- Generate new secret
+    local secret = Crypto.generateSecret()
+
+    -- Save it
+    self:saveSecret(secret)
+    self:initNetwork(secret)
+
+    -- Generate pairing code
+    local chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    local pairingCode = ""
+    for i = 1, 8 do
+        if i == 5 then pairingCode = pairingCode .. "-" end
+        local idx = math.random(1, #chars)
+        pairingCode = pairingCode .. chars:sub(idx, idx)
+    end
+
+    -- Save config
+    local configPath = "/shelfos_pocket.config"
+    local config = {
+        pairingCode = pairingCode,
+        isController = true
+    }
+    local file = fs.open(configPath, "w")
+    if file then
+        file.write(textutils.serialize(config))
+        file.close()
+    end
+
+    print("[*] Swarm created!")
+    print("")
+    print("Pairing code:")
+    print("  " .. pairingCode)
+    print("")
+    print("Use 'Add Computer'")
+    print("to add zones.")
+    print("")
+    print("Press any key...")
+    EventUtils.pullEvent("key")
+end
+
+-- Leave the current swarm
+function App:leaveSwarm()
+    term.clear()
+    term.setCursorPos(1, 1)
+
+    print("=== Leave Swarm ===")
+    print("")
+    print("Are you sure?")
+    print("")
+    print("Y = Yes, leave")
+    print("N = Cancel")
+
+    while true do
+        local event, key = EventUtils.pullEvent("key")
+        if key == keys.y then
+            -- Clear credentials
+            fs.delete("/shelfos_secret.txt")
+            fs.delete("/shelfos_pocket.config")
+
+            -- Reset state
+            if self.channel then
+                self.channel:close()
+                self.channel = nil
+            end
+            self.discovery = nil
+            self.hasSecret = false
+
+            print("")
+            print("[*] Left swarm")
+            EventUtils.sleep(1)
+            return
+        elseif key == keys.n then
+            return
+        end
+    end
 end
 
 -- Discover zones
@@ -539,34 +774,45 @@ function App:run()
 
     self.running = true
     print("")
-    print("Press any key to continue...")
+    print("Press any key...")
     EventUtils.pullEvent("key")
 
     while self.running do
         self:showMainMenu()
 
-        -- Wait for input or network event
+        -- Wait for input
         local event, p1 = os.pullEvent()
 
         if event == "char" then
-            if p1 == "1" then
-                self:discoverZones()
-            elseif p1 == "2" then
-                self:addComputerToSwarm()
-            elseif p1 == "3" then
-                self:viewNotifications()
-            elseif p1 == "4" then
-                -- Settings (TODO)
-                print("")
-                print("Not implemented yet")
-                sleep(1)
-            elseif p1 == "5" then
-                self.running = false
+            if self.hasSecret then
+                -- Full menu when in swarm
+                if p1 == "1" then
+                    self:discoverZones()
+                elseif p1 == "2" then
+                    self:addComputerToSwarm()
+                elseif p1 == "3" then
+                    self:viewNotifications()
+                elseif p1 == "4" then
+                    self:leaveSwarm()
+                elseif p1 == "5" then
+                    self.running = false
+                end
+            else
+                -- Limited menu when not paired
+                if p1 == "1" then
+                    self:joinSwarm()
+                elseif p1 == "2" then
+                    self:createSwarm()
+                elseif p1 == "3" then
+                    self.running = false
+                end
             end
         end
 
-        -- Process any pending network messages
-        self.channel:poll(0)
+        -- Process any pending network messages (if connected)
+        if self.channel then
+            self.channel:poll(0)
+        end
     end
 
     -- Cleanup

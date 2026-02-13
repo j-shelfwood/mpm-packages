@@ -2,7 +2,8 @@
 -- Entry point: mpm run shelfos [mode]
 --
 -- Modes:
---   (default)  - Auto-detect: display if monitors, headless if none
+--   (default)  - Auto-detect: pocket, display, or headless
+--   pocket     - Pocket computer companion app
 --   display    - Force display mode (requires monitors)
 --   headless   - Force headless mode (peripheral host)
 --   host       - Alias for headless
@@ -12,12 +13,17 @@ local mode = args[1]
 
 -- Detect mode if not specified
 if not mode then
-    -- Check for monitors
-    local monitors = {peripheral.find("monitor")}
-    if #monitors > 0 then
-        mode = "display"
+    -- Check if pocket computer (has pocket API)
+    if pocket then
+        mode = "pocket"
     else
-        mode = "headless"
+        -- Check for monitors
+        local monitors = {peripheral.find("monitor")}
+        if #monitors > 0 then
+            mode = "display"
+        else
+            mode = "headless"
+        end
     end
 end
 
@@ -27,7 +33,12 @@ if mode == "host" then
 end
 
 -- Run appropriate mode
-if mode == "headless" then
+if mode == "pocket" then
+    -- Pocket computer companion
+    local App = mpm('shelfos/pocket/App')
+    local app = App.new()
+    app:run()
+elseif mode == "headless" then
     -- Peripheral host mode
     local headless = mpm('shelfos/modes/headless')
     headless.run()
