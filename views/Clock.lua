@@ -19,18 +19,21 @@ local MOON_PHASES = {
     [7] = "Waxing Gibbous"
 }
 
-local function formatTime(time)
+local function formatTime(time, use24h)
     local hours = math.floor(time)
     local minutes = math.floor((time - hours) * 60)
-    local period = "AM"
 
-    if hours >= 12 then
-        period = "PM"
-        if hours > 12 then hours = hours - 12 end
+    if use24h then
+        return string.format("%02d:%02d", hours, minutes)
+    else
+        local period = "AM"
+        if hours >= 12 then
+            period = "PM"
+            if hours > 12 then hours = hours - 12 end
+        end
+        if hours == 0 then hours = 12 end
+        return string.format("%d:%02d %s", hours, minutes, period)
     end
-    if hours == 0 then hours = 12 end
-
-    return string.format("%d:%02d %s", hours, minutes, period)
 end
 
 local function getTimeOfDay(time)
@@ -48,7 +51,28 @@ end
 return BaseView.custom({
     sleepTime = 1,
 
-    configSchema = nil,
+    configSchema = {
+        {
+            key = "timeFormat",
+            type = "select",
+            label = "Time Format",
+            options = {
+                { value = "12h", label = "12-hour (AM/PM)" },
+                { value = "24h", label = "24-hour" }
+            },
+            default = "12h"
+        },
+        {
+            key = "showBiome",
+            type = "select",
+            label = "Show Biome",
+            options = {
+                { value = true, label = "Yes" },
+                { value = false, label = "No" }
+            },
+            default = true
+        }
+    },
 
     mount = function()
         return true  -- Always available, falls back to os.time()
@@ -56,6 +80,8 @@ return BaseView.custom({
 
     init = function(self, config)
         self.detector = peripheral.find("environment_detector")
+        self.use24h = config.timeFormat == "24h"
+        self.showBiome = config.showBiome ~= false
     end,
 
     getData = function(self)
@@ -120,7 +146,7 @@ return BaseView.custom({
     end,
 
     render = function(self, data)
-        local timeStr = formatTime(data.time)
+        local timeStr = formatTime(data.time, self.use24h)
         local timeOfDay, todColor = getTimeOfDay(data.time)
 
         -- Row 1: Title
@@ -132,9 +158,11 @@ return BaseView.custom({
         -- Row 4: Time of day
         MonitorHelpers.writeCentered(self.monitor, 4, timeOfDay, todColor)
 
-        -- Row 6: Weather
+        local row = 6
+
+        -- Weather
         self.monitor.setTextColor(colors.white)
-        self.monitor.setCursorPos(1, 6)
+        self.monitor.setCursorPos(1, row)
         self.monitor.write("Weather: ")
         if data.weather == "thunder" then
             self.monitor.setTextColor(colors.yellow)
@@ -146,30 +174,37 @@ return BaseView.custom({
             self.monitor.setTextColor(colors.green)
             self.monitor.write("Clear")
         end
+        row = row + 1
 
-        -- Row 7: Moon (only at night)
+        -- Moon (only at night)
         if data.time < 6 or data.time >= 20 then
             self.monitor.setTextColor(colors.white)
-            self.monitor.setCursorPos(1, 7)
+            self.monitor.setCursorPos(1, row)
             self.monitor.write("Moon: ")
             self.monitor.setTextColor(colors.lightGray)
             local moonName = MOON_PHASES[data.moonPhase] or "Unknown"
             self.monitor.write(Text.truncateMiddle(moonName, self.width - 6))
+            row = row + 1
         end
 
-        -- Row 8: Biome
-        self.monitor.setTextColor(colors.white)
-        self.monitor.setCursorPos(1, 8)
-        self.monitor.write("Biome: ")
-        self.monitor.setTextColor(colors.lime)
-        self.monitor.write(Text.truncateMiddle(data.biome, self.width - 7))
+        -- Biome (configurable)
+        if self.showBiome and row < self.height - 1 then
+            self.monitor.setTextColor(colors.white)
+            self.monitor.setCursorPos(1, row)
+            self.monitor.write("Biome: ")
+            self.monitor.setTextColor(colors.lime)
+            self.monitor.write(Text.truncateMiddle(data.biome, self.width - 7))
+            row = row + 1
+        end
 
-        -- Row 9: Dimension
-        self.monitor.setTextColor(colors.white)
-        self.monitor.setCursorPos(1, 9)
-        self.monitor.write("Dim: ")
-        self.monitor.setTextColor(colors.purple)
-        self.monitor.write(Text.truncateMiddle(data.dimension, self.width - 5))
+        -- Dimension
+        if row < self.height - 1 then
+            self.monitor.setTextColor(colors.white)
+            self.monitor.setCursorPos(1, row)
+            self.monitor.write("Dim: ")
+            self.monitor.setTextColor(colors.purple)
+            self.monitor.write(Text.truncateMiddle(data.dimension, self.width - 5))
+        end
 
         -- Bottom: Detector status
         self.monitor.setTextColor(colors.gray)

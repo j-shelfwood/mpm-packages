@@ -95,9 +95,15 @@ return BaseView.grid({
             amountColor = colors.orange
         end
 
+        -- Prefer displayName over registryName
+        local name = fluid.displayName or fluid.registryName or "Unknown"
+        if name == fluid.registryName then
+            name = Text.prettifyName(name)
+        end
+
         return {
             lines = {
-                Text.prettifyName(fluid.registryName or "Unknown"),
+                name,
                 Text.formatNumber(buckets, 0) .. "B"
             },
             colors = { colors.white, amountColor }
