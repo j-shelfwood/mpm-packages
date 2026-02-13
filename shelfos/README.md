@@ -16,7 +16,7 @@ That's it. ShelfOS auto-discovers connected monitors and assigns appropriate vie
 - **Zero-touch setup** - Automatically detects monitors and peripherals
 - **Touch controls** - Tap to reveal settings button, tap again to open view selector
 - **Smart view assignment** - Assigns relevant views based on connected peripherals
-- **Network swarm** - Link multiple computers into a unified system
+- **Network swarm** - Link multiple computers to share peripherals across your base
 - **Secure networking** - HMAC-signed messages for multiplayer servers
 
 ## Terminal Menu
@@ -43,9 +43,9 @@ Press `M` to open the monitors overview:
 === Monitors ===
 
 [1] monitor_0
-    View: StorageCapacityDisplay
+    View: StorageGraph
 [2] monitor_1
-    View: InventoryDisplay
+    View: ItemBrowser
 
 Commands:
   [1-2] Select monitor to cycle view
@@ -58,12 +58,12 @@ Select a monitor number to change its view:
 === Select View ===
 
 Monitor: monitor_0
-Current: StorageCapacityDisplay
+Current: StorageGraph
 
-[1] StorageCapacityDisplay <--
-[2] InventoryDisplay
-[3] FluidMonitor
-[4] WeatherClock
+[1] StorageGraph <--
+[2] ItemBrowser
+[3] FluidBrowser
+[4] Clock
 
 [N] Next view  [P] Previous view  [B] Back
 ```
@@ -84,10 +84,10 @@ When you tap `[*]`, a menu appears directly on the monitor:
 +----------------------------------+
 |         Select View              |  <- Blue title bar
 +----------------------------------+
-|  > StorageCapacityDisplay        |  <- Current view (highlighted)
-|    InventoryDisplay              |
-|    FluidMonitor                  |
-|    WeatherClock                  |
+|  > StorageGraph                  |  <- Current view (highlighted)
+|    ItemBrowser                   |
+|    FluidBrowser                  |
+|    Clock                         |
 +----------------------------------+
 |            Cancel                |  <- Red cancel bar
 +----------------------------------+
@@ -111,17 +111,23 @@ On first boot, ShelfOS:
 
 | Peripheral | Default View |
 |------------|--------------|
-| ME Bridge / RS Bridge | StorageCapacityDisplay |
-| Energy Storage | EnergyStatusDisplay |
-| Inventory | ChestDisplay |
-| Fluid Storage | FluidMonitor |
-| None | WeatherClock |
+| ME Bridge / RS Bridge | StorageGraph |
+| Energy Storage | EnergyGraph |
+| None | Clock |
 
-When multiple monitors are connected, ShelfOS assigns variety (StorageCapacity, Inventory, Fluids, etc.) rather than duplicates.
+When multiple monitors are connected, ShelfOS assigns variety (StorageGraph, ItemBrowser, EnergyGraph, etc.) rather than duplicates.
 
 ## Network Swarm
 
-Link multiple computers to work as a unified system.
+Link multiple computers to work as a unified system with **shared peripherals**.
+
+### What Linking Enables
+
+When computers join the same swarm:
+
+- **Peripheral Sharing** - ME Bridges, energy storage, and other peripherals are accessible from any computer in the swarm
+- **Remote Views** - A computer without a local ME Bridge can display AE2 views using a remote bridge
+- **Distributed Monitoring** - Place monitors anywhere in your base, connected to any swarm computer
 
 ### Creating a Network (Host Computer)
 
@@ -144,6 +150,8 @@ The computer will:
 2. Receive the shared secret
 3. Join the network
 
+After joining, **restart ShelfOS** to connect with shared peripherals.
+
 ### Network Requirements
 
 - **Wired modem** - Up to 256 blocks range (good for same-base)
@@ -156,14 +164,16 @@ The computer will:
 shelfos/
 ├── start.lua           # Entry point
 ├── core/
-│   ├── Kernel.lua      # Main orchestrator
+│   ├── Kernel.lua      # Main orchestrator (parallel event loops)
 │   ├── Config.lua      # Configuration management
-│   ├── Monitor.lua     # Per-monitor lifecycle
+│   ├── ConfigUI.lua    # View configuration UI
+│   ├── Monitor.lua     # Per-monitor lifecycle + window buffering
+│   ├── Terminal.lua    # Split terminal (logs + menu bar)
 │   └── Zone.lua        # Zone identity
-├── view/
-│   └── Manager.lua     # View loading (re-exports views/Manager)
 ├── input/
-│   └── Menu.lua        # Terminal menu UI
+│   └── Menu.lua        # Terminal menu handlers
+├── modes/
+│   └── headless.lua    # Headless peripheral host mode
 ├── pocket/
 │   ├── start.lua       # Pocket computer entry
 │   ├── App.lua         # Pocket UI
@@ -171,7 +181,7 @@ shelfos/
 └── tools/
     ├── setup.lua       # Configuration wizard
     ├── link.lua        # Network pairing
-    └── migrate.lua     # displays.config → shelfos.config migration
+    └── migrate.lua     # displays.config migration
 ```
 
 ## Configuration File
@@ -189,7 +199,7 @@ Stored at `/shelfos.config`:
         {
             peripheral = "monitor_0",
             label = "monitor_0",
-            view = "StorageCapacityDisplay",
+            view = "StorageGraph",
             viewConfig = {}
         }
     },
@@ -207,9 +217,9 @@ Stored at `/shelfos.config`:
 
 ## Dependencies
 
-- `views` - Display modules (StorageCapacityDisplay, etc.)
+- `views` - Display modules (StorageGraph, ItemBrowser, etc.)
 - `ui` - Touch zones, overlays, widgets
-- `net` - Crypto, protocol, discovery
+- `net` - Crypto, protocol, discovery, peripheral proxy
 - `peripherals` - AEInterface, etc.
 - `utils` - Common utilities
 
@@ -217,18 +227,61 @@ Stored at `/shelfos.config`:
 
 Views are provided by the `views` package:
 
-| View | Requires | Description |
-|------|----------|-------------|
-| StorageCapacityDisplay | ME/RS Bridge | AE2/RS storage capacity graph |
-| InventoryDisplay | ME/RS Bridge | Item list with search |
-| FluidMonitor | ME/RS Bridge | Fluid storage levels |
-| InventoryChangesDisplay | ME/RS Bridge | Recent item changes |
-| LowStockAlert | ME/RS Bridge | Low stock warnings |
-| ChestDisplay | Inventory | Vanilla chest contents |
-| EnergyStatusDisplay | Energy Storage | Energy levels |
-| MachineActivityDisplay | Any machine | Machine status |
-| WeatherClock | None | Time and weather |
-| CraftingQueueDisplay | ME Bridge | AE2 crafting status |
+### Storage & Items (ME/RS Bridge)
+
+| View | Description |
+|------|-------------|
+| `StorageGraph` | Storage capacity bar graph |
+| `StorageBreakdown` | Storage by type breakdown |
+| `NetworkDashboard` | Combined storage/energy overview |
+| `ItemBrowser` | Interactive item list with crafting |
+| `ItemList` | Grid display of all items |
+| `ItemGauge` | Single item monitor with crafting |
+| `ItemChanges` | Recent item flow tracking |
+| `CellHealth` | Storage cell health status |
+| `DriveStatus` | Drive bay status |
+
+### Fluids (ME/RS Bridge)
+
+| View | Description |
+|------|-------------|
+| `FluidBrowser` | Interactive fluid list with crafting |
+| `FluidList` | Grid display of all fluids |
+| `FluidGauge` | Single fluid monitor with crafting |
+| `FluidChanges` | Recent fluid flow tracking |
+
+### Chemicals (ME Bridge + Applied Mekanistics)
+
+| View | Description |
+|------|-------------|
+| `ChemicalBrowser` | Interactive chemical list |
+| `ChemicalList` | Grid display of all chemicals |
+| `ChemicalGauge` | Single chemical monitor |
+| `ChemicalChanges` | Recent chemical flow tracking |
+
+### Crafting (ME Bridge)
+
+| View | Description |
+|------|-------------|
+| `CraftingQueue` | Active crafting jobs |
+| `CraftingCPU` | Single CPU status |
+| `CPUOverview` | All crafting CPUs |
+| `CraftableBrowser` | Browse craftable items |
+| `PatternBrowser` | Browse crafting patterns |
+
+### Energy & Machines
+
+| View | Description |
+|------|-------------|
+| `EnergyGraph` | Energy storage graph |
+| `EnergyStatus` | Energy capacity display |
+| `MachineStatus` | Machine activity monitor |
+
+### General
+
+| View | Description |
+|------|-------------|
+| `Clock` | Time and weather display |
 
 ## Multiplayer Security
 
@@ -270,3 +323,8 @@ This imports your `displays.config` into ShelfOS format.
 - Press `Q` to quit and check for error messages
 - Verify peripheral connections
 - Press `R` to reset configuration, then restart
+
+### Remote peripherals not working
+- Ensure both computers have restarted after joining the swarm
+- Check that the host computer is running ShelfOS
+- Verify network connectivity (same modem type, in range)
