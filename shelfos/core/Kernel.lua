@@ -203,6 +203,17 @@ function Kernel:run()
     self:shutdown()
 end
 
+-- Reschedule renders for all monitors
+-- Called after blocking UI operations that may have discarded timer events
+-- This ensures all monitors continue rendering after menus/config close
+function Kernel:rescheduleAllMonitors()
+    for _, monitor in ipairs(self.monitors) do
+        if not monitor.inConfigMenu then
+            monitor:scheduleRender()
+        end
+    end
+end
+
 -- Single event loop - dispatches events to all monitors
 -- This replaces the problematic per-monitor parallel loops
 function Kernel:eventLoop()
@@ -220,6 +231,10 @@ function Kernel:eventLoop()
             local target = self:getMonitorByPeripheral(p1)
             if target then
                 target:handleTouch(p1, p2, p3)
+                -- IMPORTANT: Touch may have opened config menu which blocks
+                -- with os.pullEvent("monitor_touch"), discarding timer events.
+                -- Reschedule all monitors to recover lost timers.
+                self:rescheduleAllMonitors()
             end
 
         elseif event == "monitor_resize" then
@@ -232,6 +247,8 @@ function Kernel:eventLoop()
         elseif event == "key" then
             -- Handle menu keys
             self:handleMenuKey(p1)
+            -- Menu operations may block with filtered pullEvent, discarding timers
+            self:rescheduleAllMonitors()
 
         elseif event == "peripheral" or event == "peripheral_detach" then
             -- Rescan shared peripherals when hardware changes
