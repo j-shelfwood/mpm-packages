@@ -52,6 +52,9 @@ return BaseView.custom({
     end,
 
     getData = function(self)
+        -- Check interface is available
+        if not self.interface then return nil end
+
         if not self.chemicalId then
             return nil
         end

@@ -103,6 +103,9 @@ return BaseView.grid({
     end,
 
     getData = function(self)
+        -- Check interface is available
+        if not self.interface then return nil end
+
         -- Get all patterns
         local patterns = self.interface.bridge.getPatterns()
         if not patterns then return {} end

@@ -44,6 +44,9 @@ return BaseView.grid({
     end,
 
     getData = function(self)
+        -- Check interface is available
+        if not self.interface then return nil end
+
         -- Get all items
         local items = self.interface:items()
         if not items then return {} end

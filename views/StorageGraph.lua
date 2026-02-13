@@ -38,6 +38,9 @@ return BaseView.custom({
     end,
 
     getData = function(self)
+        -- Check interface is available
+        if not self.interface then return nil end
+
         -- Get storage data (with yields after peripheral calls)
         local used, total = 0, 0
 

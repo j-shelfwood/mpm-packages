@@ -44,6 +44,9 @@ return BaseView.grid({
     end,
 
     getData = function(self)
+        -- Check interface is available
+        if not self.interface then return nil end
+
         -- Get all fluids
         local fluids = self.interface:fluids()
         if not fluids then return {} end

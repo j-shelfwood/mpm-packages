@@ -35,6 +35,9 @@ return BaseView.grid({
     end,
 
     getData = function(self)
+        -- Check interface is available
+        if not self.interface then return nil end
+
         -- Get all CPUs
         local cpus = self.interface:getCraftingCPUs()
         if not cpus then return {} end

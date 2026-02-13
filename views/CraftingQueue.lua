@@ -35,6 +35,9 @@ return BaseView.custom({
     end,
 
     getData = function(self)
+        -- Check interface is available
+        if not self.interface then return nil end
+
         -- Get all crafting tasks
         local tasks = self.interface:getCraftingTasks()
         if not tasks then return {} end

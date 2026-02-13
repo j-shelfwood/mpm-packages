@@ -46,6 +46,9 @@ return BaseView.custom({
     end,
 
     getData = function(self)
+        -- Check interface is available
+        if not self.interface then return nil end
+
         -- Helper to get storage stats with error handling
         local function getStorageStats(storageType)
             local stats = {

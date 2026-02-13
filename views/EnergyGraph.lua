@@ -35,6 +35,9 @@ return BaseView.custom({
     end,
 
     getData = function(self)
+        -- Check interface is available
+        if not self.interface then return nil end
+
         -- Get energy data
         local energy = self.interface:energy()
         if not energy then return nil end

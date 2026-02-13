@@ -70,6 +70,9 @@ return BaseView.custom({
     end,
 
     getData = function(self)
+        -- Check interface is available
+        if not self.interface then return nil end
+
         -- Get cell data
         local cells = self.interface:getCells()
         if not cells then return {} end

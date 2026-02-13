@@ -34,6 +34,9 @@ return BaseView.grid({
     end,
 
     getData = function(self)
+        -- Check interface is available
+        if not self.interface then return nil end
+
         -- Get all drives
         local drives = self.interface.bridge.getDrives()
         if not drives then return {} end
