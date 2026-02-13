@@ -75,8 +75,9 @@ function Menu.showStatus(config, target)
 
         -- Swarm status line
         if peerCount > 0 then
-            table.insert(lines, "Swarm: " .. peerCount .. " peer(s) online")
-            table.insert(lines, "  Computer IDs: " .. table.concat(peerIds, ", "))
+            local peerWord = peerCount == 1 and "peer" or "peers"
+            table.insert(lines, "Swarm of " .. peerCount .. " " .. peerWord .. " online")
+            table.insert(lines, "  IDs: " .. table.concat(peerIds, ", "))
         else
             table.insert(lines, "Swarm: No peers found")
             table.insert(lines, "  (other computers may be offline)")
@@ -511,7 +512,8 @@ function Menu.showLink(config, target)
         target.setTextColor(colors.lime)
         target.setCursorPos(2, 3)
         if peerCount > 0 then
-            target.write("Swarm: " .. peerCount .. " peer(s) online")
+            local peerWord = peerCount == 1 and "peer" or "peers"
+            target.write("Swarm of " .. peerCount .. " " .. peerWord .. " online")
         else
             target.write("Swarm: Connected (no peers found)")
         end

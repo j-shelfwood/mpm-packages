@@ -6,23 +6,25 @@ local RemoteProxy = mpm('net/RemoteProxy')
 
 local RemotePeripheral = {}
 
--- Client instance (set via setClient)
-local client = nil
+-- Client instance stored in _G for truly global state
+-- This ensures setClient() in one module is visible to all others
+-- even if mpm() doesn't cache modules properly
+_G._shelfos_peripheralClient = _G._shelfos_peripheralClient  -- preserve existing
 
 -- Set the peripheral client instance
 -- @param c PeripheralClient instance
 function RemotePeripheral.setClient(c)
-    client = c
+    _G._shelfos_peripheralClient = c
 end
 
 -- Get the peripheral client instance
 function RemotePeripheral.getClient()
-    return client
+    return _G._shelfos_peripheralClient
 end
 
 -- Check if client is available
 function RemotePeripheral.hasClient()
-    return client ~= nil
+    return _G._shelfos_peripheralClient ~= nil
 end
 
 -- Find a peripheral by type (checks local first, then remote)
@@ -37,6 +39,7 @@ function RemotePeripheral.find(pType, filter)
     end
 
     -- Try remote
+    local client = _G._shelfos_peripheralClient
     if client then
         local remote = client:find(pType)
         if remote then
@@ -67,6 +70,7 @@ function RemotePeripheral.findAll(pType)
     end
 
     -- Get remotes
+    local client = _G._shelfos_peripheralClient
     if client then
         local remotes = client:findAll(pType)
         for _, p in ipairs(remotes) do
@@ -88,6 +92,7 @@ function RemotePeripheral.wrap(name)
     end
 
     -- Try remote
+    local client = _G._shelfos_peripheralClient
     if client then
         return client:wrap(name)
     end
@@ -100,6 +105,7 @@ end
 function RemotePeripheral.getNames()
     local names = peripheral.getNames()
 
+    local client = _G._shelfos_peripheralClient
     if client then
         local remoteNames = client:getNames()
         for _, name in ipairs(remoteNames) do
@@ -118,6 +124,7 @@ function RemotePeripheral.isPresent(name)
         return true
     end
 
+    local client = _G._shelfos_peripheralClient
     if client then
         return client:isPresent(name)
     end
@@ -144,6 +151,7 @@ function RemotePeripheral.getType(name)
     end
 
     -- Try remote
+    local client = _G._shelfos_peripheralClient
     if client then
         return client:getType(name)
     end
@@ -171,6 +179,7 @@ function RemotePeripheral.hasType(name, pType)
     end
 
     -- Try remote
+    local client = _G._shelfos_peripheralClient
     if client then
         return client:hasType(name, pType)
     end
@@ -189,6 +198,7 @@ function RemotePeripheral.getMethods(name)
     end
 
     -- Try remote
+    local client = _G._shelfos_peripheralClient
     if client then
         return client:getMethods(name)
     end
@@ -208,6 +218,7 @@ function RemotePeripheral.call(name, method, ...)
     end
 
     -- Try remote
+    local client = _G._shelfos_peripheralClient
     if client then
         local info = client.remotePeripherals[name]
         if info then
@@ -233,6 +244,7 @@ end
 -- @param timeout Seconds to wait
 -- @return Number of remote peripherals found
 function RemotePeripheral.discover(timeout)
+    local client = _G._shelfos_peripheralClient
     if client then
         return client:discover(timeout)
     end

@@ -4,9 +4,14 @@
 
 local Crypto = {}
 
--- Module state
-local _secret = nil
-local _nonces = {}  -- Track recent nonces to prevent replay
+-- Module state - use _G for truly global state that survives module reloading
+-- This ensures Crypto.setSecret() in one module is visible to all others
+-- even if mpm() doesn't cache modules properly
+_G._shelfos_crypto = _G._shelfos_crypto or {
+    secret = nil,
+    nonces = {}
+}
+local _state = _G._shelfos_crypto
 local NONCE_EXPIRY = 120000  -- 2 minutes in milliseconds
 local MAX_MESSAGE_AGE = 60000  -- 1 minute in milliseconds
 
@@ -34,12 +39,17 @@ function Crypto.setSecret(secret)
     if type(secret) ~= "string" or #secret < 16 then
         error("Secret must be a string of at least 16 characters")
     end
-    _secret = secret
+    _state.secret = secret
 end
 
 -- Check if secret is configured
 function Crypto.hasSecret()
-    return _secret ~= nil
+    return _state.secret ~= nil
+end
+
+-- Get current secret (for debugging)
+function Crypto.getSecret()
+    return _state.secret
 end
 
 -- Generate a random nonce
@@ -50,9 +60,9 @@ end
 -- Clean expired nonces
 local function cleanNonces()
     local now = os.epoch("utc")
-    for nonce, timestamp in pairs(_nonces) do
+    for nonce, timestamp in pairs(_state.nonces) do
         if now - timestamp > NONCE_EXPIRY then
-            _nonces[nonce] = nil
+            _state.nonces[nonce] = nil
         end
     end
 end
@@ -61,7 +71,7 @@ end
 -- @param data Table to sign
 -- @return Signed message envelope
 function Crypto.sign(data)
-    if not _secret then
+    if not _state.secret then
         error("Crypto secret not configured. Call Crypto.setSecret() first.")
     end
 
@@ -70,7 +80,7 @@ function Crypto.sign(data)
     local nonce = generateNonce()
 
     -- Create signature from payload + timestamp + nonce + secret
-    local signatureBase = payload .. tostring(timestamp) .. nonce .. _secret
+    local signatureBase = payload .. tostring(timestamp) .. nonce .. _state.secret
     local signature = hash(signatureBase)
 
     return {
@@ -86,7 +96,7 @@ end
 -- @param envelope The signed message envelope
 -- @return success (boolean), data (table or nil), error (string or nil)
 function Crypto.verify(envelope)
-    if not _secret then
+    if not _state.secret then
         return false, nil, "Crypto secret not configured"
     end
 
@@ -113,12 +123,12 @@ function Crypto.verify(envelope)
 
     -- Check nonce (prevent replay within time window)
     cleanNonces()
-    if _nonces[envelope.n] then
+    if _state.nonces[envelope.n] then
         return false, nil, "Duplicate nonce (replay attack)"
     end
 
     -- Verify signature
-    local signatureBase = envelope.p .. tostring(envelope.t) .. envelope.n .. _secret
+    local signatureBase = envelope.p .. tostring(envelope.t) .. envelope.n .. _state.secret
     local expectedSignature = hash(signatureBase)
 
     if envelope.s ~= expectedSignature then
@@ -126,7 +136,7 @@ function Crypto.verify(envelope)
     end
 
     -- Record nonce
-    _nonces[envelope.n] = envelope.t
+    _state.nonces[envelope.n] = envelope.t
 
     -- Deserialize payload
     local ok, data = pcall(textutils.unserialize, envelope.p)
