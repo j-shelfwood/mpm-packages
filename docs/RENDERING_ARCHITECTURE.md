@@ -26,6 +26,8 @@ once more.
 
 ### Architecture
 
+ShelfOS uses a **two-phase render** to allow yielding in `getData()` without blocking other monitors:
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                        Monitor.lua                          │
@@ -34,24 +36,44 @@ once more.
 │  self.buffer = window.create(peripheral, 1, 1, w, h, true) │
 │                                                             │
 │  render():                                                  │
-│    1. buffer.setVisible(false)  -- hide during render      │
-│    2. buffer.clear()            -- clear invisible buffer  │
-│    3. view.render(viewInstance) -- view draws to buffer    │
-│    4. buffer.setVisible(true)   -- atomic flip (instant!)  │
+│    ─── PHASE 1: Data Fetch (buffer VISIBLE) ───            │
+│    1. data = view.getData(viewInstance)  -- CAN yield here │
+│       (Other monitors can fire/render during yields)       │
+│                                                             │
+│    ─── PHASE 2: Draw (buffer HIDDEN) ───                   │
+│    2. buffer.setVisible(false)  -- hide during render      │
+│    3. buffer.clear()            -- clear invisible buffer  │
+│    4. view.renderWithData(viewInstance, data)  -- NO yield │
+│    5. buffer.setVisible(true)   -- atomic flip (instant!)  │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                         View                                │
+│                         View (BaseView)                     │
 ├─────────────────────────────────────────────────────────────┤
 │  self.monitor = buffer  -- receives window, not peripheral │
 │                                                             │
-│  render():                                                  │
+│  getData(self):         -- PHASE 1: Can yield freely       │
+│    local items = self.interface:items()                    │
+│    Yield.yield()        -- OK here!                        │
+│    return processed_data                                    │
+│                                                             │
+│  renderWithData(self, data):  -- PHASE 2: No yields!       │
 │    -- DO NOT call self.monitor.clear()                      │
 │    -- DO NOT call Yield.yield()                             │
 │    -- Just draw content directly                            │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+### Why Two Phases?
+
+The key insight: **yielding while the buffer is hidden blocks other monitors**.
+
+In CC:Tweaked's single-threaded event loop, `yield()` allows other coroutines (timers for other monitors) to run. If a monitor yields while its buffer is hidden, the user sees a blank screen during that time.
+
+By splitting into two phases:
+1. **getData()** can yield freely while buffer is visible (showing previous frame)
+2. **renderWithData()** runs without yields while buffer is hidden (fast atomic update)
 
 ## Rules for View Development
 
@@ -119,7 +141,11 @@ end
 
 ### BaseView.lua
 - Provides declarative view framework
-- Calls `getData()` then `render()`
+- Exposes two-phase API for Monitor.lua:
+  - `getData(self)` - Phase 1, can yield
+  - `renderWithData(self, data)` - Phase 2, no yields
+  - `renderError(self, errorMsg)` - Error state display
+- Also provides legacy `render()` for non-ShelfOS usage
 - Does NOT clear monitor
 - Does NOT yield in render path
 

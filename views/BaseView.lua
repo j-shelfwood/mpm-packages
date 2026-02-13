@@ -175,6 +175,60 @@ function BaseView.create(definition)
 
     local viewType = definition.type or BaseView.Type.CUSTOM
 
+    -- Internal render implementation (draws to monitor, no getData)
+    -- Used by renderWithData and legacy render
+    local function doRender(self, data)
+        -- Set up text colors (buffer already cleared by Monitor.lua)
+        self.monitor.setBackgroundColor(colors.black)
+        self.monitor.setTextColor(colors.white)
+
+        -- Handle empty state
+        local isEmpty = not data or (type(data) == "table" and #data == 0)
+        if isEmpty and viewType ~= BaseView.Type.CUSTOM then
+            if definition.renderEmpty then
+                definition.renderEmpty(self, data)
+            else
+                local emptyMsg = definition.emptyMessage or "No data"
+                defaultRenderEmpty(self, emptyMsg)
+            end
+            return
+        end
+
+        -- For custom views, delegate entirely to user's render
+        if viewType == BaseView.Type.CUSTOM then
+            definition.render(self, data)
+            return
+        end
+
+        -- Render header (for grid/list views)
+        local startY = 1
+        if definition.header then
+            local header = definition.header(self, data)
+            startY = renderHeader(self, header)
+        end
+
+        -- Render content based on view type
+        if viewType == BaseView.Type.GRID then
+            renderGrid(self, data, definition.formatItem, startY, definition)
+            -- Re-render header after grid (grid may have repositioned things)
+            if definition.header then
+                local header = definition.header(self, data)
+                renderHeader(self, header)
+            end
+        elseif viewType == BaseView.Type.LIST then
+            renderList(self, data, definition.formatItem, startY, definition)
+        end
+
+        -- Render footer
+        if definition.footer then
+            local footer = definition.footer(self, data)
+            renderFooter(self, footer)
+        end
+
+        -- Reset text color
+        self.monitor.setTextColor(colors.white)
+    end
+
     return {
         sleepTime = definition.sleepTime or 1,
         configSchema = definition.configSchema or {},
@@ -204,21 +258,47 @@ function BaseView.create(definition)
             return self
         end,
 
-        -- Main render function (framework-managed)
-        -- NOTE: Monitor.lua handles buffer clearing via window API
-        -- Views should NOT call clear() - it causes flicker
-        render = function(self)
-            -- Set up text colors (buffer already cleared by Monitor.lua)
+        -- ================================================================
+        -- TWO-PHASE RENDER API (for Monitor.lua window buffering)
+        -- ================================================================
+        -- Phase 1: getData() - CAN yield, call while buffer VISIBLE
+        -- Phase 2: renderWithData(data) - NO yields, call while buffer HIDDEN
+        -- ================================================================
+
+        -- Phase 1: Fetch data (may yield - safe for multi-monitor)
+        -- Called by Monitor.lua BEFORE hiding buffer
+        getData = function(self)
+            return definition.getData(self)
+        end,
+
+        -- Phase 2: Render with pre-fetched data (no yields)
+        -- Called by Monitor.lua AFTER hiding buffer
+        renderWithData = function(self, data)
+            doRender(self, data)
+        end,
+
+        -- Render error state (used when getData fails)
+        renderError = function(self, errorMsg)
             self.monitor.setBackgroundColor(colors.black)
             self.monitor.setTextColor(colors.white)
+            errorMsg = errorMsg or definition.errorMessage or "Error loading data"
+            if definition.renderError then
+                definition.renderError(self, errorMsg)
+            else
+                defaultRenderError(self, errorMsg)
+            end
+        end,
 
+        -- Legacy render function (combines getData + render)
+        -- NOTE: Monitor.lua should use getData/renderWithData for proper buffering
+        -- This function exists for backwards compatibility with non-ShelfOS usage
+        render = function(self)
             -- 1. Get data with error handling
-            -- NOTE: Yield.yield() removed from render path - it causes
-            -- context switching that breaks multi-monitor rendering.
-            -- Views should yield inside getData() if needed.
             local ok, data = pcall(definition.getData, self)
 
             if not ok then
+                self.monitor.setBackgroundColor(colors.black)
+                self.monitor.setTextColor(colors.white)
                 local errorMsg = definition.errorMessage or "Error loading data"
                 if definition.renderError then
                     definition.renderError(self, errorMsg)
@@ -228,51 +308,8 @@ function BaseView.create(definition)
                 return
             end
 
-            -- 2. Handle empty state
-            local isEmpty = not data or (type(data) == "table" and #data == 0)
-            if isEmpty and viewType ~= BaseView.Type.CUSTOM then
-                if definition.renderEmpty then
-                    definition.renderEmpty(self, data)
-                else
-                    local emptyMsg = definition.emptyMessage or "No data"
-                    defaultRenderEmpty(self, emptyMsg)
-                end
-                return
-            end
-
-            -- 3. For custom views, delegate entirely to user's render
-            if viewType == BaseView.Type.CUSTOM then
-                definition.render(self, data)
-                return
-            end
-
-            -- 4. Render header (for grid/list views)
-            local startY = 1
-            if definition.header then
-                local header = definition.header(self, data)
-                startY = renderHeader(self, header)
-            end
-
-            -- 5. Render content based on view type
-            if viewType == BaseView.Type.GRID then
-                renderGrid(self, data, definition.formatItem, startY, definition)
-                -- Re-render header after grid (grid may have repositioned things)
-                if definition.header then
-                    local header = definition.header(self, data)
-                    renderHeader(self, header)
-                end
-            elseif viewType == BaseView.Type.LIST then
-                renderList(self, data, definition.formatItem, startY, definition)
-            end
-
-            -- 6. Render footer
-            if definition.footer then
-                local footer = definition.footer(self, data)
-                renderFooter(self, footer)
-            end
-
-            -- Reset text color
-            self.monitor.setTextColor(colors.white)
+            -- 2. Delegate to shared render implementation
+            doRender(self, data)
         end
     }
 end

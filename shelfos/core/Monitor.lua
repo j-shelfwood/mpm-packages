@@ -337,37 +337,92 @@ function Monitor:closeConfigMenu()
 end
 
 -- Render the view using window buffering for flicker-free updates
+-- ============================================================================
+-- TWO-PHASE RENDERING (see docs/RENDERING_ARCHITECTURE.md)
+-- ============================================================================
+-- Phase 1: getData() - CAN yield, buffer stays VISIBLE
+--          Other monitor timers can fire during yields
+-- Phase 2: renderWithData() - NO yields, buffer HIDDEN
+--          Drawing happens atomically, then buffer flipped visible
+-- ============================================================================
 function Monitor:render()
     if self.inConfigMenu or not self.viewInstance then
         return
     end
 
-    -- Hide buffer before rendering (prevents flicker)
-    self.buffer.setVisible(false)
+    -- ========================================================================
+    -- PHASE 1: Fetch data (may yield - buffer stays VISIBLE)
+    -- ========================================================================
+    -- This allows other monitor timers to fire and render while we wait.
+    -- Yields in getData() won't cause other monitors to see a blank screen.
+    local data, dataErr
+    local getDataOk = true
 
-    -- Clear buffer and render view
+    if self.view.getData then
+        -- New two-phase API
+        getDataOk, dataErr = pcall(function()
+            data = self.view.getData(self.viewInstance)
+        end)
+    end
+
+    -- ========================================================================
+    -- PHASE 2: Draw to buffer (no yields - buffer HIDDEN)
+    -- ========================================================================
+    -- Hide buffer, clear, render, then atomic flip.
+    -- All drawing happens to invisible buffer for flicker-free updates.
+    self.buffer.setVisible(false)
     self.buffer.setBackgroundColor(colors.black)
     self.buffer.clear()
 
-    local ok, err = pcall(self.view.render, self.viewInstance)
-    if not ok then
+    if not getDataOk then
         -- Log full error to terminal
-        print("[Monitor] Render error in " .. (self.viewName or "unknown") .. ": " .. tostring(err))
+        print("[Monitor] getData error in " .. (self.viewName or "unknown") .. ": " .. tostring(dataErr))
 
-        -- Show error on buffer
-        self.buffer.setCursorPos(1, 1)
-        self.buffer.setTextColor(colors.red)
-        self.buffer.write("Render Error")
+        -- Use view's error renderer if available
+        if self.view.renderError then
+            pcall(self.view.renderError, self.viewInstance, tostring(dataErr))
+        else
+            -- Fallback error display
+            self.buffer.setCursorPos(1, 1)
+            self.buffer.setTextColor(colors.red)
+            self.buffer.write("Data Error")
 
-        -- Show truncated error message if room
-        if self.bufferHeight >= 3 and err then
-            self.buffer.setCursorPos(1, 3)
-            self.buffer.setTextColor(colors.gray)
-            local errStr = tostring(err):sub(1, self.bufferWidth)
-            self.buffer.write(errStr)
+            if self.bufferHeight >= 3 and dataErr then
+                self.buffer.setCursorPos(1, 3)
+                self.buffer.setTextColor(colors.gray)
+                local errStr = tostring(dataErr):sub(1, self.bufferWidth)
+                self.buffer.write(errStr)
+            end
+            self.buffer.setTextColor(colors.white)
+        end
+    else
+        -- Render content with fetched data
+        local renderOk, renderErr
+
+        if self.view.renderWithData then
+            -- New two-phase API
+            renderOk, renderErr = pcall(self.view.renderWithData, self.viewInstance, data)
+        else
+            -- Legacy: view.render does both getData and draw
+            -- This path yields while buffer hidden (breaks multi-monitor)
+            renderOk, renderErr = pcall(self.view.render, self.viewInstance)
         end
 
-        self.buffer.setTextColor(colors.white)
+        if not renderOk then
+            print("[Monitor] Render error in " .. (self.viewName or "unknown") .. ": " .. tostring(renderErr))
+
+            self.buffer.setCursorPos(1, 1)
+            self.buffer.setTextColor(colors.red)
+            self.buffer.write("Render Error")
+
+            if self.bufferHeight >= 3 and renderErr then
+                self.buffer.setCursorPos(1, 3)
+                self.buffer.setTextColor(colors.gray)
+                local errStr = tostring(renderErr):sub(1, self.bufferWidth)
+                self.buffer.write(errStr)
+            end
+            self.buffer.setTextColor(colors.white)
+        end
     end
 
     -- Redraw settings button if showing (on buffer)
