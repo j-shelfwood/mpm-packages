@@ -121,7 +121,7 @@ When multiple monitors are connected, ShelfOS assigns variety (StorageGraph, Ite
 
 Link multiple computers to work as a unified system with **shared peripherals**.
 
-### What Linking Enables
+### What Swarm Enables
 
 When computers join the same swarm:
 
@@ -129,40 +129,65 @@ When computers join the same swarm:
 - **Remote Views** - A computer without a local ME Bridge can display AE2 views using a remote bridge
 - **Distributed Monitoring** - Place monitors anywhere in your base, connected to any swarm computer
 
-### Creating a Network (Host Computer)
+### Pocket Computer as Controller
 
-1. Press `L` to open the Link menu
-2. Select "Create new network"
-3. Note the pairing code displayed
+ShelfOS uses a **pocket-as-queen** architecture:
 
-This generates:
-- A shared secret for secure communication
-- A pairing code to share with other computers
+- Your **pocket computer** holds the swarm secret and acts as the controller
+- **Zone computers** (with monitors) must be paired with your pocket to join
+- This ensures only you can add computers to your swarm
 
-### Joining a Network (Other Computers)
+### Setting Up Your Swarm
 
-1. Press `L` to open the Link menu
-2. Select "Join existing network"
-3. Enter the pairing code from the host
+#### Step 1: Create Swarm on Pocket
 
-The computer will:
-1. Contact the host over rednet
-2. Receive the shared secret
-3. Join the network
+1. Install ShelfOS on an **Advanced Pocket Computer** (with ender modem recommended)
+2. Run `mpm run shelfos` - auto-detects pocket mode
+3. Select **"2. Create Swarm"**
+4. Note the pairing code displayed
 
-After joining, **restart ShelfOS** to connect with shared peripherals.
+#### Step 2: Pair Zone Computers
 
-### Network Requirements
+On each zone computer (with monitors):
 
-- **Wired modem** - Up to 256 blocks range (good for same-base)
-- **Wireless modem** - Limited range, same dimension only
-- **Ender modem** - Cross-dimension, unlimited range (recommended for distributed bases)
+1. Run `mpm run shelfos`
+2. You'll see: "Not in swarm - Press L -> Accept from pocket"
+3. Press `L` -> **"Accept from pocket"**
+4. On your pocket: Select **"2. Add Computer"**
+5. Select the zone computer from the list, press Enter
+6. Zone receives secret and shows "Pairing successful!"
+7. **Restart ShelfOS** on the zone to connect
+
+#### Step 3: Verify Connection
+
+After restart, the zone should show:
+- "Network: wireless/ender modem"
+- Swarm peer count
+- Remote peripherals discovered
+
+### Alternative: Zone-to-Zone Pairing
+
+If you already have one zone in the swarm, it can share the secret:
+
+1. On existing zone: Press `L` -> **"Host pairing session"**
+2. On new zone: Press `L` -> **"Join existing swarm"** -> enter code
+3. Restart new zone
+
+### Modem Requirements
+
+| Modem Type | Range | Cross-Dimension |
+|------------|-------|-----------------|
+| Wired | ~256 blocks | No |
+| Wireless | ~64 blocks | No |
+| Ender | Unlimited | Yes |
+
+**Recommended:** Ender modem for pocket (unlimited range, works everywhere)
 
 ## Architecture
 
 ```
 shelfos/
-├── start.lua           # Entry point
+├── start.lua           # Entry point (auto-detects pocket/display/headless)
 ├── core/
 │   ├── Kernel.lua      # Main orchestrator (parallel event loops)
 │   ├── Config.lua      # Configuration management
@@ -176,13 +201,20 @@ shelfos/
 │   └── headless.lua    # Headless peripheral host mode
 ├── pocket/
 │   ├── start.lua       # Pocket computer entry
-│   ├── App.lua         # Pocket UI
+│   ├── App.lua         # Pocket UI + swarm management
 │   └── Notifications.lua
 └── tools/
     ├── setup.lua       # Configuration wizard
-    ├── link.lua        # Network pairing
+    ├── link.lua        # Network pairing CLI
+    ├── pair_accept.lua # Bootstrap pairing (headless nodes)
     └── migrate.lua     # displays.config migration
 ```
+
+### Technical Documentation
+
+- **[Swarm Architecture](../docs/SWARM_ARCHITECTURE.md)** - Detailed networking docs
+- **[Rendering Architecture](../docs/RENDERING_ARCHITECTURE.md)** - Window buffering, view lifecycle
+- **[Peripheral Proxy](../docs/PERIPHERAL_PROXY_ARCHITECTURE.md)** - Remote peripheral system
 
 ## Configuration File
 
