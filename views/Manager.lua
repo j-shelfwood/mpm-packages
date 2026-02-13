@@ -5,6 +5,17 @@ local Yield = mpm('utils/Yield')
 
 local Manager = {}
 
+-- Get the peripheral finder (local or remote-aware)
+local function getPeripheralAPI()
+    -- Try to load RemotePeripheral for network support
+    local ok, RemotePeripheral = pcall(mpm, 'net/RemotePeripheral')
+    if ok and RemotePeripheral and RemotePeripheral.hasClient() then
+        return RemotePeripheral
+    end
+    -- Fall back to standard peripheral API
+    return peripheral
+end
+
 -- Cache of loaded views
 local viewCache = {}
 
@@ -31,8 +42,8 @@ function Manager.getAvailableViews()
 
     local views = {}
     for _, filename in ipairs(manifest.files or {}) do
-        -- Skip Manager.lua itself
-        if filename ~= "Manager.lua" then
+        -- Skip utility files (not actual views)
+        if filename ~= "Manager.lua" and filename ~= "BaseView.lua" then
             -- Remove .lua extension
             local viewName = filename:gsub("%.lua$", "")
             table.insert(views, viewName)
@@ -165,12 +176,14 @@ end
 -- Used for auto-discovery when no config exists
 -- @return viewName, reason
 function Manager.suggestView()
+    local api = getPeripheralAPI()
+
     -- Priority order: most specific peripheral first
     local suggestions = {
-        { check = function() return peripheral.find("me_bridge") end, view = "StorageGraph", reason = "AE2 ME Bridge detected" },
-        { check = function() return peripheral.find("rsBridge") end, view = "StorageGraph", reason = "RS Bridge detected" },
-        { check = function() return peripheral.find("energyStorage") end, view = "EnergyGraph", reason = "Energy storage detected" },
-        { check = function() return peripheral.find("environment_detector") end, view = "Clock", reason = "Environment detector found" },
+        { check = function() return api.find("me_bridge") end, view = "StorageGraph", reason = "AE2 ME Bridge detected" },
+        { check = function() return api.find("rsBridge") end, view = "StorageGraph", reason = "RS Bridge detected" },
+        { check = function() return api.find("energyStorage") end, view = "EnergyGraph", reason = "Energy storage detected" },
+        { check = function() return api.find("environment_detector") end, view = "Clock", reason = "Environment detector found" },
     }
 
     for idx, suggestion in ipairs(suggestions) do
