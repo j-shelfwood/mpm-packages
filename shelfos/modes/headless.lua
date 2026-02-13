@@ -6,6 +6,7 @@ local Config = mpm('shelfos/core/Config')
 local Channel = mpm('net/Channel')
 local PeripheralHost = mpm('net/PeripheralHost')
 local Crypto = mpm('net/Crypto')
+local EventUtils = mpm('utils/EventUtils')
 
 local headless = {}
 
@@ -92,7 +93,7 @@ function headless.run()
         print("    Attach a wireless or ender modem")
         print("")
         print("Press any key to exit...")
-        os.pullEvent("key")
+        EventUtils.pullEvent("key")
         return
     end
 

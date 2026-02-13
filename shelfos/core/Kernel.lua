@@ -9,6 +9,7 @@ local Terminal = mpm('shelfos/core/Terminal')
 local Controller = mpm('ui/Controller')
 local Menu = mpm('shelfos/input/Menu')
 local ViewManager = mpm('views/Manager')
+local EventUtils = mpm('utils/EventUtils')
 
 local Kernel = {}
 Kernel.__index = Kernel
@@ -380,7 +381,7 @@ function Kernel:createNetwork()
     print("")
     print("Share this code with other computers.")
     print("Press any key to continue...")
-    os.pullEvent("key")
+    EventUtils.pullEvent("key")
 end
 
 -- Join an existing network

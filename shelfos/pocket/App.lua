@@ -6,6 +6,7 @@ local Crypto = mpm('net/Crypto')
 local Protocol = mpm('net/Protocol')
 local Discovery = mpm('net/Discovery')
 local Notifications = mpm('shelfos/pocket/Notifications')
+local EventUtils = mpm('utils/EventUtils')
 
 local App = {}
 App.__index = App
@@ -223,7 +224,7 @@ function App:discoverZones()
 
     print("")
     print("Press any key...")
-    os.pullEvent("key")
+    EventUtils.pullEvent("key")
 end
 
 -- View notifications
@@ -260,7 +261,7 @@ function App:viewNotifications()
     print("")
     print("C to clear, any other key to return")
 
-    local event, key = os.pullEvent("key")
+    local event, key = EventUtils.pullEvent("key")
     if key == keys.c then
         self.notifications:clear()
     end
@@ -275,7 +276,7 @@ function App:run()
     self.running = true
     print("")
     print("Press any key to continue...")
-    os.pullEvent("key")
+    EventUtils.pullEvent("key")
 
     while self.running do
         self:showMainMenu()

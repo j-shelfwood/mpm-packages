@@ -1,12 +1,13 @@
 {
   "name": "utils",
-  "description": "Utility scripts package - Text formatting, grid display, theming, key mappings",
+  "description": "Utility scripts package - Text formatting, grid display, theming, key mappings, event handling",
   "files": [
     "GridDisplay.lua",
     "MonitorHelpers.lua",
     "Text.lua",
     "Theme.lua",
     "Keys.lua",
-    "Yield.lua"
+    "Yield.lua",
+    "EventUtils.lua"
   ]
 }
