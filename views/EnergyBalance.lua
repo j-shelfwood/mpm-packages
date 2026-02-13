@@ -36,6 +36,9 @@ return BaseView.custom({
     end,
 
     getData = function(self)
+        -- Check interface is available
+        if not self.interface then return nil end
+
         -- Get energy data (base methods from AEInterface)
         local energy = self.interface:energy()
         if not energy then return nil end
@@ -225,6 +228,19 @@ return BaseView.custom({
         self.monitor.write(Text.truncateMiddle(warningStr, self.width))
 
         self.monitor.setTextColor(colors.white)
+    end,
+
+    renderEmpty = function(self)
+        self.monitor.setTextColor(colors.white)
+        self.monitor.setCursorPos(1, 1)
+        self.monitor.write("Energy Balance")
+
+        self.monitor.setTextColor(colors.gray)
+        local midY = math.floor(self.height / 2)
+        local msg = "No energy data"
+        local x = math.max(1, math.floor((self.width - #msg) / 2) + 1)
+        self.monitor.setCursorPos(x, midY)
+        self.monitor.write(msg)
     end,
 
     errorMessage = "Error fetching energy"

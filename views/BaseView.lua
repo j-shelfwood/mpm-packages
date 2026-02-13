@@ -182,9 +182,8 @@ function BaseView.create(definition)
         self.monitor.setBackgroundColor(colors.black)
         self.monitor.setTextColor(colors.white)
 
-        -- Handle empty state
-        local isEmpty = not data or (type(data) == "table" and #data == 0)
-        if isEmpty and viewType ~= BaseView.Type.CUSTOM then
+        -- Handle nil data (getData returned nil - likely peripheral unavailable)
+        if data == nil then
             if definition.renderEmpty then
                 definition.renderEmpty(self, data)
             else
@@ -195,8 +194,21 @@ function BaseView.create(definition)
         end
 
         -- For custom views, delegate entirely to user's render
+        -- (custom views handle their own empty table state)
         if viewType == BaseView.Type.CUSTOM then
             definition.render(self, data)
+            return
+        end
+
+        -- Handle empty table state for grid/list views
+        local isEmpty = type(data) == "table" and #data == 0
+        if isEmpty then
+            if definition.renderEmpty then
+                definition.renderEmpty(self, data)
+            else
+                local emptyMsg = definition.emptyMessage or "No data"
+                defaultRenderEmpty(self, emptyMsg)
+            end
             return
         end
 
