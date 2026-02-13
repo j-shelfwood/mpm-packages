@@ -24,19 +24,31 @@ function Channel.new(protocol)
 end
 
 -- Open the channel (find and open modem)
--- @param preferEnder Prefer ender modem over wireless
--- @return success, modemType ("ender", "wireless", or nil)
-function Channel:open(preferEnder)
-    -- Try to find modem
-    local ender = peripheral.find("ender_modem")
-    local wireless = peripheral.find("wireless_modem")
+-- @param preferWireless Prefer wireless/ender modem over wired (default: true)
+-- @return success, modemType ("wireless", "wired", or nil)
+function Channel:open(preferWireless)
+    -- CC:Tweaked: ALL modems are type "modem", distinguish via isWireless()
+    local modems = {peripheral.find("modem")}
 
-    if preferEnder and ender then
-        self.modem = ender
+    local wired = nil
+    local wireless = nil
+
+    for _, m in ipairs(modems) do
+        if m.isWireless() then
+            wireless = m  -- Could be wireless OR ender (both return isWireless=true)
+        else
+            wired = m
+        end
+    end
+
+    -- Select modem based on preference
+    -- Default prefers wireless/ender for unlimited range
+    if preferWireless ~= false and wireless then
+        self.modem = wireless
+    elseif wired then
+        self.modem = wired
     elseif wireless then
         self.modem = wireless
-    elseif ender then
-        self.modem = ender
     end
 
     if not self.modem then
@@ -47,7 +59,7 @@ function Channel:open(preferEnder)
     rednet.open(self.modemName)
     self.opened = true
 
-    local modemType = ender and self.modem == ender and "ender" or "wireless"
+    local modemType = self.modem.isWireless() and "wireless" or "wired"
     return true, modemType
 end
 

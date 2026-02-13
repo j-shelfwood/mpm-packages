@@ -84,14 +84,13 @@ end
 
 -- Draw the menu bar
 function Kernel:drawMenu()
-    local pairingCode = self.config.network and self.config.network.pairingCode or nil
     Terminal.drawMenu({
         { key = "m", label = "Monitors" },
         { key = "s", label = "Status" },
         { key = "l", label = "Link" },
         { key = "r", label = "Reset" },
         { key = "q", label = "Quit" }
-    }, pairingCode)
+    })
 end
 
 -- Initialize all configured monitors
@@ -387,6 +386,14 @@ function Kernel:joinNetwork(code)
         return
     end
 
+    -- Close existing channel to avoid conflicts
+    local hadChannel = self.channel ~= nil
+    if self.channel then
+        rednet.unhost("shelfos")
+        self.channel:close()
+        self.channel = nil
+    end
+
     print("")
     print("[*] Searching for network host...")
 
@@ -406,13 +413,20 @@ function Kernel:joinNetwork(code)
     end
 
     if response.type == "pair_response" and response.success then
+        -- Save network credentials from swarm
         Config.setNetworkSecret(self.config, response.secret)
+        -- Inherit swarm's pairing code (so all swarm members use same code)
+        if response.pairingCode then
+            self.config.network.pairingCode = response.pairingCode
+        end
         self.config.zone.id = response.zoneId or self.config.zone.id
         Config.save(self.config)
 
-        print("[*] Successfully joined network!")
+        print("[*] Successfully joined swarm!")
         print("    Zone: " .. (response.zoneName or "Unknown"))
-        EventUtils.sleep(2)
+        print("")
+        print("[*] Restart ShelfOS to connect with swarm")
+        EventUtils.sleep(3)
     else
         print("[!] Pairing failed: " .. (response.error or "Unknown error"))
         EventUtils.sleep(2)

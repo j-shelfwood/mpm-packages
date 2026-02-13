@@ -159,6 +159,13 @@ end
 -- Generate a random secret (for initial setup)
 -- @return A random 32-character secret
 function Crypto.generateSecret()
+    -- Seed RNG with unique values to prevent identical secrets on different computers
+    -- Combine: epoch time + computer ID + a memory address approximation
+    local seed = os.epoch("utc") + (os.getComputerID() * 100000)
+    math.randomseed(seed)
+    -- Burn a few values to improve randomness after seeding
+    for _ = 1, 10 do math.random() end
+
     local chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
     local secret = ""
     for i = 1, 32 do

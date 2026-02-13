@@ -120,11 +120,12 @@ local function hostPairing()
                 if message.type == "pair_request" then
                     -- Validate pairing code
                     if message.code == config.network.pairingCode then
-                        -- Send success response with secret
+                        -- Send success response with secret and swarm pairing code
                         local response = {
                             type = "pair_response",
                             success = true,
                             secret = config.network.secret,
+                            pairingCode = config.network.pairingCode,  -- Share swarm code
                             zoneId = config.zone.id,
                             zoneName = config.zone.name
                         }
