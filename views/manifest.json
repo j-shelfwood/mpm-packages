@@ -5,6 +5,7 @@
   "files": [
     "BaseView.lua",
     "Manager.lua",
+    "factories/ChangesFactory.lua",
     "Clock.lua",
     "MachineStatus.lua",
     "NetworkDashboard.lua",
