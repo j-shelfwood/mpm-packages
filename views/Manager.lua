@@ -224,13 +224,15 @@ function Manager.suggestViewsForMonitors(monitorCount)
         return suggestions
     end
 
+    local api = getPeripheralAPI()
+
     -- Build prioritized list based on peripherals (with yields)
     local prioritized = {}
 
-    -- Check for ME/RS bridge first
-    local hasMeBridge = peripheral.find("me_bridge")
+    -- Check for ME/RS bridge first (local or remote)
+    local hasMeBridge = api.find("me_bridge")
     Yield.yield()
-    local hasRsBridge = peripheral.find("rsBridge")
+    local hasRsBridge = api.find("rsBridge")
     Yield.yield()
 
     if hasMeBridge or hasRsBridge then
@@ -244,8 +246,8 @@ function Manager.suggestViewsForMonitors(monitorCount)
         end
     end
 
-    -- Add energy if available
-    local hasEnergy = peripheral.find("energyStorage")
+    -- Add energy if available (local or remote)
+    local hasEnergy = api.find("energyStorage")
     Yield.yield()
 
     if hasEnergy then

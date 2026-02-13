@@ -64,11 +64,11 @@ function Kernel:boot()
     self.zone = Zone.new(self.config.zone)
     print("[ShelfOS] Zone: " .. self.zone:getName())
 
-    -- Initialize monitors
-    self:initializeMonitors()
-
-    -- Initialize networking (optional)
+    -- Initialize networking FIRST (so RemotePeripheral is available for view mounting)
     self:initializeNetwork()
+
+    -- Initialize monitors (views can now see remote peripherals)
+    self:initializeMonitors()
 
     if #self.monitors == 0 then
         print("[ShelfOS] No monitors connected.")
