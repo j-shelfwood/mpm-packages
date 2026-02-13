@@ -51,12 +51,43 @@ function Menu.showStatus(config, target)
 
     table.insert(lines, "")
 
-    -- Network status
-    local networkStatus = config.network.enabled and "enabled" or "standalone"
-    table.insert(lines, "Network: " .. networkStatus)
+    -- Network/Swarm status
+    if config.network.enabled then
+        -- Check for swarm peers using native rednet.lookup
+        local peerCount = 0
+        local peerIds = {}
+        local modemOpen = false
 
-    if config.network.pairingCode then
-        table.insert(lines, "Pairing code: " .. config.network.pairingCode)
+        -- Check if rednet is available (modem must be open)
+        for _, name in ipairs(peripheral.getNames()) do
+            if peripheral.hasType(name, "modem") then
+                if rednet.isOpen(name) then
+                    modemOpen = true
+                    break
+                end
+            end
+        end
+
+        if modemOpen then
+            peerIds = {rednet.lookup("shelfos")}
+            peerCount = #peerIds
+        end
+
+        -- Swarm status line
+        if peerCount > 0 then
+            table.insert(lines, "Swarm: " .. peerCount .. " peer(s) online")
+            table.insert(lines, "  Computer IDs: " .. table.concat(peerIds, ", "))
+        else
+            table.insert(lines, "Swarm: No peers found")
+            table.insert(lines, "  (other computers may be offline)")
+        end
+
+        table.insert(lines, "")
+        table.insert(lines, "Pairing code: " .. (config.network.pairingCode or "N/A"))
+        table.insert(lines, "  (use this code to add computers)")
+    else
+        table.insert(lines, "Network: Standalone (not in swarm)")
+        table.insert(lines, "  Press [L] to create or join a swarm")
     end
 
     -- Local shared peripherals (shareable types)
@@ -81,7 +112,7 @@ function Menu.showStatus(config, target)
             table.insert(lines, "  (no shareable peripherals)")
         else
             for _, p in ipairs(shared) do
-                table.insert(lines, "  [" .. p.type .. "] " .. p.name)
+                table.insert(lines, "  " .. p.name .. " [" .. p.type .. "]")
             end
         end
     end
@@ -89,33 +120,35 @@ function Menu.showStatus(config, target)
     -- Remote peripherals (if available)
     local ok, RemotePeripheral = pcall(mpm, 'net/RemotePeripheral')
     if ok and RemotePeripheral and RemotePeripheral.hasClient() then
-        local remoteNames = RemotePeripheral.getNames()
-        local localNames = peripheral.getNames()
-        -- Filter to only show truly remote peripherals
-        local remoteOnly = {}
-        for _, name in ipairs(remoteNames) do
-            local isLocal = false
-            for _, localName in ipairs(localNames) do
-                if name == localName then
-                    isLocal = true
-                    break
-                end
-            end
-            if not isLocal then
-                table.insert(remoteOnly, name)
+        local client = RemotePeripheral.getClient()
+        local remotePeriphs = {}
+
+        -- Get remote peripherals with host info
+        if client and client.remotePeripherals then
+            for name, info in pairs(client.remotePeripherals) do
+                local hostZone = client.hostZones[info.hostId]
+                local hostName = hostZone and hostZone.zoneName or ("Computer #" .. info.hostId)
+                table.insert(remotePeriphs, {
+                    name = name,
+                    type = info.type,
+                    host = hostName
+                })
             end
         end
 
         table.insert(lines, "")
-        table.insert(lines, "Remote (" .. #remoteOnly .. " discovered):")
-        if #remoteOnly == 0 then
-            table.insert(lines, "  (none discovered)")
+        table.insert(lines, "Remote (" .. #remotePeriphs .. " available):")
+        if #remotePeriphs == 0 then
+            table.insert(lines, "  (none discovered yet)")
         else
-            for _, name in ipairs(remoteOnly) do
-                local pType = RemotePeripheral.getType(name) or "unknown"
-                table.insert(lines, "  [" .. pType .. "] " .. name)
+            for _, p in ipairs(remotePeriphs) do
+                table.insert(lines, "  " .. p.name .. " [" .. p.type .. "]")
+                table.insert(lines, "    from: " .. p.host)
             end
         end
+    elseif config.network.enabled then
+        table.insert(lines, "")
+        table.insert(lines, "Remote: (client not initialized)")
     end
 
     Controller.showInfo(target, "ShelfOS Status", lines)
@@ -440,20 +473,21 @@ function Menu.showLink(config, target)
     if isConnected then
         options = {
             { value = "show_code", label = "Show pairing code" },
-            { value = "disconnect", label = "Disconnect from network" },
+            { value = "host", label = "Host pairing session" },
+            { value = "disconnect", label = "Disconnect from swarm" },
             { value = "back", label = "Back" }
         }
     else
         options = {
-            { value = "create", label = "Create new network" },
-            { value = "join", label = "Join existing network" },
+            { value = "show_code", label = "Show pairing code" },
+            { value = "host", label = "Host pairing session" },
+            { value = "join", label = "Join existing swarm" },
             { value = "back", label = "Back" }
         }
     end
 
     -- Build title with status
     local title = "Network Link"
-    local statusText = isConnected and "Connected" or "Standalone"
 
     local width, height = target.getSize()
     local isMonitor, monitorName = Controller.isMonitor(target)
@@ -461,17 +495,39 @@ function Menu.showLink(config, target)
     Controller.clear(target)
     Controller.drawTitle(target, title)
 
-    -- Status line
-    target.setTextColor(isConnected and colors.lime or colors.orange)
-    target.setCursorPos(2, 3)
-    target.write("Status: " .. statusText)
-
-    -- Show pairing code if exists and not connected
+    -- Status line with peer count
     local startY = 5
-    if not isConnected and config.network.pairingCode then
-        target.setTextColor(colors.white)
+    if isConnected then
+        -- Check for swarm peers
+        local peerCount = 0
+        for _, name in ipairs(peripheral.getNames()) do
+            if peripheral.hasType(name, "modem") and rednet.isOpen(name) then
+                local peerIds = {rednet.lookup("shelfos")}
+                peerCount = #peerIds
+                break
+            end
+        end
+
+        target.setTextColor(colors.lime)
+        target.setCursorPos(2, 3)
+        if peerCount > 0 then
+            target.write("Swarm: " .. peerCount .. " peer(s) online")
+        else
+            target.write("Swarm: Connected (no peers found)")
+        end
+
+        target.setTextColor(colors.yellow)
         target.setCursorPos(2, 4)
-        target.write("Your code: " .. config.network.pairingCode)
+        target.write("Code: " .. (config.network.pairingCode or "N/A"))
+        startY = 6
+    else
+        target.setTextColor(colors.orange)
+        target.setCursorPos(2, 3)
+        target.write("Status: Standalone")
+
+        target.setTextColor(colors.gray)
+        target.setCursorPos(2, 4)
+        target.write("Code: " .. (config.network.pairingCode or "N/A"))
         startY = 6
     end
 
@@ -507,13 +563,13 @@ function Menu.showLink(config, target)
                             "Code: " .. (config.network.pairingCode or "N/A"),
                             "",
                             "Share this code with other computers",
-                            "to join this network."
+                            "to join this swarm."
                         })
                         return nil
+                    elseif selected == "host" then
+                        return "link_host"
                     elseif selected == "disconnect" then
                         return "link_disconnect"
-                    elseif selected == "create" then
-                        return "link_new"
                     elseif selected == "join" then
                         -- Need to get pairing code input
                         target.setCursorPos(2, height - 2)
@@ -552,13 +608,13 @@ function Menu.showLink(config, target)
                             "Share this code with other computers."
                         })
                         return nil
+                    elseif selected == "host" then
+                        return "link_host"
                     elseif selected == "disconnect" then
                         return "link_disconnect"
-                    elseif selected == "create" then
-                        return "link_new"
                     elseif selected == "join" then
                         -- Can't input on monitor
-                        Controller.showInfo(target, "Join Network", {
+                        Controller.showInfo(target, "Join Swarm", {
                             "",
                             "Text input required.",
                             "Use terminal keyboard to enter code."

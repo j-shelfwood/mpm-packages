@@ -304,16 +304,23 @@ function Kernel:handleMenuKey(key, runningRef)
 
         Terminal.clearLog()
 
-        if result == "link_new" then
-            self:createNetwork()
+        if result == "link_host" then
+            self:hostPairing()
         elseif result == "link_join" and code then
             self:joinNetwork(code)
         elseif result == "link_disconnect" then
+            -- Close existing network connection
+            if self.channel then
+                rednet.unhost("shelfos")
+                self.channel:close()
+                self.channel = nil
+            end
             self.config.network.enabled = false
             self.config.network.secret = nil
             Config.save(self.config)
-            print("[ShelfOS] Disconnected from network.")
-            EventUtils.sleep(1)
+            print("[ShelfOS] Disconnected from swarm.")
+            print("[ShelfOS] Restart to apply changes.")
+            EventUtils.sleep(2)
         end
 
         self:drawMenu()
@@ -373,6 +380,121 @@ function Kernel:createNetwork()
     print("Share this code with other computers.")
     print("Press any key to continue...")
     os.pullEvent("key")
+end
+
+-- Host a pairing session (blocking - waits for clients)
+function Kernel:hostPairing()
+    local Crypto = mpm('net/Crypto')
+
+    -- Check for modem
+    local modem = peripheral.find("modem")
+    if not modem then
+        print("")
+        print("[!] No modem found")
+        print("    Attach a wireless or ender modem")
+        EventUtils.sleep(2)
+        return
+    end
+
+    -- Ensure we have a secret and pairing code
+    if not self.config.network.secret then
+        self.config.network.secret = Crypto.generateSecret()
+        self.config.network.enabled = true
+    end
+
+    if not self.config.network.pairingCode then
+        self.config.network.pairingCode = Config.generatePairingCode()
+    end
+
+    Config.save(self.config)
+
+    -- Open modem for pairing protocol
+    local modemName = peripheral.getName(modem)
+    local wasOpen = rednet.isOpen(modemName)
+    if not wasOpen then
+        rednet.open(modemName)
+    end
+
+    local PROTOCOL = "shelfos_pair"
+
+    -- Display pairing info
+    print("")
+    print("=====================================")
+    print("    ShelfOS Swarm Pairing")
+    print("=====================================")
+    print("")
+    print("  PAIRING CODE: " .. self.config.network.pairingCode)
+    print("")
+    print("=====================================")
+    print("")
+    print("On other computers, press [L] then [3]")
+    print("and enter this code to join the swarm.")
+    print("")
+    print("Press [Q] to stop hosting")
+    print("")
+
+    -- Listen for pairing requests
+    local running = true
+    local clientsJoined = 0
+
+    while running do
+        local timer = os.startTimer(0.5)
+        local event, p1, p2, p3 = os.pullEvent()
+
+        if event == "rednet_message" then
+            local senderId = p1
+            local message = p2
+            local msgProtocol = p3
+
+            if msgProtocol == PROTOCOL and type(message) == "table" then
+                if message.type == "pair_request" then
+                    -- Validate pairing code
+                    if message.code == self.config.network.pairingCode then
+                        -- Send success response with secret and swarm pairing code
+                        local response = {
+                            type = "pair_response",
+                            success = true,
+                            secret = self.config.network.secret,
+                            pairingCode = self.config.network.pairingCode,
+                            zoneId = self.config.zone.id,
+                            zoneName = self.config.zone.name
+                        }
+                        rednet.send(senderId, response, PROTOCOL)
+
+                        clientsJoined = clientsJoined + 1
+                        print("[+] Computer #" .. senderId .. " joined! (" .. clientsJoined .. " total)")
+                    else
+                        -- Invalid code
+                        local response = {
+                            type = "pair_response",
+                            success = false,
+                            error = "Invalid pairing code"
+                        }
+                        rednet.send(senderId, response, PROTOCOL)
+                        print("[-] Computer #" .. senderId .. " - invalid code")
+                    end
+                end
+            end
+
+        elseif event == "key" then
+            if p1 == keys.q then
+                running = false
+            end
+
+        elseif event == "timer" and p1 == timer then
+            -- Just keep looping
+        end
+    end
+
+    -- Only close if we opened it
+    if not wasOpen then
+        rednet.close(modemName)
+    end
+
+    print("")
+    print("[*] Pairing session ended")
+    print("    " .. clientsJoined .. " computer(s) joined")
+    EventUtils.sleep(2)
 end
 
 -- Join an existing network
