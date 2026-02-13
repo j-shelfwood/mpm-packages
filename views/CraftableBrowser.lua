@@ -1,7 +1,7 @@
--- CraftableItems.lua
+-- CraftableBrowser.lua
 -- Interactive browser for craftable items with one-tap crafting
 -- Touch an item to see details and trigger crafting
--- Replaces LowStock.lua functionality via showMode config
+-- Supports low stock and out-of-stock filtering modes
 
 local BaseView = mpm('views/BaseView')
 local AEInterface = mpm('peripherals/AEInterface')

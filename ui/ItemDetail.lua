@@ -1,6 +1,6 @@
 -- ItemDetail.lua
 -- Modal overlay showing full item details with action buttons
--- For use in interactive views (CraftableItems, ItemBrowser, etc.)
+-- For use in interactive views (CraftableBrowser, ItemBrowser, etc.)
 -- Uses os.pullEvent directly - each monitor runs in its own coroutine with parallel API
 
 local Core = mpm('ui/Core')

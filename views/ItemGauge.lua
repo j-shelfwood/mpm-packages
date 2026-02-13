@@ -1,6 +1,7 @@
--- ItemCounter.lua
--- Displays a single item count with large numbers
+-- ItemGauge.lua
+-- Displays a single item count with large gauge display
 -- Configurable: item to monitor, warning threshold
+-- Naming consistent with FluidGauge, ChemicalGauge
 
 local BaseView = mpm('views/BaseView')
 local AEInterface = mpm('peripherals/AEInterface')
