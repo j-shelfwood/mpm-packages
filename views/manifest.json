@@ -6,6 +6,7 @@
     "BaseView.lua",
     "Manager.lua",
     "factories/ChangesFactory.lua",
+    "factories/ResourceBrowserFactory.lua",
     "Clock.lua",
     "MachineStatus.lua",
     "NetworkDashboard.lua",
