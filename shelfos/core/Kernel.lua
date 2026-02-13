@@ -174,6 +174,9 @@ function Kernel:initializeNetwork()
         -- Discover remote peripherals (non-blocking, short timeout)
         print("[ShelfOS] Discovering remote peripherals...")
         print("[ShelfOS] Crypto ready: " .. tostring(Crypto.hasSecret()))
+        -- Debug: show first 8 chars of secret hash to verify both computers have same secret
+        local secretHash = tostring(self.config.network.secret):sub(1, 8)
+        print("[ShelfOS] Secret prefix: " .. secretHash)
         local count = self.peripheralClient:discover(2)
         if count > 0 then
             print("[ShelfOS] Found " .. count .. " remote peripheral(s)")
