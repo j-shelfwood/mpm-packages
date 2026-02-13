@@ -8,14 +8,36 @@ local Yield = {}
 Yield.DEFAULT_INTERVAL = 100
 
 -- Unique event name for yielding
-local YIELD_EVENT = "mpm_yield"
+local YIELD_EVENT = "mpm_yield_" .. tostring(os.epoch("utc"))
 
--- Fast yield that preserves event queue
--- Unlike os.sleep(0), this is instant and doesn't discard events
--- Pattern: queue custom event, then pull it immediately
+-- Safe yield that preserves ALL events in the queue
+-- CRITICAL: os.pullEvent(filter) and os.sleep() both DISCARD non-matching events!
+-- This implementation pulls all events, requeues non-matching ones, preserving order.
+-- Pattern from: https://gist.github.com/dmarcuse/f878fae3210770c0facd
 function Yield.yield()
+    -- Queue our marker event
     os.queueEvent(YIELD_EVENT)
-    os.pullEvent(YIELD_EVENT)
+
+    -- Collect events until we see our marker
+    local events = {}
+    while true do
+        local event = {os.pullEventRaw()}
+        if event[1] == YIELD_EVENT then
+            -- Found our marker, we're done yielding
+            break
+        elseif event[1] == "terminate" then
+            -- Don't swallow terminate events - propagate immediately
+            error("Terminated", 0)
+        else
+            -- Save this event to requeue later
+            table.insert(events, event)
+        end
+    end
+
+    -- Requeue all captured events in original order
+    for _, event in ipairs(events) do
+        os.queueEvent(table.unpack(event))
+    end
 end
 
 -- Yield if counter reaches interval
