@@ -3,6 +3,7 @@
 -- Enhanced with configurable padding and min-width
 
 local Core = mpm('ui/Core')
+local EventUtils = mpm('utils/EventUtils')
 
 local Button = {}
 Button.__index = Button
@@ -126,9 +127,9 @@ function Button:handleTouch(x, y)
     end
 
     if self:contains(x, y) then
-        -- Visual feedback
+        -- Visual feedback (using safe sleep to preserve events for other monitors)
         self:render(true)
-        sleep(0.1)
+        EventUtils.sleep(0.1)
         self:render(false)
 
         if self.handler then
