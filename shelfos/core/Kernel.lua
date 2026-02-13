@@ -298,7 +298,7 @@ function Kernel:handleMenuKey(key)
             Terminal.clearLog()
             print("[ShelfOS] Configuration deleted.")
             print("[ShelfOS] Restart to auto-configure.")
-            sleep(1)
+            EventUtils.sleep(1)
             self.running = false
             return
         else
@@ -322,7 +322,7 @@ function Kernel:handleMenuKey(key)
             self.config.network.secret = nil
             Config.save(self.config)
             print("[ShelfOS] Disconnected from network.")
-            sleep(1)
+            EventUtils.sleep(1)
         end
 
         self:drawMenu()
@@ -359,7 +359,7 @@ function Kernel:createNetwork()
         print("")
         print("[!] No modem found")
         print("    Attach a wireless or ender modem")
-        sleep(2)
+        EventUtils.sleep(2)
         return
     end
 
@@ -391,7 +391,7 @@ function Kernel:joinNetwork(code)
     if not modem then
         print("")
         print("[!] No modem found")
-        sleep(2)
+        EventUtils.sleep(2)
         return
     end
 
@@ -409,7 +409,7 @@ function Kernel:joinNetwork(code)
     if not response then
         print("[!] No response from network host")
         rednet.close(modemName)
-        sleep(2)
+        EventUtils.sleep(2)
         return
     end
 
@@ -420,10 +420,10 @@ function Kernel:joinNetwork(code)
 
         print("[*] Successfully joined network!")
         print("    Zone: " .. (response.zoneName or "Unknown"))
-        sleep(2)
+        EventUtils.sleep(2)
     else
         print("[!] Pairing failed: " .. (response.error or "Unknown error"))
-        sleep(2)
+        EventUtils.sleep(2)
     end
 
     rednet.close(modemName)
@@ -459,7 +459,7 @@ function Kernel:networkLoop()
                 end
             end
         else
-            sleep(1)
+            EventUtils.sleep(1)
         end
     end
 end

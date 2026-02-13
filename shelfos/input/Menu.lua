@@ -4,6 +4,7 @@
 
 local Controller = mpm('ui/Controller')
 local Keys = mpm('utils/Keys')
+local EventUtils = mpm('utils/EventUtils')
 
 local Menu = {}
 
@@ -527,7 +528,7 @@ function Menu.showLink(config, target)
                             target.setCursorPos(2, height - 1)
                             target.setTextColor(colors.red)
                             target.write("Invalid code (min 8 chars)")
-                            sleep(1)
+                            EventUtils.sleep(1)
                             return nil
                         end
                     end
