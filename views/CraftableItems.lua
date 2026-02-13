@@ -209,7 +209,7 @@ return BaseView.interactive({
         if not self.interface then return nil end
 
         -- Get craftable items from ME Bridge
-        local craftableItems = self.interface.bridge.getCraftableItems()
+        local craftableItems = self.interface:getCraftableItems()
         if not craftableItems then return {} end
 
         Yield.yield()

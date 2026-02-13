@@ -201,7 +201,7 @@ return BaseView.interactive({
     getData = function(self)
         if not self.interface then return nil end
 
-        local patterns = self.interface.bridge.getPatterns()
+        local patterns = self.interface:getPatterns()
         if not patterns then return {} end
 
         self.totalPatterns = #patterns

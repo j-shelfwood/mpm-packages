@@ -45,10 +45,10 @@ return BaseView.custom({
 
         Yield.yield()
 
-        -- Get average input directly from bridge (not yet in AEInterface wrapper)
+        -- Get average input
         local input = 0
         local inputOk = pcall(function()
-            input = self.interface.bridge.getAverageEnergyInput() or 0
+            input = self.interface:getAverageEnergyInput() or 0
         end)
 
         Yield.yield()

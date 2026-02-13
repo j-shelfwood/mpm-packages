@@ -59,13 +59,13 @@ return BaseView.custom({
             return nil
         end
 
-        -- Check if chemicals method exists
-        if not self.interface.bridge.getChemicals then
+        -- Check if chemicals method exists (requires Applied Mekanistics)
+        if not self.interface:hasChemicalSupport() then
             return { error = "addon" }
         end
 
-        -- Fetch chemicals (direct bridge access)
-        local chemicals = self.interface.bridge.getChemicals()
+        -- Fetch chemicals
+        local chemicals = self.interface:chemicals()
         if not chemicals then return nil end
 
         Yield.yield()

@@ -38,7 +38,7 @@ return BaseView.grid({
         if not self.interface then return nil end
 
         -- Get all drives
-        local drives = self.interface.bridge.getDrives()
+        local drives = self.interface:getDrives()
         if not drives then return {} end
 
         -- Filter empty drives if configured
