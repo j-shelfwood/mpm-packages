@@ -10,7 +10,7 @@ local Controller = mpm('ui/Controller')
 local Menu = mpm('shelfos/input/Menu')
 local ViewManager = mpm('views/Manager')
 local EventUtils = mpm('utils/EventUtils')
-local TimerDispatch = mpm('utils/TimerDispatch')
+-- Note: TimerDispatch no longer needed - parallel API gives each coroutine its own event queue
 
 local Kernel = {}
 Kernel.__index = Kernel
@@ -181,81 +181,62 @@ function Kernel:initializeNetwork()
 end
 
 -- Main run loop
+-- ============================================================================
+-- PARALLEL ARCHITECTURE (see CC:Tweaked wiki on parallel API)
+-- ============================================================================
+-- Each function passed to parallel.waitForAny gets its OWN COPY of the event
+-- queue. This means:
+--   - Each monitor can block (e.g., config menu) without affecting others
+--   - Events are delivered to ALL coroutines, each filters for its own
+--   - No need for manual event dispatch or requeue mechanisms
+-- ============================================================================
 function Kernel:run()
     if #self.monitors == 0 then
         -- Boot already handled this message
         return false
     end
 
-    self.running = true
+    -- Shared running flag (use table so all coroutines see same reference)
+    local runningRef = { value = true }
 
-    -- Note: Initial render already happened in loadView() during boot
-    -- No need to render again here
+    -- Build task list for parallel execution
+    local tasks = {}
 
-    -- Run single event loop (with optional network task in parallel)
-    if self.channel then
-        parallel.waitForAny(
-            function() self:eventLoop() end,
-            function() self:networkLoop() end
-        )
-    else
-        self:eventLoop()
+    -- Each monitor gets its own coroutine with independent event queue
+    for _, monitor in ipairs(self.monitors) do
+        table.insert(tasks, function()
+            monitor:runLoop(runningRef)
+        end)
     end
+
+    -- Main keyboard handler (runs in parallel with monitors)
+    table.insert(tasks, function()
+        self:keyboardLoop(runningRef)
+    end)
+
+    -- Network loop if channel exists
+    if self.channel then
+        table.insert(tasks, function()
+            self:networkLoop(runningRef)
+        end)
+    end
+
+    -- Run all tasks in parallel - each gets own event queue copy
+    parallel.waitForAny(table.unpack(tasks))
 
     self:shutdown()
 end
 
--- Reschedule renders for all monitors
--- Called after blocking UI operations that may have discarded timer events
--- This ensures all monitors continue rendering after menus/config close
-function Kernel:rescheduleAllMonitors()
-    for _, monitor in ipairs(self.monitors) do
-        if not monitor.inConfigMenu then
-            monitor:scheduleRender()
-        end
-    end
-end
+-- Keyboard event loop - handles terminal menu keys only
+-- Runs in parallel with monitor loops (each has own event queue)
+function Kernel:keyboardLoop(runningRef)
+    while runningRef.value do
+        local event, p1 = os.pullEvent()
 
--- Single event loop - dispatches events to all monitors
--- This replaces the problematic per-monitor parallel loops
-function Kernel:eventLoop()
-    while self.running do
-        local event, p1, p2, p3 = os.pullEvent()
-
-        if event == "timer" then
-            -- Dispatch timer to all monitors (each checks its own timer ID)
-            for _, monitor in ipairs(self.monitors) do
-                monitor:handleTimer(p1)
-            end
-
-        elseif event == "monitor_touch" then
-            -- Find and dispatch to the touched monitor
-            local target = self:getMonitorByPeripheral(p1)
-            if target then
-                -- Set up timer dispatch before potential blocking UI
-                -- This allows config menus to dispatch timer events to other monitors
-                TimerDispatch.setup(self.monitors)
-                target:handleTouch(p1, p2, p3)
-                TimerDispatch.clear()
-                -- Reschedule all monitors after blocking operation
-                self:rescheduleAllMonitors()
-            end
-
-        elseif event == "monitor_resize" then
-            -- Find and dispatch to the resized monitor
-            local target = self:getMonitorByPeripheral(p1)
-            if target then
-                target:handleResize()
-            end
-
-        elseif event == "key" then
-            -- Set up timer dispatch before potential blocking menu
-            TimerDispatch.setup(self.monitors)
-            -- Handle menu keys
-            self:handleMenuKey(p1)
-            TimerDispatch.clear()
-            -- Reschedule all monitors after blocking operation
-            self:rescheduleAllMonitors()
+        if event == "key" then
+            -- Handle menu keys - may block for dialogs
+            -- Other monitors continue rendering (they have own event queues)
+            self:handleMenuKey(p1, runningRef)
 
         elseif event == "peripheral" or event == "peripheral_detach" then
             -- Rescan shared peripherals when hardware changes
@@ -265,6 +246,7 @@ function Kernel:eventLoop()
                 print("[ShelfOS] Now sharing " .. count .. " peripheral(s)")
             end
         end
+        -- Timer and monitor events are handled by monitor coroutines
     end
 end
 
@@ -279,11 +261,11 @@ function Kernel:getMonitorByPeripheral(peripheralName)
 end
 
 -- Handle menu key press
-function Kernel:handleMenuKey(key)
+function Kernel:handleMenuKey(key, runningRef)
     local action = Menu.handleKey(key)
 
     if action == "quit" then
-        self.running = false
+        runningRef.value = false
         return
 
     elseif action == "status" then
@@ -305,7 +287,7 @@ function Kernel:handleMenuKey(key)
             print("[ShelfOS] Configuration deleted.")
             print("[ShelfOS] Restart to auto-configure.")
             EventUtils.sleep(1)
-            self.running = false
+            runningRef.value = false
             return
         else
             Terminal.clearLog()
@@ -387,7 +369,7 @@ function Kernel:createNetwork()
     print("")
     print("Share this code with other computers.")
     print("Press any key to continue...")
-    TimerDispatch.pullEvent("key")
+    os.pullEvent("key")
 end
 
 -- Join an existing network
@@ -436,11 +418,11 @@ function Kernel:joinNetwork(code)
 end
 
 -- Network event loop
-function Kernel:networkLoop()
+function Kernel:networkLoop(runningRef)
     local lastHostAnnounce = 0
     local hostAnnounceInterval = 10000  -- 10 seconds
 
-    while self.running do
+    while runningRef.value do
         if self.channel then
             self.channel:poll(0.5)
 

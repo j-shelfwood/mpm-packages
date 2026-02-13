@@ -1,9 +1,9 @@
 -- List.lua
 -- Scrollable list picker for monitors
 -- Extracted from ConfigUI.drawPicker for reuse
+-- Uses os.pullEvent directly - each monitor runs in its own coroutine with parallel API
 
 local Core = mpm('ui/Core')
-local TimerDispatch = mpm('utils/TimerDispatch')
 
 local List = {}
 List.__index = List
@@ -193,7 +193,7 @@ function List:show()
     while true do
         self:render()
 
-        local event, side, x, y = TimerDispatch.pullEvent("monitor_touch")
+        local event, side, x, y = os.pullEvent("monitor_touch")
 
         if side == monitorName then
             local result = self:handleTouch(x, y)

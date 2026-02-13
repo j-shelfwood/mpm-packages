@@ -569,4 +569,72 @@ function Monitor:getTheme()
     return self.themeName
 end
 
+-- ============================================================================
+-- INDEPENDENT EVENT LOOP
+-- ============================================================================
+-- This method runs in its own coroutine via parallel.waitForAny
+-- Each monitor gets its OWN copy of the event queue (CC:Tweaked parallel API)
+-- This means monitors can block (e.g., for config menus) without affecting others
+-- ============================================================================
+
+-- Run the monitor's independent event loop
+-- @param running Reference to shared running flag (table with .value)
+function Monitor:runLoop(running)
+    if not self.connected then
+        return
+    end
+
+    -- Initial render and schedule
+    if self.viewInstance then
+        self:render()
+        self:scheduleRender()
+    end
+
+    while running.value do
+        -- Wait for ANY event - we filter ourselves
+        -- This is safe because parallel gives us our own event queue copy
+        local event, p1, p2, p3 = os.pullEvent()
+
+        if event == "timer" then
+            -- Check if it's our render timer
+            if p1 == self.renderTimer then
+                local ok, err = pcall(function()
+                    self:render()
+                end)
+                if not ok then
+                    print("[Monitor] Render error on " .. (self.peripheralName or "unknown") .. ": " .. tostring(err))
+                end
+                self:scheduleRender()
+
+            -- Check if it's our settings timer
+            elseif p1 == self.settingsTimer then
+                self:hideSettingsButton()
+            end
+            -- Other timers are ignored (they belong to other monitors)
+
+        elseif event == "monitor_touch" then
+            -- Only handle touches for our peripheral
+            if p1 == self.peripheralName then
+                if self.inConfigMenu then
+                    -- Config menu handles its own touches
+                elseif self.showingSettings and self:isSettingsButtonTouch(p2, p3) then
+                    -- Settings button tapped - open config menu
+                    -- This blocks, but that's OK - we have our own event queue
+                    self:openConfigMenu()
+                else
+                    -- Any other touch shows settings button
+                    self:drawSettingsButton()
+                end
+            end
+
+        elseif event == "monitor_resize" then
+            -- Only handle resize for our peripheral
+            if p1 == self.peripheralName then
+                self:handleResize()
+            end
+        end
+        -- Other events are ignored by this monitor's loop
+    end
+end
+
 return Monitor

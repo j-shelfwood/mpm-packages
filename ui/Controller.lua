@@ -1,10 +1,10 @@
 -- Controller.lua
 -- Unified control abstraction for terminal and monitor input/output
 -- Bridges keyboard menu navigation with touch UI components
+-- Uses os.pullEvent directly - each monitor runs in its own coroutine with parallel API
 
 local Core = mpm('ui/Core')
 local Keys = mpm('utils/Keys')
-local TimerDispatch = mpm('utils/TimerDispatch')
 
 local Controller = {}
 
@@ -101,7 +101,7 @@ function Controller.showInfo(target, title, lines, opts)
             end
         end
     else
-        TimerDispatch.pullEvent("key")
+        os.pullEvent("key")
     end
 end
 
@@ -182,7 +182,7 @@ function Controller.showConfirm(target, title, message, opts)
     else
         -- Terminal: just wait for Y/N key
         while true do
-            local event, key = TimerDispatch.pullEvent("key")
+            local event, key = os.pullEvent("key")
             local keyName = keys.getName(key)
             if keyName then
                 keyName = keyName:lower()
