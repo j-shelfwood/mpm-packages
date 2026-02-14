@@ -49,7 +49,13 @@ function App:initModem()
 end
 
 -- Initialize full networking (with crypto)
+-- If secret is nil, clears crypto state (for when leaving swarm)
 function App:initNetwork(secret)
+    if not secret then
+        Crypto.clearSecret()
+        self.hasSecret = false
+        return false
+    end
     Crypto.setSecret(secret)
     self.hasSecret = true
 
@@ -129,6 +135,9 @@ function App:init()
         print("[*] Swarm configured")
         self:initNetwork(secret)
     else
+        -- Clear any stale crypto state from previous session
+        -- _G persists across program restarts in CC:Tweaked
+        Crypto.clearSecret()
         print("[!] Not in swarm")
         print("")
         print("Select 'Join Swarm' to")
@@ -426,6 +435,9 @@ function App:leaveSwarm()
             end
             self.discovery = nil
             self.hasSecret = false
+
+            -- Clear crypto state (prevents stale secret in _G)
+            Crypto.clearSecret()
 
             print("")
             print("[*] Left swarm")

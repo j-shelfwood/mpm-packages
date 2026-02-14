@@ -126,15 +126,18 @@ end
 
 -- Initialize networking (if modem available and paired with swarm)
 function Kernel:initializeNetwork()
+    local Channel = mpm('net/Channel')
+    local Crypto = mpm('net/Crypto')
+
     -- Only init if secret is configured (paired with pocket)
     if not self.config.network or not self.config.network.secret then
+        -- CRITICAL: Clear any stale secret from previous session
+        -- _G persists across program restarts in CC:Tweaked
+        Crypto.clearSecret()
         print("[ShelfOS] Network: not in swarm")
         print("          Press L -> Accept from pocket to join")
         return
     end
-
-    local Channel = mpm('net/Channel')
-    local Crypto = mpm('net/Crypto')
 
     Crypto.setSecret(self.config.network.secret)
 
@@ -319,6 +322,9 @@ function Kernel:handleMenuKey(key, runningRef)
                 self.channel:close()
                 self.channel = nil
             end
+            -- Clear crypto state (prevents stale secret in _G)
+            local Crypto = mpm('net/Crypto')
+            Crypto.clearSecret()
             self.config.network.enabled = false
             self.config.network.secret = nil
             Config.save(self.config)

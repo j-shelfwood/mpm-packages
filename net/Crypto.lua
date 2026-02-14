@@ -53,6 +53,14 @@ function Crypto.setSecret(secret)
     _state.secret = secret
 end
 
+-- Clear the secret (when leaving swarm or on boot without config)
+-- IMPORTANT: _G persists across program restarts in CC:Tweaked
+-- Must explicitly clear to prevent stale secrets from previous sessions
+function Crypto.clearSecret()
+    _state.secret = nil
+    _state.nonces = {}  -- Also clear nonces
+end
+
 -- Check if secret is configured
 function Crypto.hasSecret()
     return _state.secret ~= nil
