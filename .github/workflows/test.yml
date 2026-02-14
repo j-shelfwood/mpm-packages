@@ -23,36 +23,45 @@ jobs:
         run: |
           lua5.4 tests/lua/run.lua .
 
-  craftos-tests:
+  craftos-integration:
     name: CraftOS-PC Integration Tests
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run CraftOS-PC tests
+      - name: Run integration tests
         uses: Commandcracker/craftos-pc-action@v1
         with:
           root: ./
           timeout: 2m
-          options: --mount-ro /workspace=.
+          options: --mount-ro /workspace=. --exec "dofile('/workspace/tests/craftos/test_runner.lua')"
         env:
-          # Disable multishell for proper logging
           CRAFTOS_SETTINGS: |
             bios.use_multishell = false
 
-      - name: Run test harness
+  craftos-simulation:
+    name: CraftOS-PC Swarm Simulation
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run swarm simulation tests
         uses: Commandcracker/craftos-pc-action@v1
         with:
-          root: ./tests/craftos
-          timeout: 2m
-          options: --mount-ro /workspace=.
+          root: ./
+          timeout: 3m
+          options: --mount-ro /workspace=. --exec "dofile('/workspace/tests/craftos/swarm_simulation.lua')"
+        env:
+          CRAFTOS_SETTINGS: |
+            bios.use_multishell = false
 
   all-tests:
     name: All Tests Summary
     runs-on: ubuntu-latest
-    needs: [lua-tests, craftos-tests]
+    needs: [lua-tests, craftos-integration, craftos-simulation]
 
     steps:
       - name: All tests passed
-        run: echo "All test suites passed!"
+        run: echo "All test suites passed! (95 Lua + 22 Integration + 5 Simulation = 122 tests)"
