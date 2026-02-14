@@ -3,6 +3,7 @@
 -- Pairing is now done via pocket computer only
 
 local Config = mpm('shelfos/core/Config')
+local ModemUtils = mpm('utils/ModemUtils')
 
 local link = {}
 
@@ -26,14 +27,13 @@ local function showStatus()
     if Config.isInSwarm(config) then
         print("  Swarm: Connected")
 
-        -- Check for modem
-        local modem = peripheral.find("modem")
+        -- Check for modem (prefer wireless/ender for swarm communication)
+        local modem, modemName, modemType = ModemUtils.find(true)
         if modem then
-            local modemType = modem.isWireless() and "Wireless/Ender" or "Wired"
-            print("  Modem: " .. modemType)
+            local modemLabel = modemType == "wireless" and "Wireless/Ender" or "Wired"
+            print("  Modem: " .. modemLabel)
 
             -- Try to get peer count
-            local modemName = peripheral.getName(modem)
             if not rednet.isOpen(modemName) then
                 rednet.open(modemName)
             end

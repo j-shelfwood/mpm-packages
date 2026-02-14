@@ -9,6 +9,7 @@ local PeripheralHost = mpm('net/PeripheralHost')
 local Pairing = mpm('net/Pairing')
 local Crypto = mpm('net/Crypto')
 local PairingScreen = mpm('shelfos/ui/PairingScreen')
+local ModemUtils = mpm('utils/ModemUtils')
 
 local headless = {}
 
@@ -55,14 +56,13 @@ end
 -- @param config Current configuration
 -- @return success, secret, zoneId
 function headless.acceptPairing(config)
-    local modem = peripheral.find("modem")
+    -- Pre-validate modem exists (Pairing.acceptFromPocket will open it)
+    local modem, modemName, modemType = ModemUtils.find(true)
     if not modem then
         print("[!] No modem found")
         sleep(2)
         return false, nil, nil
     end
-
-    local modemType = modem.isWireless() and "wireless" or "wired"
     local computerLabel = os.getComputerLabel() or ("Computer #" .. os.getComputerID())
 
     local displayCode = nil

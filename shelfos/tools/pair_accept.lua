@@ -9,18 +9,17 @@
 local Config = mpm('shelfos/core/Config')
 local Pairing = mpm('net/Pairing')
 local PairingScreen = mpm('shelfos/ui/PairingScreen')
+local ModemUtils = mpm('utils/ModemUtils')
 
 -- Main pairing acceptor
 local function acceptPairing()
-    -- Check for modem
-    local modem = peripheral.find("modem")
+    -- Check for modem (prefer wireless/ender for swarm communication)
+    local modem, modemName, modemType = ModemUtils.find(true)
     if not modem then
         print("[!] No modem found")
         print("    Attach a wireless or ender modem")
         return false, "No modem"
     end
-
-    local modemType = modem.isWireless() and "wireless" or "wired"
     local computerId = os.getComputerID()
     local computerLabel = os.getComputerLabel() or ("Computer #" .. computerId)
 

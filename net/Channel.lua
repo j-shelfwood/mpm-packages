@@ -4,6 +4,7 @@
 local Crypto = mpm('net/Crypto')
 local Protocol = mpm('net/Protocol')
 local Yield = mpm('utils/Yield')
+local ModemUtils = mpm('utils/ModemUtils')
 
 local Channel = {}
 Channel.__index = Channel
@@ -27,50 +28,18 @@ end
 -- @param preferWireless Prefer wireless/ender modem over wired (default: true)
 -- @return success, modemType ("wireless", "wired", or nil)
 function Channel:open(preferWireless)
-    -- CC:Tweaked: ALL modems are type "modem", distinguish via isWireless()
-    local modems = {peripheral.find("modem")}
+    -- Use ModemUtils for consistent modem selection across all modules
+    -- ModemUtils.open() also handles closing other modems to prevent duplicate reception
+    local ok, modemName, modemType = ModemUtils.open(preferWireless)
 
-    local wired = nil
-    local wireless = nil
-
-    for _, m in ipairs(modems) do
-        if m.isWireless() then
-            wireless = m  -- Could be wireless OR ender (both return isWireless=true)
-        else
-            wired = m
-        end
-    end
-
-    -- Select modem based on preference
-    -- Default prefers wireless/ender for unlimited range
-    if preferWireless ~= false and wireless then
-        self.modem = wireless
-    elseif wired then
-        self.modem = wired
-    elseif wireless then
-        self.modem = wireless
-    end
-
-    if not self.modem then
+    if not ok then
         return false, nil
     end
 
-    self.modemName = peripheral.getName(self.modem)
-
-    -- CRITICAL: Close ALL other modems to prevent duplicate message reception
-    -- If multiple modems are open, broadcasts are received on each, causing
-    -- duplicate nonce errors when the same envelope is unwrapped twice
-    for _, m in ipairs(modems) do
-        local name = peripheral.getName(m)
-        if name ~= self.modemName and rednet.isOpen(name) then
-            rednet.close(name)
-        end
-    end
-
-    rednet.open(self.modemName)
+    self.modem = peripheral.wrap(modemName)
+    self.modemName = modemName
     self.opened = true
 
-    local modemType = self.modem.isWireless() and "wireless" or "wired"
     return true, modemType
 end
 

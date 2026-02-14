@@ -6,6 +6,7 @@
 local EventUtils = mpm('utils/EventUtils')
 local PairingScreen = mpm('shelfos/ui/PairingScreen')
 local Config = mpm('shelfos/core/Config')
+local ModemUtils = mpm('utils/ModemUtils')
 
 local KernelPairing = {}
 
@@ -18,15 +19,14 @@ local KernelPairing = {}
 function KernelPairing.acceptFromPocket(kernel)
     local Pairing = mpm('net/Pairing')
 
-    local modem = peripheral.find("modem")
+    -- Pre-validate modem exists (Pairing.acceptFromPocket will open it with ModemUtils.open)
+    local modem, modemName, modemType = ModemUtils.find(true)
     if not modem then
         print("")
         print("[!] No modem found")
         EventUtils.sleep(2)
         return false
     end
-
-    local modemType = modem.isWireless() and "wireless" or "wired"
     local computerLabel = os.getComputerLabel() or ("Computer #" .. os.getComputerID())
 
     -- Find all connected monitors

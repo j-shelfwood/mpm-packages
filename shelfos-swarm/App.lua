@@ -9,6 +9,7 @@
 
 local SwarmAuthority = mpm('shelfos-swarm/core/SwarmAuthority')
 local Paths = mpm('shelfos-swarm/core/Paths')
+local ModemUtils = mpm('utils/ModemUtils')
 
 -- Screen modules
 local AddZone = mpm('shelfos-swarm/screens/AddZone')
@@ -39,8 +40,8 @@ function App:init()
     print("=====================================")
     print("")
 
-    -- Check for modem
-    local modem = peripheral.find("modem")
+    -- Check for modem (prefer wireless/ender for swarm communication)
+    local modem, modemName, modemType = ModemUtils.find(true)
     if not modem then
         print("[!] No modem found")
         print("    Attach a wireless or ender modem")
@@ -50,7 +51,7 @@ function App:init()
         return false
     end
 
-    self.modemType = modem.isWireless() and "wireless" or "wired"
+    self.modemType = modemType
     print("[+] Modem: " .. self.modemType)
 
     -- Check if swarm exists
@@ -162,25 +163,10 @@ end
 
 -- Initialize networking
 function App:initNetwork()
-    local modem = peripheral.find("modem")
-    if not modem then
-        return false, "No modem found"
-    end
-
-    local modemName = peripheral.getName(modem)
-    if not modemName then
-        return false, "Could not get modem name"
-    end
-
-    -- Try to open modem with error handling
-    local ok, err = pcall(function()
-        if not rednet.isOpen(modemName) then
-            rednet.open(modemName)
-        end
-    end)
-
+    -- Open modem with wireless preference (also closes other modems)
+    local ok, modemName, modemType = ModemUtils.open(true)
     if not ok then
-        return false, "Failed to open modem: " .. tostring(err)
+        return false, "No modem found"
     end
 
     -- Register with service discovery

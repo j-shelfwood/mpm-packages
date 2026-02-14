@@ -10,6 +10,7 @@
 
 local Protocol = mpm('net/Protocol')
 local Crypto = mpm('net/Crypto')
+local ModemUtils = mpm('utils/ModemUtils')
 
 local Pairing = {}
 
@@ -60,13 +61,11 @@ end
 function Pairing.acceptFromPocket(callbacks)
     callbacks = callbacks or {}
 
-    local modem = peripheral.find("modem")
-    if not modem then
+    -- Open modem with wireless preference (also closes other modems)
+    local ok, modemName, modemType = ModemUtils.open(true)
+    if not ok then
         return false, nil, nil, nil, "No modem found"
     end
-
-    local modemName = peripheral.getName(modem)
-    local modemType = modem.isWireless() and "wireless" or "wired"
 
     -- Generate display-only code (NEVER sent over network)
     local displayCode = Pairing.generateCode()
@@ -76,20 +75,6 @@ function Pairing.acceptFromPocket(callbacks)
     -- Notify caller of the display code (for UI rendering)
     if callbacks.onDisplayCode then
         callbacks.onDisplayCode(displayCode)
-    end
-
-    -- Open modem with error handling
-    local wasOpen = rednet.isOpen(modemName)
-    if not wasOpen then
-        local ok, err = pcall(function()
-            rednet.open(modemName)
-        end)
-        if not ok then
-            if callbacks.onStatus then
-                callbacks.onStatus("Modem error: " .. tostring(err))
-            end
-            return false, nil, nil, nil, "Failed to open modem: " .. tostring(err)
-        end
     end
 
     if callbacks.onStatus then
@@ -178,10 +163,7 @@ function Pairing.acceptFromPocket(callbacks)
         end
     end
 
-    -- Cleanup
-    if not wasOpen then
-        rednet.close(modemName)
-    end
+    -- Note: Leave modem open - caller will use it for network init after pairing
 
     if success and callbacks.onSuccess then
         callbacks.onSuccess(resultSecret, resultZoneId)
@@ -206,15 +188,10 @@ function Pairing.deliverToPending(secret, zoneId, callbacks, timeout)
     callbacks = callbacks or {}
     timeout = timeout or 30
 
-    local modem = peripheral.find("modem")
-    if not modem then
+    -- Open modem with wireless preference (also closes other modems)
+    local ok, modemName, modemType = ModemUtils.open(true)
+    if not ok then
         return false, nil, "No modem found"
-    end
-
-    local modemName = peripheral.getName(modem)
-    local wasOpen = rednet.isOpen(modemName)
-    if not wasOpen then
-        rednet.open(modemName)
     end
 
     local pendingPairs = {}
@@ -364,9 +341,7 @@ function Pairing.deliverToPending(secret, zoneId, callbacks, timeout)
         end
     end
 
-    if not wasOpen then
-        rednet.close(modemName)
-    end
+    -- Note: Leave modem open - caller's App keeps it open
 
     return success, pairedComputer
 end

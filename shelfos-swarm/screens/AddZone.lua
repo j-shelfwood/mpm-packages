@@ -5,6 +5,7 @@
 
 local Protocol = mpm('net/Protocol')
 local Crypto = mpm('net/Crypto')
+local ModemUtils = mpm('utils/ModemUtils')
 
 local AddZone = {}
 
@@ -20,9 +21,9 @@ function AddZone.run(app)
     print("=====================================")
     print("")
 
-    -- Ensure modem is open for receiving
-    local modem = peripheral.find("modem")
-    if not modem then
+    -- Open modem with wireless preference (also closes other modems)
+    local ok, modemName, modemType = ModemUtils.open(true)
+    if not ok then
         print("[!] No modem found")
         print("")
         print("Attach an ender modem to continue.")
@@ -31,33 +32,8 @@ function AddZone.run(app)
         return
     end
 
-    local modemName = peripheral.getName(modem)
-    if not modemName then
-        print("[!] Could not identify modem")
-        print("")
-        print("Press any key to return...")
-        os.pullEvent("key")
-        return
-    end
-
-    -- Open modem with error handling
-    local ok, err = pcall(function()
-        if not rednet.isOpen(modemName) then
-            rednet.open(modemName)
-        end
-    end)
-
-    if not ok then
-        print("[!] Failed to open modem")
-        print("    " .. tostring(err))
-        print("")
-        print("Press any key to return...")
-        os.pullEvent("key")
-        return
-    end
-
-    local modemType = modem.isWireless() and "wireless/ender" or "wired"
-    print("Modem: " .. modemType .. " (" .. modemName .. ")")
+    local modemLabel = modemType == "wireless" and "wireless/ender" or "wired"
+    print("Modem: " .. modemLabel .. " (" .. modemName .. ")")
     print("")
     print("On the zone computer:")
     print("  1. Run: mpm run shelfos")

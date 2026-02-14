@@ -63,10 +63,7 @@ function Kernel:boot()
         -- Save the auto-generated config (no network secret yet)
         Config.save(self.config)
         print("[ShelfOS] Auto-configured " .. self.discoveredCount .. " monitor(s)")
-        print("")
-        print("[ShelfOS] Not in swarm yet.")
-        print("[ShelfOS] Press L -> Accept from pocket")
-        print("")
+        -- Note: "Not in swarm" message is printed by KernelNetwork.initialize()
     end
 
     -- Initialize zone identity
