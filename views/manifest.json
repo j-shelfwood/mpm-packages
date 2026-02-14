@@ -19,6 +19,8 @@
     "MekGeneratorStatus.lua",
     "MekMultiblockStatus.lua",
     "MekMachineGauge.lua",
+    "EnergyOverview.lua",
+    "EnergyFlow.lua",
     "NetworkDashboard.lua",
     "NetworkDashboardRenderers.lua",
     "EnergyGraph.lua",
