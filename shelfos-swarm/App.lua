@@ -2,19 +2,24 @@
 -- ShelfOS Swarm - Pocket computer swarm controller
 -- The "queen" of the swarm - manages zone registration and revocation
 --
+-- Refactored to use ScreenManager for navigation and TermUI for rendering.
+-- Init flow detects modem, loads/creates swarm, then pushes appropriate screen.
+--
 -- Screen modules:
---   screens/AddZone.lua     - Zone pairing flow
---   screens/ViewZones.lua   - Zone registry display
---   screens/DeleteSwarm.lua - Swarm deletion confirmation
+--   screens/MainMenu.lua     - Main menu with swarm info
+--   screens/CreateSwarm.lua  - Swarm creation wizard
+--   screens/AddZone.lua      - Zone pairing flow
+--   screens/ViewZones.lua    - Zone registry display
+--   screens/DeleteSwarm.lua  - Swarm deletion confirmation
 
 local SwarmAuthority = mpm('shelfos-swarm/core/SwarmAuthority')
-local Paths = mpm('shelfos-swarm/core/Paths')
+local ScreenManager = mpm('shelfos-swarm/ui/ScreenManager')
+local TermUI = mpm('shelfos-swarm/ui/TermUI')
 local ModemUtils = mpm('utils/ModemUtils')
 
--- Screen modules
-local AddZone = mpm('shelfos-swarm/screens/AddZone')
-local ViewZones = mpm('shelfos-swarm/screens/ViewZones')
-local DeleteSwarm = mpm('shelfos-swarm/screens/DeleteSwarm')
+-- Screen modules (lazy loaded to avoid circular deps)
+local MainMenu = mpm('shelfos-swarm/screens/MainMenu')
+local CreateSwarm = mpm('shelfos-swarm/screens/CreateSwarm')
 
 local App = {}
 App.__index = App
@@ -22,154 +27,119 @@ App.__index = App
 function App.new()
     local self = setmetatable({}, App)
     self.authority = SwarmAuthority.new()
-    self.channel = nil
-    self.discovery = nil
-    self.running = false
     self.modemType = nil
+    self.initialScreen = nil
 
     return self
 end
 
 -- Initialize the app
+-- Detects modem, loads or creates swarm, determines initial screen
+-- @return true if ready to run, false to exit
 function App:init()
-    term.clear()
-    term.setCursorPos(1, 1)
+    TermUI.clear()
+    TermUI.drawTitleBar("ShelfOS Swarm")
 
-    print("=====================================")
-    print("      ShelfOS Swarm Controller")
-    print("=====================================")
-    print("")
+    local y = 3
 
-    -- Check for modem (prefer wireless/ender for swarm communication)
+    -- Check for modem
     local modem, modemName, modemType = ModemUtils.find(true)
     if not modem then
-        print("[!] No modem found")
-        print("    Attach a wireless or ender modem")
-        print("")
-        print("Press any key to exit...")
+        TermUI.drawText(2, y, "No modem found", colors.red)
+        y = y + 2
+        TermUI.drawWrapped(y, "Attach a wireless or ender modem to continue.", colors.lightGray, 2, 2)
+        TermUI.drawStatusBar("Press any key to exit...")
         os.pullEvent("key")
         return false
     end
 
     self.modemType = modemType
-    print("[+] Modem: " .. self.modemType)
+    TermUI.drawInfoLine(y, "Modem", modemType, colors.lime)
+    y = y + 1
 
     -- Check if swarm exists
     if self.authority:exists() then
         local ok = self.authority:init()
         if ok then
             local info = self.authority:getInfo()
-            print("[+] Swarm: " .. info.name)
-            print("    Zones: " .. info.zoneCount)
-            print("    Fingerprint: " .. info.fingerprint)
+            TermUI.drawInfoLine(y, "Swarm", info.name, colors.white)
+            y = y + 1
+            TermUI.drawInfoLine(y, "Zones", info.zoneCount .. " active", colors.lime)
+            y = y + 1
+            TermUI.drawInfoLine(y, "FP", info.fingerprint, colors.lightGray)
+            y = y + 1
+
+            -- Initialize networking
+            local netOk, netErr = self:initNetwork()
+            if netOk then
+                TermUI.drawInfoLine(y, "Network", "ready", colors.lime)
+            else
+                TermUI.drawInfoLine(y, "Network", netErr or "failed", colors.orange)
+            end
+
+            self.initialScreen = MainMenu
+            sleep(0.5)  -- Brief pause to show status
+            return true
         else
-            print("[!] Failed to load swarm")
-            print("    Data may be corrupted")
-            print("")
-            print("[R] Reset and create new swarm")
-            print("[Q] Quit")
+            -- Corrupted swarm data
+            TermUI.drawText(2, y, "Failed to load swarm", colors.red)
+            y = y + 1
+            TermUI.drawText(2, y, "Data may be corrupted", colors.orange)
+            y = y + 2
+
+            TermUI.drawMenuItem(y, "R", "Reset and create new")
+            y = y + 1
+            TermUI.drawMenuItem(y, "Q", "Quit")
 
             while true do
-                local _, key = os.pullEvent("key")
-                if key == keys.r then
-                    self.authority:deleteSwarm()
-                    print("[*] Swarm deleted, restarting...")
-                    sleep(1)
-                    os.reboot()
-                elseif key == keys.q then
-                    return false
+                local _, keyCode = os.pullEvent("key")
+                local keyName = keys.getName(keyCode)
+                if keyName then
+                    keyName = keyName:lower()
+                    if keyName == "r" then
+                        self.authority:deleteSwarm()
+                        TermUI.clear()
+                        TermUI.drawCentered(10, "Swarm deleted, restarting...", colors.orange)
+                        sleep(1)
+                        os.reboot()
+                    elseif keyName == "q" then
+                        return false
+                    end
                 end
             end
         end
     else
-        print("[-] No swarm configured")
-        print("")
-        print("[C] Create new swarm")
-        print("[Q] Quit")
+        -- No swarm yet - go to setup flow
+        TermUI.drawText(2, y, "No swarm configured", colors.lightGray)
+        y = y + 2
+
+        TermUI.drawMenuItem(y, "C", "Create new swarm")
+        y = y + 1
+        TermUI.drawMenuItem(y, "Q", "Quit")
 
         while true do
-            local _, key = os.pullEvent("key")
-            if key == keys.c then
-                return self:createSwarm()
-            elseif key == keys.q then
-                return false
+            local _, keyCode = os.pullEvent("key")
+            local keyName = keys.getName(keyCode)
+            if keyName then
+                keyName = keyName:lower()
+                if keyName == "c" then
+                    self.initialScreen = CreateSwarm
+                    return true
+                elseif keyName == "q" then
+                    return false
+                end
             end
         end
     end
-
-    -- Initialize networking
-    local netOk, netErr = self:initNetwork()
-    if netOk then
-        print("[+] Network ready")
-    else
-        print("[!] Network: " .. (netErr or "failed"))
-    end
-
-    return true
-end
-
--- Create a new swarm
-function App:createSwarm()
-    term.clear()
-    term.setCursorPos(1, 1)
-
-    print("=====================================")
-    print("        Create New Swarm")
-    print("=====================================")
-    print("")
-
-    print("Enter swarm name:")
-    write("> ")
-    local name = read()
-
-    if not name or #name == 0 then
-        name = "My Swarm"
-    end
-
-    print("")
-    print("Creating swarm...")
-
-    local ok, swarmId = self.authority:createSwarm(name)
-    if not ok then
-        print("[!] Failed to create swarm")
-        sleep(2)
-        return false
-    end
-
-    local info = self.authority:getInfo()
-
-    print("")
-    print("[+] Swarm created!")
-    print("")
-    print("    Name: " .. info.name)
-    print("    ID: " .. info.id)
-    print("    Fingerprint: " .. info.fingerprint)
-    print("")
-    print("This fingerprint identifies your swarm.")
-    print("Zones will display it after pairing.")
-    print("")
-    print("Press any key to continue...")
-    os.pullEvent("key")
-
-    -- Initialize networking
-    local netOk, netErr = self:initNetwork()
-    if not netOk then
-        print("[!] Network warning: " .. (netErr or "unknown"))
-        sleep(2)
-    end
-
-    return true
 end
 
 -- Initialize networking
 function App:initNetwork()
-    -- Open modem with wireless preference (also closes other modems)
     local ok, modemName, modemType = ModemUtils.open(true)
     if not ok then
         return false, "No modem found"
     end
 
-    -- Register with service discovery
     local info = self.authority:getInfo()
     if info then
         rednet.host("shelfos_swarm", info.id)
@@ -178,51 +148,15 @@ function App:initNetwork()
     return true
 end
 
--- Draw main menu
-function App:drawMenu()
-    term.clear()
-    term.setCursorPos(1, 1)
-
-    local info = self.authority:getInfo()
-
-    print("=====================================")
-    print("  " .. (info and info.name or "ShelfOS Swarm"))
-    print("=====================================")
-    print("")
-
-    if info then
-        print("Fingerprint: " .. info.fingerprint)
-        print("Zones: " .. info.zoneCount .. " active")
-    end
-
-    print("")
-    print("-------------------")
-    print("[A] Add Zone")
-    print("[Z] View Zones")
-    print("[D] Delete Swarm")
-    print("[Q] Quit")
-    print("-------------------")
-end
-
--- Run main loop
+-- Run the app with ScreenManager
 function App:run()
-    self.running = true
-
-    while self.running do
-        self:drawMenu()
-
-        local _, key = os.pullEvent("key")
-
-        if key == keys.q then
-            self.running = false
-        elseif key == keys.a then
-            AddZone.run(self)
-        elseif key == keys.z then
-            ViewZones.run(self)
-        elseif key == keys.d then
-            DeleteSwarm.run(self)
-        end
+    if not self.initialScreen then
+        return
     end
+
+    local manager = ScreenManager.new(self)
+    manager:push(self.initialScreen)
+    manager:run()
 
     self:shutdown()
 end
@@ -230,9 +164,8 @@ end
 -- Shutdown
 function App:shutdown()
     rednet.unhost("shelfos_swarm")
-    term.clear()
-    term.setCursorPos(1, 1)
-    print("ShelfOS Swarm stopped.")
+    TermUI.clear()
+    TermUI.drawCentered(10, "ShelfOS Swarm stopped.", colors.lightGray)
 end
 
 return App

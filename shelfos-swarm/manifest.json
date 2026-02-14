@@ -1,12 +1,16 @@
 {
   "name": "shelfos-swarm",
   "description": "ShelfOS Swarm Controller - Pocket computer as swarm queen",
-  "dependencies": ["crypto", "net", "utils"],
+  "dependencies": ["crypto", "net", "utils", "ui"],
   "files": [
     "start.lua",
     "App.lua",
     "core/SwarmAuthority.lua",
     "core/Paths.lua",
+    "ui/TermUI.lua",
+    "ui/ScreenManager.lua",
+    "screens/MainMenu.lua",
+    "screens/CreateSwarm.lua",
     "screens/AddZone.lua",
     "screens/ViewZones.lua",
     "screens/DeleteSwarm.lua"
