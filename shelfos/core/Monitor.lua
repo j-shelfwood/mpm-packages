@@ -112,6 +112,7 @@ function Monitor.new(config, onViewChange, settings, index)
     self.availableViews = {}
     self.currentIndex = 1
     self.settingsButton = nil
+    self.pairingMode = false  -- When true, skip rendering (pairing code displayed)
 
     -- Window buffer for flicker-free rendering
     self.buffer = nil
@@ -589,6 +590,20 @@ function Monitor:getTheme()
 end
 
 -- ============================================================================
+-- PAIRING MODE
+-- ============================================================================
+-- When pairing mode is active, monitors skip rendering to allow the pairing
+-- code to remain visible on screen. The Kernel sets this when entering
+-- the "Accept from pocket" pairing flow.
+-- ============================================================================
+
+-- Set pairing mode (pauses rendering while pairing code is displayed)
+-- @param enabled boolean
+function Monitor:setPairingMode(enabled)
+    self.pairingMode = enabled
+end
+
+-- ============================================================================
 -- INDEPENDENT EVENT LOOP
 -- ============================================================================
 -- This method runs in its own coroutine via parallel.waitForAny
@@ -603,8 +618,8 @@ function Monitor:runLoop(running)
         return
     end
 
-    -- Initial render and schedule
-    if self.viewInstance then
+    -- Initial render and schedule (only if not in pairing mode)
+    if self.viewInstance and not self.pairingMode then
         self:render()
         self:scheduleRender()
     end
@@ -617,17 +632,24 @@ function Monitor:runLoop(running)
         if event == "timer" then
             -- Check if it's our render timer
             if p1 == self.renderTimer then
-                local ok, err = pcall(function()
-                    self:render()
-                end)
-                if not ok then
-                    print("[Monitor] Render error on " .. (self.peripheralName or "unknown") .. ": " .. tostring(err))
+                -- Skip rendering if pairing mode is active (pairing code displayed)
+                if not self.pairingMode then
+                    local ok, err = pcall(function()
+                        self:render()
+                    end)
+                    if not ok then
+                        print("[Monitor] Render error on " .. (self.peripheralName or "unknown") .. ": " .. tostring(err))
+                    end
                 end
+                -- Always reschedule to keep timer chain alive
                 self:scheduleRender()
 
             -- Check if it's our settings timer
             elseif p1 == self.settingsTimer then
-                self:hideSettingsButton()
+                -- Also skip settings button changes in pairing mode
+                if not self.pairingMode then
+                    self:hideSettingsButton()
+                end
             end
             -- Other timers are ignored (they belong to other monitors)
 

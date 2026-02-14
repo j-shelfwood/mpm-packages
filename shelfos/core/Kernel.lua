@@ -569,8 +569,16 @@ function Kernel:acceptPocketPairing()
         self.channel = nil
     end
 
+    -- PAUSE all monitor rendering so pairing code stays visible
+    for _, monitor in ipairs(self.monitors) do
+        monitor:setPairingMode(true)
+    end
+
     -- Use Pairing module with callbacks
     local displayCode = nil
+
+    -- Reference to self for cleanup in callbacks
+    local kernelRef = self
 
     local callbacks = {
         onDisplayCode = function(code)
@@ -619,6 +627,11 @@ function Kernel:acceptPocketPairing()
             term.write("[*] " .. msg)
         end,
         onSuccess = function(secret, pairingCode, zoneId)
+            -- RESUME monitor rendering
+            for _, monitor in ipairs(kernelRef.monitors) do
+                monitor:setPairingMode(false)
+            end
+
             -- Clear monitor displays
             clearPairingDisplays(monitorNames)
 
@@ -628,6 +641,11 @@ function Kernel:acceptPocketPairing()
             print("[*] Restart ShelfOS to connect.")
         end,
         onCancel = function(reason)
+            -- RESUME monitor rendering
+            for _, monitor in ipairs(kernelRef.monitors) do
+                monitor:setPairingMode(false)
+            end
+
             -- Clear monitor displays
             clearPairingDisplays(monitorNames)
 
