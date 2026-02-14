@@ -31,7 +31,7 @@ While running, ShelfOS displays a menu at the bottom of the terminal:
 |-----|--------|
 | `M` | Monitor overview - view and change monitor views |
 | `S` | Show current configuration (zone, monitors, network) |
-| `L` | Network linking menu (create/join network) |
+| `L` | Network linking menu (pair with pocket) |
 | `R` | Reset configuration (delete and restart fresh) |
 | `Q` | Quit ShelfOS |
 
@@ -133,18 +133,21 @@ When computers join the same swarm:
 
 ShelfOS uses a **pocket-as-queen** architecture:
 
-- Your **pocket computer** holds the swarm secret and acts as the controller
-- **Zone computers** (with monitors) must be paired with your pocket to join
+- Your **pocket computer** runs `shelfos-swarm` and acts as the swarm controller
+- **Zone computers** (with monitors) run `shelfos` and must be paired with your pocket to join
 - This ensures only you can add computers to your swarm
 
 ### Setting Up Your Swarm
 
 #### Step 1: Create Swarm on Pocket
 
-1. Install ShelfOS on an **Advanced Pocket Computer** (with ender modem recommended)
-2. Run `mpm run shelfos` - auto-detects pocket mode
-3. Select **"2. Create Swarm"**
-4. Note the pairing code displayed
+1. Install on an **Advanced Pocket Computer** (with ender modem recommended):
+   ```
+   mpm install shelfos-swarm
+   mpm run shelfos-swarm
+   ```
+2. Select **[C] Create new swarm**
+3. Enter a name for your swarm
 
 #### Step 2: Pair Zone Computers
 
@@ -153,25 +156,18 @@ On each zone computer (with monitors):
 1. Run `mpm run shelfos`
 2. You'll see: "Not in swarm - Press L -> Accept from pocket"
 3. Press `L` -> **"Accept from pocket"**
-4. On your pocket: Select **"2. Add Computer"**
-5. Select the zone computer from the list, press Enter
-6. Zone receives secret and shows "Pairing successful!"
-7. **Restart ShelfOS** on the zone to connect
+4. A pairing code appears on the zone's screen (e.g., `ABCD-EFGH`)
+5. On your pocket: Select **[A] Add Zone**
+6. Select the zone from the list
+7. **Enter the code** shown on the zone's screen
+8. Zone receives credentials and connects automatically
 
 #### Step 3: Verify Connection
 
-After restart, the zone should show:
+After pairing, the zone should show:
 - "Network: wireless/ender modem"
 - Swarm peer count
 - Remote peripherals discovered
-
-### Alternative: Zone-to-Zone Pairing
-
-If you already have one zone in the swarm, it can share the secret:
-
-1. On existing zone: Press `L` -> **"Host pairing session"**
-2. On new zone: Press `L` -> **"Join existing swarm"** -> enter code
-3. Restart new zone
 
 ### Modem Requirements
 
@@ -186,28 +182,38 @@ If you already have one zone in the swarm, it can share the secret:
 ## Architecture
 
 ```
-shelfos/
-├── start.lua           # Entry point (auto-detects pocket/display/headless)
+shelfos/                  # Zone computer package
+├── start.lua             # Entry point
 ├── core/
-│   ├── Kernel.lua      # Main orchestrator (parallel event loops)
-│   ├── Config.lua      # Configuration management
-│   ├── ConfigUI.lua    # View configuration UI
-│   ├── Monitor.lua     # Per-monitor lifecycle + window buffering
-│   ├── Terminal.lua    # Split terminal (logs + menu bar)
-│   └── Zone.lua        # Zone identity
+│   ├── Kernel.lua        # Main orchestrator (parallel event loops)
+│   ├── Config.lua        # Configuration management
+│   ├── ConfigUI.lua      # View configuration UI
+│   ├── Monitor.lua       # Per-monitor lifecycle + window buffering
+│   ├── Paths.lua         # File path constants
+│   ├── Terminal.lua      # Split terminal (logs + menu bar)
+│   └── Zone.lua          # Zone identity
 ├── input/
-│   └── Menu.lua        # Terminal menu handlers
+│   └── Menu.lua          # Terminal menu handlers
 ├── modes/
-│   └── headless.lua    # Headless peripheral host mode
-├── pocket/
-│   ├── start.lua       # Pocket computer entry
-│   ├── App.lua         # Pocket UI + swarm management
-│   └── Notifications.lua
+│   └── headless.lua      # Headless peripheral host mode
+├── ui/
+│   └── PairingScreen.lua # Pairing code display
 └── tools/
-    ├── setup.lua       # Configuration wizard
-    ├── link.lua        # Network pairing CLI
-    ├── pair_accept.lua # Bootstrap pairing (headless nodes)
-    └── migrate.lua     # displays.config migration
+    ├── setup.lua         # Configuration wizard
+    ├── link.lua          # Network status CLI
+    ├── pair_accept.lua   # Bootstrap pairing (headless nodes)
+    └── migrate.lua       # displays.config migration
+```
+
+For pocket computers, use the separate `shelfos-swarm` package:
+
+```
+shelfos-swarm/            # Pocket computer package
+├── start.lua             # Entry point
+├── App.lua               # Swarm controller UI
+└── core/
+    ├── SwarmAuthority.lua # Zone registry, credential issuance
+    └── Paths.lua          # Pocket file paths
 ```
 
 ### Technical Documentation
@@ -322,9 +328,9 @@ On multiplayer servers, ShelfOS uses HMAC-like message signing:
 - All network messages are signed with a shared secret
 - Timestamps prevent replay attacks
 - Nonces prevent duplicate message injection
-- Only computers with the secret can communicate
+- Only computers with the swarm secret can communicate
 
-The secret is generated during `link new` and shared via the pairing process.
+The secret is generated by the pocket computer and delivered during pairing.
 
 ## Legacy Migration
 
@@ -349,7 +355,7 @@ This imports your `displays.config` into ShelfOS format.
 ### Network not connecting
 - Verify both computers have modems
 - Ensure modems are the same type (both wireless, or both ender)
-- Check that the pairing code matches exactly
+- Check that the pairing code was entered correctly
 
 ### Views not rendering
 - Press `Q` to quit and check for error messages
@@ -357,6 +363,10 @@ This imports your `displays.config` into ShelfOS format.
 - Press `R` to reset configuration, then restart
 
 ### Remote peripherals not working
-- Ensure both computers have restarted after joining the swarm
+- Ensure the zone has completed pairing (shows "in swarm")
 - Check that the host computer is running ShelfOS
 - Verify network connectivity (same modem type, in range)
+
+### "Use: mpm run shelfos-swarm"
+- This appears on pocket computers - pocket must use `shelfos-swarm` package
+- Zone computers (with monitors) use `shelfos` package
