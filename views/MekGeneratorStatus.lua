@@ -4,6 +4,7 @@
 local BaseView = mpm('views/BaseView')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Yield = mpm('utils/Yield')
+local Peripherals = mpm('utils/Peripherals')
 
 -- Generator peripheral types
 local GENERATOR_TYPES = {
@@ -14,11 +15,11 @@ local GENERATOR_TYPES = {
 -- Get available generators
 local function getGeneratorOptions()
     local options = {}
-    local names = peripheral.getNames()
+    local names = Peripherals.getNames()
     local typeCounts = {}
 
     for _, name in ipairs(names) do
-        local pType = peripheral.getType(name)
+        local pType = Peripherals.getType(name)
         if pType then
             for _, genType in ipairs(GENERATOR_TYPES) do
                 if pType == genType then
@@ -55,10 +56,10 @@ end
 -- Find generators of specified type
 local function findGenerators(filterType)
     local generators = {}
-    local names = peripheral.getNames()
+    local names = Peripherals.getNames()
 
     for _, name in ipairs(names) do
-        local pType = peripheral.getType(name)
+        local pType = Peripherals.getType(name)
         if pType then
             local matches = false
             if filterType == "all" then
@@ -71,7 +72,7 @@ local function findGenerators(filterType)
 
             if matches then
                 table.insert(generators, {
-                    peripheral = peripheral.wrap(name),
+                    peripheral = Peripherals.wrap(name),
                     name = name,
                     type = pType
                 })

@@ -238,6 +238,92 @@ function Config.getPath()
     return CONFIG_PATH
 end
 
+-- CC:Tweaked side names for directly-attached peripherals
+local SIDES = { "top", "bottom", "left", "right", "front", "back" }
+
+local function isSideName(name)
+    for _, side in ipairs(SIDES) do
+        if name == side then return true end
+    end
+    return false
+end
+
+-- Discover monitors, deduplicating when the same physical monitor
+-- appears under both a side name (direct attachment) and a network name
+-- (via wired modem). Prefers side names since monitor_touch events use them.
+function Config.discoverMonitors()
+    local allNames = peripheral.getNames()
+    local monitorNames = {}
+
+    for _, name in ipairs(allNames) do
+        if peripheral.hasType(name, "monitor") then
+            table.insert(monitorNames, name)
+        end
+    end
+
+    -- Separate side-attached monitors from network monitors
+    local sideMonitors = {}
+    local networkMonitors = {}
+
+    for _, name in ipairs(monitorNames) do
+        if isSideName(name) then
+            table.insert(sideMonitors, name)
+        else
+            table.insert(networkMonitors, name)
+        end
+    end
+
+    -- No side monitors = no possible duplicates
+    if #sideMonitors == 0 then
+        return monitorNames
+    end
+
+    -- Detect duplicates: set cursor position via side name, read via network name.
+    -- If they match for two distinct marker positions, they're the same physical device.
+    local skip = {}
+
+    for _, sideName in ipairs(sideMonitors) do
+        local sideP = peripheral.wrap(sideName)
+        if sideP then
+            -- Save original cursor position
+            local origX, origY = sideP.getCursorPos()
+
+            -- Set unique marker position
+            sideP.setCursorPos(43, 29)
+
+            for _, netName in ipairs(networkMonitors) do
+                if not skip[netName] then
+                    local netP = peripheral.wrap(netName)
+                    if netP then
+                        local cx, cy = netP.getCursorPos()
+                        if cx == 43 and cy == 29 then
+                            -- Confirm with second marker to avoid false positives
+                            sideP.setCursorPos(17, 11)
+                            cx, cy = netP.getCursorPos()
+                            if cx == 17 and cy == 11 then
+                                skip[netName] = true
+                            end
+                        end
+                    end
+                end
+            end
+
+            -- Restore cursor position
+            sideP.setCursorPos(origX, origY)
+        end
+    end
+
+    -- Build deduplicated list (side names preferred)
+    local result = {}
+    for _, name in ipairs(monitorNames) do
+        if not skip[name] then
+            table.insert(result, name)
+        end
+    end
+
+    return result
+end
+
 -- Auto-create configuration by discovering monitors and assigning views
 -- Used for zero-touch first boot
 -- @return config, monitorsFound
@@ -256,15 +342,8 @@ function Config.autoCreate()
     -- Computer starts unpaired - must pair with pocket to join swarm
     -- network.secret = nil, network.enabled = false (from DEFAULT_CONFIG)
 
-    -- Discover monitors
-    local monitors = {}
-    local peripherals = peripheral.getNames()
-
-    for _, name in ipairs(peripherals) do
-        if peripheral.hasType(name, "monitor") then
-            table.insert(monitors, name)
-        end
-    end
+    -- Discover monitors (with deduplication)
+    local monitors = Config.discoverMonitors()
 
     if #monitors == 0 then
         return config, 0

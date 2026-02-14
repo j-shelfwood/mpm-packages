@@ -4,6 +4,7 @@
 local BaseView = mpm('views/BaseView')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Yield = mpm('utils/Yield')
+local Peripherals = mpm('utils/Peripherals')
 
 -- Multiblock peripheral types and their display config
 local MULTIBLOCK_TYPES = {
@@ -165,12 +166,12 @@ end
 -- Discover multiblocks
 local function findMultiblocks()
     local multiblocks = {}
-    local names = peripheral.getNames()
+    local names = Peripherals.getNames()
 
     for _, name in ipairs(names) do
-        local pType = peripheral.getType(name)
+        local pType = Peripherals.getType(name)
         if pType and MULTIBLOCK_TYPES[pType] then
-            local p = peripheral.wrap(name)
+            local p = Peripherals.wrap(name)
             -- Check if formed
             local formedOk, isFormed = pcall(p.isFormed)
             if formedOk then

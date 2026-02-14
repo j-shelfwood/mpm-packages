@@ -22,6 +22,7 @@ local ConfigUIInputs = {}
 -- @return Selected value or nil if cancelled
 function ConfigUIInputs.drawNumberInput(monitor, title, currentValue, min, max, presets, step, largeStep)
     local width, height = monitor.getSize()
+    local monitorName = peripheral.getName(monitor)
     min = min or 0
     max = max or 999999999
     presets = presets or {100, 500, 1000, 5000, 10000, 50000}
@@ -100,8 +101,11 @@ function ConfigUIInputs.drawNumberInput(monitor, title, currentValue, min, max, 
 
         Core.resetColors(monitor)
 
-        -- Wait for touch
-        local event, side, x, y = os.pullEvent("monitor_touch")
+        -- Wait for touch on THIS monitor only
+        local event, side, x, y
+        repeat
+            event, side, x, y = os.pullEvent("monitor_touch")
+        until side == monitorName
 
         -- Save
         if y == saveY then
@@ -136,6 +140,7 @@ end
 -- @return Selected value or nil if cancelled
 function ConfigUIInputs.drawBooleanInput(monitor, title, currentValue)
     local width, height = monitor.getSize()
+    local monitorName = peripheral.getName(monitor)
     local value = currentValue or false
 
     -- Create toggle widget
@@ -167,8 +172,11 @@ function ConfigUIInputs.drawBooleanInput(monitor, title, currentValue)
 
         Core.resetColors(monitor)
 
-        -- Wait for touch
-        local event, side, x, y = os.pullEvent("monitor_touch")
+        -- Wait for touch on THIS monitor only
+        local event, side, x, y
+        repeat
+            event, side, x, y = os.pullEvent("monitor_touch")
+        until side == monitorName
 
         -- Save
         if y == saveY then

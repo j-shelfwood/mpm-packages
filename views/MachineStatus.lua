@@ -6,17 +6,18 @@ local BaseView = mpm('views/BaseView')
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Yield = mpm('utils/Yield')
+local Peripherals = mpm('utils/Peripherals')
 
 -- Get available machine types from connected peripherals
 local function getMachineTypes()
     local types = {}
     local seen = {}
-    local names = peripheral.getNames()
+    local names = Peripherals.getNames()
 
     for _, name in ipairs(names) do
-        local pType = peripheral.getType(name)
+        local pType = Peripherals.getType(name)
         if pType and not seen[pType] then
-            local p = peripheral.wrap(name)
+            local p = Peripherals.wrap(name)
             if p and type(p.isBusy) == "function" then
                 seen[pType] = true
                 local _, _, shortName = string.find(pType, ":(.+)")
@@ -62,10 +63,10 @@ return BaseView.custom({
             machineTypeName = machineTypeName:gsub("_", " ")
             self.title = machineTypeName:gsub("^%l", string.upper)
 
-            local names = peripheral.getNames()
+            local names = Peripherals.getNames()
             for _, name in ipairs(names) do
-                if peripheral.getType(name) == self.machineType then
-                    table.insert(self.peripherals, peripheral.wrap(name))
+                if Peripherals.getType(name) == self.machineType then
+                    table.insert(self.peripherals, Peripherals.wrap(name))
                 end
             end
         end
@@ -80,7 +81,7 @@ return BaseView.custom({
         local machineData = {}
         local machineType = self.machineType
         for idx, machine in ipairs(self.peripherals) do
-            local fullName = peripheral.getName(machine)
+            local fullName = Peripherals.getName(machine)
             local _, _, shortName = string.find(fullName, machineType .. "_(.+)")
             shortName = shortName or fullName
 

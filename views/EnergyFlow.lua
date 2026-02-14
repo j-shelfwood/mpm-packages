@@ -5,17 +5,18 @@
 local BaseView = mpm('views/BaseView')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Yield = mpm('utils/Yield')
+local Peripherals = mpm('utils/Peripherals')
 
 -- Find all energy detectors
 local function findDetectors()
     local detectors = {}
-    local names = peripheral.getNames()
+    local names = Peripherals.getNames()
 
     for _, name in ipairs(names) do
-        local pType = peripheral.getType(name)
+        local pType = Peripherals.getType(name)
         if pType == "energy_detector" then
             table.insert(detectors, {
-                peripheral = peripheral.wrap(name),
+                peripheral = Peripherals.wrap(name),
                 name = name
             })
         end

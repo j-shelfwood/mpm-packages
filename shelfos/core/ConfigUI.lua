@@ -109,6 +109,8 @@ function ConfigUI.drawConfigMenu(monitor, viewName, schema, currentConfig)
         end
     end
 
+    local monitorName = peripheral.getName(monitor)
+
     while true do
         Core.clear(monitor)
 
@@ -179,8 +181,11 @@ function ConfigUI.drawConfigMenu(monitor, viewName, schema, currentConfig)
 
         Core.resetColors(monitor)
 
-        -- Wait for touch
-        local event, side, x, y = os.pullEvent("monitor_touch")
+        -- Wait for touch on THIS monitor only
+        local event, side, x, y
+        repeat
+            event, side, x, y = os.pullEvent("monitor_touch")
+        until side == monitorName
 
         -- Save
         if y == saveY then

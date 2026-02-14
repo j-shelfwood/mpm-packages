@@ -6,6 +6,7 @@ local BaseView = mpm('views/BaseView')
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Yield = mpm('utils/Yield')
+local Peripherals = mpm('utils/Peripherals')
 
 -- Moon phase names
 local MOON_PHASES = {
@@ -79,7 +80,7 @@ return BaseView.custom({
     end,
 
     init = function(self, config)
-        self.detector = peripheral.find("environment_detector")
+        self.detector = Peripherals.find("environment_detector")
         self.use24h = config.timeFormat == "24h"
         self.showBiome = config.showBiome ~= false
     end,

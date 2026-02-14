@@ -5,6 +5,7 @@ local BaseView = mpm('views/BaseView')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Yield = mpm('utils/Yield')
 local Activity = mpm('peripherals/MachineActivity')
+local Peripherals = mpm('utils/Peripherals')
 
 -- Format energy values
 local function formatEnergy(joules)
@@ -22,14 +23,14 @@ end
 -- Get all Mekanism machines as options
 local function getMachineOptions()
     local options = {}
-    local names = peripheral.getNames()
+    local names = Peripherals.getNames()
 
     for _, name in ipairs(names) do
-        local p = peripheral.wrap(name)
+        local p = Peripherals.wrap(name)
         local supported, _ = Activity.supportsActivity(p)
 
         if supported then
-            local pType = peripheral.getType(name)
+            local pType = Peripherals.getType(name)
             local classification = Activity.classify(pType)
 
             -- Only include Mekanism machines
@@ -95,8 +96,8 @@ return BaseView.custom({
         self.classification = nil
 
         if self.machineName then
-            self.machine = peripheral.wrap(self.machineName)
-            self.machineType = peripheral.getType(self.machineName)
+            self.machine = Peripherals.wrap(self.machineName)
+            self.machineType = Peripherals.getType(self.machineName)
             self.classification = Activity.classify(self.machineType)
         end
     end,
