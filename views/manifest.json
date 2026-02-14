@@ -15,6 +15,7 @@
     "factories/ListFactory.lua",
     "Clock.lua",
     "MachineStatus.lua",
+    "MachineActivity.lua",
     "NetworkDashboard.lua",
     "NetworkDashboardRenderers.lua",
     "EnergyGraph.lua",

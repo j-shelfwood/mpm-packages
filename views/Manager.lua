@@ -191,6 +191,7 @@ function Manager.suggestView()
     local suggestions = {
         { check = function() return api.find("me_bridge") end, view = "StorageGraph", reason = "AE2 ME Bridge detected" },
         { check = function() return api.find("rsBridge") end, view = "StorageGraph", reason = "RS Bridge detected" },
+        { check = function() return api.find("enrichmentChamber") end, view = "MachineActivity", reason = "Mekanism machines detected" },
         { check = function() return api.find("energyStorage") end, view = "EnergyGraph", reason = "Energy storage detected" },
         { check = function() return api.find("environment_detector") end, view = "Clock", reason = "Environment detector found" },
     }
@@ -262,6 +263,19 @@ function Manager.suggestViewsForMonitors(monitorCount)
     if hasEnergy then
         for _, m in ipairs(mountable) do
             if m == "EnergyGraph" then
+                table.insert(prioritized, m)
+                break
+            end
+        end
+    end
+
+    -- Check for Mekanism machines (local or remote)
+    local hasMekanism = api.find("enrichmentChamber") or api.find("crusher") or api.find("solarGenerator")
+    Yield.yield()
+
+    if hasMekanism then
+        for _, m in ipairs(mountable) do
+            if m == "MachineActivity" then
                 table.insert(prioritized, m)
                 break
             end
