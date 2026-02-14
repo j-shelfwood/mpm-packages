@@ -7,7 +7,7 @@ local root = _G.TEST_ROOT or "."
 local module_cache = {}
 _G.mpm = function(name)
     if not module_cache[name] then
-        module_cache[name] = dofile(root .. "/mpm-packages/" .. name .. ".lua")
+        module_cache[name] = dofile(root .. "/" .. name .. ".lua")
     end
     return module_cache[name]
 end

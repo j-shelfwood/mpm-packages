@@ -1,4 +1,5 @@
-local Text = dofile("mpm-packages/utils/Text.lua")
+local root = _G.TEST_ROOT or "."
+local Text = dofile(root .. "/utils/Text.lua")
 
 local function assert_eq(expected, actual, message)
     if expected ~= actual then

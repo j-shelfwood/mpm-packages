@@ -1,4 +1,5 @@
-local Protocol = dofile("mpm-packages/net/Protocol.lua")
+local root = _G.TEST_ROOT or "."
+local Protocol = dofile(root .. "/net/Protocol.lua")
 
 local function assert_true(value, message)
     if not value then

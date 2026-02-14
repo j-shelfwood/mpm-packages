@@ -37,7 +37,7 @@ while IFS= read -r file; do
   else
     fail "$file is invalid JSON"
   fi
-done < <(find mpm mpm-packages -type f \( -name 'manifest.json' -o -name 'index.json' \) | sort)
+done < <(find . -type f \( -name 'manifest.json' -o -name 'index.json' \) -not -path './tests/*' -not -path './.git/*' | sort)
 
 run_section "Lua syntax"
 while IFS= read -r file; do
@@ -46,9 +46,9 @@ while IFS= read -r file; do
   else
     fail "$file has syntax errors"
   fi
-done < <(find mpm mpm-packages -type f -name '*.lua' | sort)
+done < <(find . -type f -name '*.lua' -not -path './tests/*' -not -path './.git/*' | sort)
 
-run_section "Manifest coverage (mpm-packages)"
+run_section "Manifest coverage"
 while IFS= read -r manifest; do
   pkg_dir="$(dirname "$manifest")"
   pkg_name="$(basename "$pkg_dir")"
@@ -80,20 +80,20 @@ while IFS= read -r manifest; do
 
   rm -f "$declared_tmp" "$disk_tmp"
   pass "$manifest"
-done < <(find mpm-packages -mindepth 2 -maxdepth 2 -type f -name manifest.json | sort)
+done < <(find . -mindepth 2 -maxdepth 2 -type f -name manifest.json -not -path './tests/*' -not -path './.git/*' | sort)
 
-run_section "Index cross-check (mpm-packages/index.json)"
-if [[ -f mpm-packages/index.json ]]; then
+run_section "Index cross-check (index.json)"
+if [[ -f index.json ]]; then
   while IFS= read -r pkg; do
     [[ -z "$pkg" ]] && continue
-    if [[ -f "mpm-packages/$pkg/manifest.json" ]]; then
+    if [[ -f "./$pkg/manifest.json" ]]; then
       pass "index entry '$pkg' has manifest"
     else
-      fail "index entry '$pkg' missing manifest at mpm-packages/$pkg/manifest.json"
+      fail "index entry '$pkg' missing manifest at $pkg/manifest.json"
     fi
-  done < <(jq -r '.[].name' mpm-packages/index.json)
+  done < <(jq -r '.[].name' index.json)
 else
-  fail "mpm-packages/index.json missing"
+  fail "index.json missing"
 fi
 
 run_section "Lua unit tests"
@@ -106,7 +106,7 @@ fi
 run_section "Optional tool checks"
 if require_cmd luacheck; then
   if [[ -f ".luacheckrc" || -f "luacheckrc" ]]; then
-    if luacheck mpm mpm-packages; then
+    if luacheck .; then
       pass "luacheck"
     else
       fail "luacheck"
@@ -120,7 +120,7 @@ fi
 
 if require_cmd stylua; then
   if [[ -f ".stylua.toml" || -f "stylua.toml" ]]; then
-    if stylua --check mpm mpm-packages tests/lua scripts; then
+    if stylua --check . --exclude tests/; then
       pass "stylua --check"
     else
       fail "stylua --check"
@@ -148,7 +148,7 @@ if [[ -n "$CRAFTOS_CMD" ]]; then
       --headless \
       --directory "$CRAFTOS_DATA_DIR" \
       --mount-ro "/workspace=$ROOT_DIR" \
-      --exec 'local p=dofile("/workspace/mpm-packages/net/Protocol.lua"); local c=dofile("/workspace/mpm-packages/net/Crypto.lua"); local t=dofile("/workspace/mpm-packages/utils/Text.lua"); local m=p.createMessage(p.MessageType.PING,{}); assert(m.type=="ping"); print("craftos smoke ok"); os.shutdown()' \
+      --exec 'local p=dofile("/workspace/net/Protocol.lua"); local c=dofile("/workspace/net/Crypto.lua"); local t=dofile("/workspace/utils/Text.lua"); local m=p.createMessage(p.MessageType.PING,{}); assert(m.type=="ping"); print("craftos smoke ok"); os.shutdown()' \
       >/dev/null 2>&1; then
     pass "$CRAFTOS_CMD headless smoke"
   else

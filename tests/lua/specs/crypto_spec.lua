@@ -1,4 +1,5 @@
-local Crypto = dofile("mpm-packages/net/Crypto.lua")
+local root = _G.TEST_ROOT or "."
+local Crypto = dofile(root .. "/net/Crypto.lua")
 
 local function assert_true(value, message)
     if not value then

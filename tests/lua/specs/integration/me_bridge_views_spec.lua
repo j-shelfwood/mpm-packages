@@ -7,7 +7,7 @@ local root = _G.TEST_ROOT or "."
 local module_cache = {}
 _G.mpm = function(name)
     if not module_cache[name] then
-        module_cache[name] = dofile(root .. "/mpm-packages/" .. name .. ".lua")
+        module_cache[name] = dofile(root .. "/" .. name .. ".lua")
     end
     return module_cache[name]
 end
@@ -238,7 +238,7 @@ test("StorageGraph view can mount with ME Bridge", function()
     Mocks.setupZone({id = 10, meBridge = true})
 
     -- Load view module
-    local StorageGraph = dofile(root .. "/mpm-packages/views/StorageGraph.lua")
+    local StorageGraph = dofile(root .. "/views/StorageGraph.lua")
 
     -- Check mount
     local canMount = StorageGraph.mount()
@@ -248,7 +248,7 @@ end)
 test("StorageGraph view mount fails without ME Bridge", function()
     Mocks.setupZone({id = 10, meBridge = false})
 
-    local StorageGraph = dofile(root .. "/mpm-packages/views/StorageGraph.lua")
+    local StorageGraph = dofile(root .. "/views/StorageGraph.lua")
 
     local canMount = StorageGraph.mount()
     assert_true(not canMount, "StorageGraph should NOT mount without ME Bridge")
@@ -257,7 +257,7 @@ end)
 test("ItemBrowser view can mount with ME Bridge", function()
     Mocks.setupZone({id = 10, meBridge = true})
 
-    local ItemBrowser = dofile(root .. "/mpm-packages/views/ItemBrowser.lua")
+    local ItemBrowser = dofile(root .. "/views/ItemBrowser.lua")
 
     local canMount = ItemBrowser.mount()
     assert_true(canMount, "ItemBrowser should mount when ME Bridge present")
@@ -266,7 +266,7 @@ end)
 test("Clock view always mounts (no peripheral required)", function()
     Mocks.setupZone({id = 10, meBridge = false})
 
-    local Clock = dofile(root .. "/mpm-packages/views/Clock.lua")
+    local Clock = dofile(root .. "/views/Clock.lua")
 
     local canMount = Clock.mount()
     assert_true(canMount, "Clock should always mount")
@@ -275,7 +275,7 @@ end)
 test("EnergyGraph view mount depends on ME Bridge", function()
     Mocks.setupZone({id = 10, meBridge = true})
 
-    local EnergyGraph = dofile(root .. "/mpm-packages/views/EnergyGraph.lua")
+    local EnergyGraph = dofile(root .. "/views/EnergyGraph.lua")
 
     local canMount = EnergyGraph.mount()
     assert_true(canMount, "EnergyGraph should mount when ME Bridge present")
