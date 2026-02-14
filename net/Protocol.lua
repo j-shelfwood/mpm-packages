@@ -288,13 +288,15 @@ end
 -- ============================================================================
 
 -- Create pair ready message (computer broadcasts when ready to receive secret)
--- @param token One-time token for verification
+-- NOTE: Token is deprecated - pairing now uses display-only codes for security
+-- @param token DEPRECATED - ignored, kept for backward compatibility
 -- @param computerLabel Computer label/name
 -- @param computerId Computer ID
 -- @return Pair ready message
 function Protocol.createPairReady(token, computerLabel, computerId)
     return Protocol.createMessage(Protocol.MessageType.PAIR_READY, {
-        token = token,
+        -- token intentionally omitted - security improvement
+        -- the display code is never broadcast, only shown on screen
         label = computerLabel or ("Computer #" .. (computerId or "?")),
         computerId = computerId
     })

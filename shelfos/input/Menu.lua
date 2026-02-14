@@ -51,8 +51,9 @@ function Menu.showStatus(config, target)
 
     table.insert(lines, "")
 
-    -- Network/Swarm status
-    if config.network.enabled then
+    -- Network/Swarm status (check if secret exists, not just enabled flag)
+    local isInSwarm = config.network and config.network.secret ~= nil
+    if isInSwarm then
         -- Check for swarm peers using native rednet.lookup
         local peerCount = 0
         local peerIds = {}
@@ -92,7 +93,7 @@ function Menu.showStatus(config, target)
     end
 
     -- Local shared peripherals (shareable types)
-    if config.network.enabled then
+    if isInSwarm then
         local shareableTypes = {
             me_bridge = true, rsBridge = true, energyStorage = true,
             energy_storage = true, inventory = true, chest = true,
@@ -147,7 +148,7 @@ function Menu.showStatus(config, target)
                 table.insert(lines, "    from: " .. p.host)
             end
         end
-    elseif config.network.enabled then
+    elseif isInSwarm then
         table.insert(lines, "")
         table.insert(lines, "Remote: (client not initialized)")
     end
@@ -469,24 +470,27 @@ function Menu.showLink(config, target)
     target = target or term.current()
 
     local options = {}
-    local isConnected = config.network.enabled
+    -- Check if zone is in swarm (has secret)
+    local isInSwarm = config.network and config.network.secret ~= nil
 
-    if isConnected then
+    if isInSwarm then
+        -- IN SWARM: Can host pairing, show code, or disconnect
         options = {
-            { value = "show_code", label = "Show pairing code" },
-            { value = "host", label = "Host pairing session" },
-            { value = "pocket_accept", label = "Accept from pocket" },
-            { value = "disconnect", label = "Disconnect from swarm" },
+            { value = "show_code", label = "Show swarm pairing code" },
+            { value = "host", label = "Host pairing (for code join)" },
+            { value = "pocket_accept", label = "Re-pair with pocket" },
+            { value = "disconnect", label = "Leave swarm" },
             { value = "back", label = "Back" }
         }
     else
+        -- NOT IN SWARM: Can only accept from pocket or join with code
         options = {
-            { value = "show_code", label = "Show pairing code" },
-            { value = "host", label = "Host pairing session" },
             { value = "pocket_accept", label = "Accept from pocket" },
-            { value = "join", label = "Join existing swarm" },
+            { value = "join", label = "Join with pairing code" },
             { value = "back", label = "Back" }
         }
+        -- Note: "Host pairing" removed - requires being in swarm first
+        -- Note: "Show code" removed - no code until in swarm
     end
 
     -- Build title with status
@@ -500,7 +504,7 @@ function Menu.showLink(config, target)
 
     -- Status line with peer count
     local startY = 5
-    if isConnected then
+    if isInSwarm then
         -- Check for swarm peers
         local peerCount = 0
         for _, name in ipairs(peripheral.getNames()) do
@@ -515,9 +519,9 @@ function Menu.showLink(config, target)
         target.setCursorPos(2, 3)
         if peerCount > 0 then
             local peerWord = peerCount == 1 and "peer" or "peers"
-            target.write("Swarm of " .. peerCount .. " " .. peerWord .. " online")
+            target.write("In swarm: " .. peerCount .. " " .. peerWord .. " online")
         else
-            target.write("Swarm: Connected (no peers found)")
+            target.write("In swarm (no peers found)")
         end
 
         target.setTextColor(colors.yellow)
@@ -527,11 +531,11 @@ function Menu.showLink(config, target)
     else
         target.setTextColor(colors.orange)
         target.setCursorPos(2, 3)
-        target.write("Status: Standalone")
+        target.write("Not in swarm")
 
         target.setTextColor(colors.gray)
         target.setCursorPos(2, 4)
-        target.write("Code: " .. (config.network.pairingCode or "N/A"))
+        target.write("Use pocket or code to join")
         startY = 6
     end
 

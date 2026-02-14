@@ -1,6 +1,12 @@
 -- Pairing.lua
 -- Consolidated swarm pairing logic
 -- Single source of truth for all pairing operations
+--
+-- SECURITY MODEL:
+-- The pairing code is DISPLAYED on the zone's screen (never broadcast).
+-- The user must physically see the code and enter it on the pocket.
+-- PAIR_DELIVER is signed with the code as an ephemeral key.
+-- This prevents interception attacks - attacker would need physical access.
 
 local Protocol = mpm('net/Protocol')
 local Crypto = mpm('net/Crypto')
@@ -47,23 +53,30 @@ end
 -- =============================================================================
 
 -- Zone broadcasts PAIR_READY and waits for pocket to deliver secret
--- @param callbacks Table with: onStatus(msg), onSuccess(secret, pairingCode, zoneId), onCancel()
--- @return success, secret, pairingCode
+-- SECURITY: The displayCode is shown on screen only (NEVER broadcast)
+-- The pocket must enter this code, which is used to sign PAIR_DELIVER
+-- @param callbacks Table with: onStatus(msg), onDisplayCode(code), onSuccess(secret, pairingCode, zoneId), onCancel(reason)
+-- @return success, secret, pairingCode, zoneId
 function Pairing.acceptFromPocket(callbacks)
     callbacks = callbacks or {}
 
     local modem = peripheral.find("modem")
     if not modem then
-        return false, nil, nil, "No modem found"
+        return false, nil, nil, nil, "No modem found"
     end
 
     local modemName = peripheral.getName(modem)
     local modemType = modem.isWireless() and "wireless" or "wired"
 
-    -- Generate one-time token
-    local token = Pairing.generateToken()
+    -- Generate display-only code (NEVER sent over network)
+    local displayCode = Pairing.generateCode()
     local computerId = os.getComputerID()
     local computerLabel = os.getComputerLabel() or ("Computer #" .. computerId)
+
+    -- Notify caller of the display code (for UI rendering)
+    if callbacks.onDisplayCode then
+        callbacks.onDisplayCode(displayCode)
+    end
 
     -- Open modem
     local wasOpen = rednet.isOpen(modemName)
@@ -72,11 +85,12 @@ function Pairing.acceptFromPocket(callbacks)
     end
 
     if callbacks.onStatus then
-        callbacks.onStatus("Waiting for pocket pairing...")
+        callbacks.onStatus("Broadcasting presence...")
     end
 
-    -- Broadcast PAIR_READY
-    local msg = Protocol.createPairReady(token, computerLabel, computerId)
+    -- Broadcast PAIR_READY - NOTE: NO code/token in message (security)
+    -- Only send label and computerId for identification
+    local msg = Protocol.createPairReady(nil, computerLabel, computerId)
     rednet.broadcast(msg, Pairing.PROTOCOL)
 
     -- Wait for response
@@ -87,11 +101,16 @@ function Pairing.acceptFromPocket(callbacks)
     local resultSecret, resultCode, resultZoneId
 
     while os.epoch("utc") < deadline do
-        -- Re-broadcast every 3 seconds
+        -- Re-broadcast presence every 3 seconds
         local now = os.epoch("utc")
         if now - lastBroadcast > 3000 then
             rednet.broadcast(msg, Pairing.PROTOCOL)
             lastBroadcast = now
+
+            if callbacks.onStatus then
+                local remaining = math.ceil((deadline - now) / 1000)
+                callbacks.onStatus("Waiting... " .. remaining .. "s")
+            end
         end
 
         local timer = os.startTimer(0.5)
@@ -99,25 +118,32 @@ function Pairing.acceptFromPocket(callbacks)
 
         if event == "rednet_message" then
             local senderId = p1
-            local response = p2
+            local envelope = p2
             local msgProtocol = p3
 
-            if msgProtocol == Pairing.PROTOCOL and type(response) == "table" then
-                if response.type == Protocol.MessageType.PAIR_DELIVER then
-                    -- Verify token
-                    if response.data and response.data.token == token then
-                        resultSecret = response.data.secret
-                        resultCode = response.data.pairingCode
-                        resultZoneId = response.data.zoneId
+            if msgProtocol == Pairing.PROTOCOL and type(envelope) == "table" then
+                -- Check for signed PAIR_DELIVER (verify with display code)
+                if envelope.v and envelope.p and envelope.s then
+                    -- This is a signed envelope, verify with our display code
+                    local data, err = Crypto.unwrapWith(envelope, displayCode)
 
-                        -- Send confirmation
-                        local complete = Protocol.createPairComplete(computerLabel)
-                        rednet.send(senderId, complete, Pairing.PROTOCOL)
+                    if data and data.type == Protocol.MessageType.PAIR_DELIVER then
+                        -- Signature valid - extract secret
+                        resultSecret = data.data and data.data.secret
+                        resultCode = data.data and data.data.pairingCode
+                        resultZoneId = data.data and data.data.zoneId
 
-                        success = true
-                        break
+                        if resultSecret then
+                            -- Send confirmation (unsigned, just acknowledgment)
+                            local complete = Protocol.createPairComplete(computerLabel)
+                            rednet.send(senderId, complete, Pairing.PROTOCOL)
+
+                            success = true
+                            break
+                        end
                     end
-                elseif response.type == Protocol.MessageType.PAIR_REJECT then
+                    -- Invalid signature = wrong code entered, ignore silently
+                elseif envelope.type == Protocol.MessageType.PAIR_REJECT then
                     if callbacks.onCancel then
                         callbacks.onCancel("Rejected by pocket")
                     end
@@ -313,11 +339,13 @@ end
 -- =============================================================================
 
 -- Pocket listens for PAIR_READY and delivers secret to selected computer
+-- SECURITY: User must enter the code displayed on the zone's screen
+-- PAIR_DELIVER is signed with that code as an ephemeral key
 -- @param secret The swarm secret to deliver
--- @param pairingCode The swarm pairing code
+-- @param pairingCode The swarm pairing code (for zone config)
 -- @param zoneId Zone identifier (optional)
 -- @param zoneName Zone display name (optional)
--- @param callbacks Table with: onReady(computer), onComplete(computer), onCancel()
+-- @param callbacks Table with: onReady(computer), onCodePrompt(computer, callback), onComplete(computer), onCancel(), onCodeInvalid()
 -- @param timeout Timeout in seconds (default 30)
 -- @return success, pairedComputer
 function Pairing.deliverToPending(secret, pairingCode, zoneId, zoneName, callbacks, timeout)
@@ -352,12 +380,11 @@ function Pairing.deliverToPending(secret, pairingCode, zoneId, zoneName, callbac
 
             if msgProtocol == Pairing.PROTOCOL and type(message) == "table" then
                 if message.type == Protocol.MessageType.PAIR_READY then
-                    -- Add/update pending list
+                    -- Add/update pending list (no token expected anymore)
                     local found = false
                     for i, pair in ipairs(pendingPairs) do
                         if pair.senderId == senderId then
                             pair.timestamp = os.epoch("utc")
-                            pair.token = message.data.token
                             found = true
                             break
                         end
@@ -366,8 +393,8 @@ function Pairing.deliverToPending(secret, pairingCode, zoneId, zoneName, callbac
                     if not found then
                         local newPair = {
                             senderId = senderId,
-                            token = message.data.token,
                             label = message.data.label or ("Computer #" .. senderId),
+                            computerId = message.data.computerId or senderId,
                             timestamp = os.epoch("utc")
                         }
                         table.insert(pendingPairs, newPair)
@@ -408,45 +435,71 @@ function Pairing.deliverToPending(secret, pairingCode, zoneId, zoneName, callbac
                 end
 
             elseif p1 == keys.enter and selectedIndex > 0 and selectedIndex <= #pendingPairs then
-                -- Deliver secret to selected computer
+                -- User selected a computer - need to get the display code
                 local pair = pendingPairs[selectedIndex]
 
-                local deliverMsg = Protocol.createPairDeliver(
-                    pair.token,
-                    secret,
-                    pairingCode,
-                    zoneId,
-                    zoneName
-                )
+                -- Prompt for the code shown on the zone's screen
+                local enteredCode = nil
+                if callbacks.onCodePrompt then
+                    enteredCode = callbacks.onCodePrompt(pair)
+                else
+                    -- Fallback: simple terminal prompt
+                    print("")
+                    print("Enter code shown on " .. pair.label .. ":")
+                    write("> ")
+                    enteredCode = read():upper():gsub("%s", "")
+                end
 
-                rednet.send(pair.senderId, deliverMsg, Pairing.PROTOCOL)
+                if not enteredCode or #enteredCode < 4 then
+                    if callbacks.onCodeInvalid then
+                        callbacks.onCodeInvalid("Code too short")
+                    end
+                else
+                    -- Create PAIR_DELIVER message and sign with entered code
+                    local deliverMsg = Protocol.createPairDeliver(
+                        nil,  -- No token needed (code is the auth)
+                        secret,
+                        pairingCode,
+                        zoneId,
+                        zoneName
+                    )
 
-                -- Wait briefly for confirmation
-                local confirmDeadline = os.epoch("utc") + 5000
-                while os.epoch("utc") < confirmDeadline do
-                    local cTimer = os.startTimer(0.5)
-                    local cEvent, cp1, cp2, cp3 = os.pullEvent()
+                    -- Sign the message with the entered code as ephemeral key
+                    local signedEnvelope = Crypto.wrapWith(deliverMsg, enteredCode)
+                    rednet.send(pair.senderId, signedEnvelope, Pairing.PROTOCOL)
 
-                    if cEvent == "rednet_message" and cp1 == pair.senderId then
-                        if cp3 == Pairing.PROTOCOL and type(cp2) == "table" then
-                            if cp2.type == Protocol.MessageType.PAIR_COMPLETE then
-                                success = true
-                                pairedComputer = pair.label
-                                if callbacks.onComplete then
-                                    callbacks.onComplete(pairedComputer)
+                    -- Wait briefly for confirmation
+                    local confirmDeadline = os.epoch("utc") + 5000
+                    while os.epoch("utc") < confirmDeadline do
+                        local cTimer = os.startTimer(0.5)
+                        local cEvent, cp1, cp2, cp3 = os.pullEvent()
+
+                        if cEvent == "rednet_message" and cp1 == pair.senderId then
+                            if cp3 == Pairing.PROTOCOL and type(cp2) == "table" then
+                                if cp2.type == Protocol.MessageType.PAIR_COMPLETE then
+                                    success = true
+                                    pairedComputer = pair.label
+                                    if callbacks.onComplete then
+                                        callbacks.onComplete(pairedComputer)
+                                    end
+                                    break
                                 end
-                                break
                             end
                         end
                     end
-                end
 
-                if success then break end
+                    if success then break end
 
-                -- Remove from pending if no confirmation
-                table.remove(pendingPairs, selectedIndex)
-                if selectedIndex > #pendingPairs then
-                    selectedIndex = math.max(0, #pendingPairs)
+                    -- No confirmation = wrong code or network issue
+                    if callbacks.onCodeInvalid then
+                        callbacks.onCodeInvalid("No response - check code")
+                    end
+
+                    -- Remove from pending
+                    table.remove(pendingPairs, selectedIndex)
+                    if selectedIndex > #pendingPairs then
+                        selectedIndex = math.max(0, #pendingPairs)
+                    end
                 end
             end
         end

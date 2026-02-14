@@ -1,5 +1,9 @@
 -- App.lua
 -- Pocket computer companion application
+--
+-- SECURITY: Pairing uses display-only codes
+-- The code shown on the zone's screen is never broadcast
+-- User must enter it on the pocket for secure secret delivery
 
 local Channel = mpm('net/Channel')
 local Crypto = mpm('net/Crypto')
@@ -506,6 +510,7 @@ function App:viewNotifications()
 end
 
 -- Add a computer to the swarm via pocket pairing
+-- SECURITY: User must enter the code displayed on the zone's screen
 function App:addComputerToSwarm()
     local PAIR_PROTOCOL = "shelfos_pair"
 
@@ -618,7 +623,7 @@ function App:addComputerToSwarm()
                     print("     ID: #" .. pair.senderId .. " (" .. age .. "s ago)")
                 end
                 print("")
-                print("[Enter] Pair  [Up/Down] Select")
+                print("[Enter] Select  [Up/Down] Navigate")
             end
 
             print("")
@@ -644,7 +649,6 @@ function App:addComputerToSwarm()
                     for i, pair in ipairs(pendingPairs) do
                         if pair.senderId == senderId then
                             pair.timestamp = os.epoch("utc")
-                            pair.token = message.data.token
                             found = true
                             break
                         end
@@ -653,8 +657,8 @@ function App:addComputerToSwarm()
                     if not found then
                         table.insert(pendingPairs, {
                             senderId = senderId,
-                            token = message.data.token,
                             label = message.data.label or ("Computer #" .. senderId),
+                            computerId = message.data.computerId or senderId,
                             timestamp = os.epoch("utc")
                         })
                         -- Auto-select first one
@@ -692,47 +696,76 @@ function App:addComputerToSwarm()
                 end
 
             elseif p1 == keys.enter and selectedIndex > 0 and selectedIndex <= #pendingPairs then
-                -- Send pairing secret to selected computer
+                -- User selected a computer - prompt for the display code
                 local pair = pendingPairs[selectedIndex]
 
+                term.clear()
+                term.setCursorPos(1, 1)
+                print("=== Enter Pairing Code ===")
                 print("")
-                print("[*] Sending swarm secret to " .. pair.label .. "...")
+                print("Computer: " .. pair.label)
+                print("ID: #" .. pair.senderId)
+                print("")
+                print("Enter the code shown on")
+                print("the computer's screen:")
+                print("")
+                write("> ")
 
-                local deliverMsg = Protocol.createPairDeliver(
-                    pair.token,
-                    secret,
-                    pairingCode,
-                    zoneId,
-                    zoneName
-                )
+                local enteredCode = read():upper():gsub("%s", "")
 
-                rednet.send(pair.senderId, deliverMsg, PAIR_PROTOCOL)
+                if #enteredCode < 4 then
+                    print("")
+                    print("[!] Code too short")
+                    EventUtils.sleep(1)
+                    lastRefresh = 0
+                else
+                    print("")
+                    print("[*] Sending to " .. pair.label .. "...")
 
-                -- Wait for confirmation
-                local confirmDeadline = os.epoch("utc") + 5000
-                while os.epoch("utc") < confirmDeadline do
-                    local cTimer = os.startTimer(0.5)
-                    local cEvent, cp1, cp2, cp3 = os.pullEvent()
+                    -- Create PAIR_DELIVER and sign with entered code
+                    local deliverMsg = Protocol.createPairDeliver(
+                        nil,  -- No token (code is auth)
+                        secret,
+                        pairingCode,
+                        zoneId,
+                        zoneName
+                    )
 
-                    if cEvent == "rednet_message" and cp1 == pair.senderId then
-                        if cp3 == PAIR_PROTOCOL and type(cp2) == "table" then
-                            if cp2.type == Protocol.MessageType.PAIR_COMPLETE then
-                                print("[*] " .. pair.label .. " joined swarm!")
-                                EventUtils.sleep(2)
-                                return
+                    -- Sign with the entered code as ephemeral key
+                    local signedEnvelope = Crypto.wrapWith(deliverMsg, enteredCode)
+                    rednet.send(pair.senderId, signedEnvelope, PAIR_PROTOCOL)
+
+                    -- Wait for confirmation
+                    local confirmDeadline = os.epoch("utc") + 5000
+                    local confirmed = false
+
+                    while os.epoch("utc") < confirmDeadline do
+                        local cTimer = os.startTimer(0.5)
+                        local cEvent, cp1, cp2, cp3 = os.pullEvent()
+
+                        if cEvent == "rednet_message" and cp1 == pair.senderId then
+                            if cp3 == PAIR_PROTOCOL and type(cp2) == "table" then
+                                if cp2.type == Protocol.MessageType.PAIR_COMPLETE then
+                                    print("[*] " .. pair.label .. " joined swarm!")
+                                    confirmed = true
+                                    EventUtils.sleep(2)
+                                    return
+                                end
                             end
                         end
                     end
-                end
 
-                print("[!] No confirmation received")
-                EventUtils.sleep(1)
-                -- Remove from pending list
-                table.remove(pendingPairs, selectedIndex)
-                if selectedIndex > #pendingPairs then
-                    selectedIndex = #pendingPairs
+                    if not confirmed then
+                        print("[!] No response - wrong code?")
+                        EventUtils.sleep(2)
+                        -- Remove from pending list
+                        table.remove(pendingPairs, selectedIndex)
+                        if selectedIndex > #pendingPairs then
+                            selectedIndex = #pendingPairs
+                        end
+                    end
+                    lastRefresh = 0
                 end
-                lastRefresh = 0
             end
         end
 

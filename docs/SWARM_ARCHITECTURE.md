@@ -22,6 +22,7 @@ ShelfOS uses a **pocket-as-queen** architecture where a pocket computer acts as 
 2. **Pocket is source of truth** - The master secret originates from pocket
 3. **Explicit pairing required** - No networking until paired
 4. **Secure by default** - HMAC-signed messages, nonces, timestamps
+5. **Display-only pairing codes** - Codes are never broadcast (physical security)
 
 ## Components
 
@@ -75,18 +76,31 @@ ZONE                                    POCKET
   v                                       v
 Kernel:acceptPocketPairing()            App:addComputerToSwarm()
   |                                       |
+  +-- Generate display code               |
+  +-- Show code on screen                 |
+  |   (code NEVER broadcast)              |
+  |                                       |
   +-- Pairing.acceptFromPocket()          |
   |       |                               |
-  |       +-- broadcast PAIR_READY ------>|
+  |       +-- broadcast PAIR_READY ------>|  (no code in message)
+  |           {label, computerId}         |
   |                                       |
-  |<------ PAIR_DELIVER (secret) ---------+
+  |                                       | Shows "Enter code from screen"
+  |                                       | User types code they see
   |                                       |
-  +-- Save secret to config               |
+  |<------ PAIR_DELIVER (signed) ---------+
+  |        Signed with code as key        |
+  |                                       |
+  +-- Verify with display code            |
+  +-- Extract secret, save to config      |
   +-- send PAIR_COMPLETE ---------------->|
   |                                       |
   v                                       v
 ZONE (in swarm)                         Shows "Joined!"
 ```
+
+**Security:** The pairing code is displayed on the zone's physical screen and never
+transmitted. An attacker would need physical access to complete pairing.
 
 ### Flow 3: Pocket Joins Existing Swarm
 
@@ -116,14 +130,18 @@ Still hosting                           POCKET (in swarm)
 
 ### Pairing Protocol: `shelfos_pair`
 
-| Message | Direction | Data |
-|---------|-----------|------|
-| `pair_request` | Any -> Host | `{code}` |
-| `pair_response` | Host -> Any | `{success, secret, pairingCode, zoneId, zoneName}` |
-| `PAIR_READY` | Zone -> Pocket | `{token, label, computerId}` |
-| `PAIR_DELIVER` | Pocket -> Zone | `{token, secret, pairingCode, zoneId}` |
-| `PAIR_COMPLETE` | Zone -> Pocket | `{label, success}` |
-| `PAIR_REJECT` | Any | `{reason}` |
+| Message | Direction | Data | Notes |
+|---------|-----------|------|-------|
+| `pair_request` | Any -> Host | `{code}` | Code-based join (zone to zone) |
+| `pair_response` | Host -> Any | `{success, secret, pairingCode, zoneId, zoneName}` | Response to pair_request |
+| `PAIR_READY` | Zone -> Pocket | `{label, computerId}` | **No code/token** - code is display-only |
+| `PAIR_DELIVER` | Pocket -> Zone | `{secret, pairingCode, zoneId}` | **Signed envelope** using display code as key |
+| `PAIR_COMPLETE` | Zone -> Pocket | `{label, success}` | Confirmation |
+| `PAIR_REJECT` | Any | `{reason}` | Cancellation |
+
+**IMPORTANT:** `PAIR_DELIVER` is wrapped in a signed envelope (`Crypto.wrapWith(msg, code)`)
+where the code is the one displayed on the zone's screen. This ensures only the person
+with physical access to the zone can complete pairing.
 
 ### Swarm Protocol: `shelfos` (encrypted)
 
@@ -149,16 +167,21 @@ All messages wrapped with `Crypto.wrap()`:
 
 ### `Pairing.acceptFromPocket(callbacks)`
 
-Zone waits for pocket to deliver secret.
+Zone waits for pocket to deliver secret. Displays a pairing code on screen
+that the pocket user must enter.
 
 ```lua
 local callbacks = {
+    onDisplayCode = function(code) end,  -- Called with the code to display
     onStatus = function(msg) end,
     onSuccess = function(secret, pairingCode, zoneId) end,
     onCancel = function(reason) end
 }
 local success, secret, pairingCode, zoneId = Pairing.acceptFromPocket(callbacks)
 ```
+
+**SECURITY:** The code passed to `onDisplayCode` must be displayed to the user
+but NEVER transmitted over the network. The pocket user enters this code manually.
 
 ### `Pairing.hostSession(secret, pairingCode, zoneId, zoneName, callbacks)`
 
@@ -188,15 +211,22 @@ local success, secret, pairingCode, zoneId, zoneName = Pairing.joinWithCode(code
 ### `Pairing.deliverToPending(secret, pairingCode, zoneId, zoneName, callbacks, timeout)`
 
 Pocket listens for zones and delivers secret to selected one.
+User must enter the code displayed on the zone's screen.
 
 ```lua
 local callbacks = {
     onReady = function(computer) end,
+    onCodePrompt = function(computer) end,  -- Return entered code (optional, fallback to terminal prompt)
+    onCodeInvalid = function(msg) end,
     onComplete = function(label) end,
     onCancel = function() end
 }
 local success, pairedComputer = Pairing.deliverToPending(secret, code, zoneId, zoneName, callbacks, 30)
 ```
+
+**SECURITY:** When user selects a computer, they are prompted to enter the code
+shown on that computer's screen. The secret is then signed with that code
+using `Crypto.wrapWith()` before transmission.
 
 ### Utility Functions
 
@@ -264,6 +294,47 @@ start.lua
 ```
 
 ## Security Model
+
+### Pairing Security (Display-Only Codes)
+
+The pairing flow uses a **display-only code** model for secure secret delivery:
+
+```
+ZONE                                    POCKET
+  |                                       |
+  | Generates 8-char code                 |
+  | Displays code on screen               |
+  | (NEVER broadcasts code)               |
+  |                                       |
+  | broadcast PAIR_READY --------------->|  (no secret info)
+  |   {label, computerId}                 |
+  |                                       |
+  |                                       | User sees zone in list
+  |                                       | User selects zone
+  |                                       | Pocket prompts: "Enter code"
+  |                                       | User types code from screen
+  |                                       |
+  |<------ PAIR_DELIVER (signed) ---------|
+  |   Signed with code as ephemeral key   |
+  |   Contains: {secret, pairingCode}     |
+  |                                       |
+  | Verifies signature with display code  |
+  | If valid: extracts secret, saves      |
+  |                                       |
+  | send PAIR_COMPLETE ----------------->|
+  |                                       |
+```
+
+**Why this is secure:**
+- The pairing code is NEVER transmitted over the network
+- An attacker would need physical access to see the code on the zone's screen
+- PAIR_DELIVER is signed with the code as an ephemeral HMAC key
+- Even if intercepted, the secret cannot be extracted without the code
+- The code is single-use and expires after 60 seconds
+
+**Crypto functions used:**
+- `Crypto.wrapWith(message, code)` - Sign with ephemeral key
+- `Crypto.unwrapWith(envelope, code)` - Verify with ephemeral key
 
 ### HMAC Signing
 

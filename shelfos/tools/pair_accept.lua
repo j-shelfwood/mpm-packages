@@ -2,6 +2,9 @@
 -- Accept pairing from a pocket computer (bootstrap tool)
 -- Run with: mpm run shelfos/tools/pair_accept
 -- For computers not yet running ShelfOS, or headless nodes
+--
+-- SECURITY: A pairing code is displayed on screen (never broadcast)
+-- The pocket user must enter this code to complete pairing
 
 local Config = mpm('shelfos/core/Config')
 local Pairing = mpm('net/Pairing')
@@ -20,34 +23,48 @@ local function acceptPairing()
     local computerId = os.getComputerID()
     local computerLabel = os.getComputerLabel() or ("Computer #" .. computerId)
 
-    -- Display pairing screen
-    term.clear()
-    term.setCursorPos(1, 1)
+    -- Use Pairing module with callbacks
+    local displayCode = nil
 
-    print("=====================================")
-    print("   Waiting for Pocket Pairing")
-    print("=====================================")
-    print("")
-    print("  Computer: " .. computerLabel)
-    print("  ID: #" .. computerId)
-    print("  Modem: " .. modemType)
-    print("")
-    print("=====================================")
-    print("")
-    print("On your pocket computer:")
-    print("  1. Open ShelfOS Pocket")
-    print("  2. Select 'Add Computer'")
-    print("  3. Select this computer to pair")
-    print("")
-    print("Press [Q] to cancel")
-    print("")
-
-    -- Use Pairing module
     local callbacks = {
+        onDisplayCode = function(code)
+            displayCode = code
+            -- Display pairing screen with the code
+            term.clear()
+            term.setCursorPos(1, 1)
+
+            print("=====================================")
+            print("   Waiting for Pocket Pairing")
+            print("=====================================")
+            print("")
+            print("  Computer: " .. computerLabel)
+            print("  ID: #" .. computerId)
+            print("  Modem: " .. modemType)
+            print("")
+            print("  +-----------------------+")
+            print("  |  PAIRING CODE:        |")
+            print("  |                       |")
+            print("  |      " .. code .. "      |")
+            print("  |                       |")
+            print("  +-----------------------+")
+            print("")
+            print("On your pocket computer:")
+            print("  1. Open ShelfOS Pocket")
+            print("  2. Select 'Add Computer'")
+            print("  3. Select this computer")
+            print("  4. Enter the code above")
+            print("")
+            print("Press [Q] to cancel")
+        end,
         onStatus = function(msg)
-            print("[*] " .. msg)
+            -- Update status on last line
+            local _, h = term.getSize()
+            term.setCursorPos(1, h)
+            term.clearLine()
+            term.write("[*] " .. msg)
         end,
         onSuccess = function(secret, pairingCode, zoneId)
+            print("")
             print("")
             print("=====================================")
             print("   Pairing Successful!")
@@ -55,6 +72,7 @@ local function acceptPairing()
             print("")
         end,
         onCancel = function(reason)
+            print("")
             print("")
             print("[*] " .. (reason or "Cancelled"))
         end

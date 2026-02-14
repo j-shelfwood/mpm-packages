@@ -496,6 +496,8 @@ end
 
 -- Accept pairing from a pocket computer
 -- This is how zones join the swarm - pocket delivers the secret
+-- SECURITY: A code is displayed on screen (never broadcast)
+-- The pocket user must enter this code to complete pairing
 function Kernel:acceptPocketPairing()
     local Pairing = mpm('net/Pairing')
 
@@ -517,32 +519,50 @@ function Kernel:acceptPocketPairing()
         self.channel = nil
     end
 
-    -- Display pairing screen
-    print("")
-    print("=====================================")
-    print("   Waiting for Pocket Pairing")
-    print("=====================================")
-    print("")
-    print("  Computer: " .. computerLabel)
-    print("  Modem: " .. modemType)
-    print("")
-    print("On your pocket computer:")
-    print("  Select 'Add Computer'")
-    print("  and choose this computer.")
-    print("")
-    print("Press [Q] to cancel")
+    -- Use Pairing module with callbacks
+    local displayCode = nil
 
-    -- Use Pairing module
     local callbacks = {
+        onDisplayCode = function(code)
+            displayCode = code
+            -- Draw the pairing screen with the code
+            print("")
+            print("=====================================")
+            print("   Waiting for Pocket Pairing")
+            print("=====================================")
+            print("")
+            print("  Computer: " .. computerLabel)
+            print("  Modem: " .. modemType)
+            print("")
+            print("  +-----------------------+")
+            print("  |  PAIRING CODE:        |")
+            print("  |                       |")
+            print("  |      " .. code .. "      |")
+            print("  |                       |")
+            print("  +-----------------------+")
+            print("")
+            print("On your pocket computer:")
+            print("  1. Select 'Add Computer'")
+            print("  2. Select this computer")
+            print("  3. Enter the code above")
+            print("")
+            print("Press [Q] to cancel")
+        end,
         onStatus = function(msg)
-            print("[*] " .. msg)
+            -- Update status line (redraw bottom area)
+            local _, h = term.getSize()
+            term.setCursorPos(1, h - 1)
+            term.clearLine()
+            term.write("[*] " .. msg)
         end,
         onSuccess = function(secret, pairingCode, zoneId)
+            print("")
             print("")
             print("[*] Pairing successful!")
             print("[*] Restart ShelfOS to connect.")
         end,
         onCancel = function(reason)
+            print("")
             print("")
             print("[*] " .. (reason or "Cancelled"))
         end
