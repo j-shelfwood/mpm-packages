@@ -34,6 +34,11 @@ function Kernel:boot()
     Terminal.init()
     Terminal.clearAll()
 
+    -- Clear any stale crypto state from previous session FIRST
+    -- _G persists across program restarts in CC:Tweaked
+    local Crypto = mpm('net/Crypto')
+    Crypto.clearSecret()
+
     print("[ShelfOS] Booting...")
 
     -- Load configuration
@@ -293,6 +298,15 @@ function Kernel:handleMenuKey(key, runningRef)
         end)
 
         if confirmed then
+            -- Close network connection first
+            if self.channel then
+                rednet.unhost("shelfos")
+                self.channel:close()
+                self.channel = nil
+            end
+            -- Clear crypto state (prevents stale secret in _G)
+            local Crypto = mpm('net/Crypto')
+            Crypto.clearSecret()
             -- Delete config and quit
             fs.delete(Config.getPath())
             Terminal.clearLog()

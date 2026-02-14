@@ -53,6 +53,10 @@ end
 function headless.run()
     print("[ShelfOS] Starting in headless mode...")
 
+    -- Clear any stale crypto state from previous session FIRST
+    -- _G persists across program restarts in CC:Tweaked
+    Crypto.clearSecret()
+
     -- Load or create config
     local config = Config.load()
     if not config then

@@ -116,6 +116,11 @@ end
 function App:init()
     term.clear()
     term.setCursorPos(1, 1)
+
+    -- Clear any stale crypto state from previous session FIRST
+    -- _G persists across program restarts in CC:Tweaked
+    Crypto.clearSecret()
+
     print("ShelfOS Pocket")
     print("==============")
     print("")
