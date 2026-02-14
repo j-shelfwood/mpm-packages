@@ -128,9 +128,18 @@ function Pairing.acceptFromPocket(callbacks)
                     local data, err = Crypto.unwrapWith(envelope, displayCode)
 
                     if data and data.type == Protocol.MessageType.PAIR_DELIVER then
-                        -- Signature valid - extract secret
-                        resultSecret = data.data and data.data.secret
-                        resultZoneId = data.data and data.data.zoneId
+                        -- Signature valid - extract credentials
+                        -- Support both formats: simple (secret, zoneId) and full (credentials table)
+                        local creds = data.data and data.data.credentials
+                        if creds then
+                            -- Full credentials from SwarmAuthority
+                            resultSecret = creds.swarmSecret
+                            resultZoneId = creds.zoneId
+                        else
+                            -- Simple format (legacy)
+                            resultSecret = data.data and data.data.secret
+                            resultZoneId = data.data and data.data.zoneId
+                        end
 
                         if resultSecret then
                             -- Send confirmation (unsigned, just acknowledgment)

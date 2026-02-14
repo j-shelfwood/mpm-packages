@@ -1,0 +1,12 @@
+{
+  "name": "crypto",
+  "description": "Identity-based cryptography for secure swarm communication",
+  "dependencies": [],
+  "files": [
+    "KeyPair.lua",
+    "Sign.lua",
+    "Verify.lua",
+    "Envelope.lua",
+    "Registry.lua"
+  ]
+}

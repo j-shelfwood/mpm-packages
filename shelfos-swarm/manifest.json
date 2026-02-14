@@ -1,0 +1,11 @@
+{
+  "name": "shelfos-swarm",
+  "description": "ShelfOS Swarm Controller - Pocket computer as swarm queen",
+  "dependencies": ["crypto", "net", "utils"],
+  "files": [
+    "start.lua",
+    "App.lua",
+    "core/SwarmAuthority.lua",
+    "core/Paths.lua"
+  ]
+}
