@@ -66,7 +66,10 @@ end
 -- Generate a random nonce
 -- Format: computerID_timestamp_random to ensure uniqueness across computers and time
 local function generateNonce()
-    return string.format("%d_%d_%08x", os.getComputerID(), os.epoch("utc"), math.random(0, 0xFFFFFFFF))
+    local nonce = string.format("%d_%d_%08x", os.getComputerID(), os.epoch("utc"), math.random(0, 0xFFFFFFFF))
+    -- DEBUG: Log nonce generation
+    print("[Crypto] Generated nonce: " .. nonce:sub(1, 30) .. "...")
+    return nonce
 end
 
 -- Clean expired nonces
@@ -153,6 +156,14 @@ local function verifyWithKey(envelope, key, skipNonceCheck)
     if not skipNonceCheck then
         cleanNonces()
         if _state.nonces[envelope.n] then
+            -- DEBUG: Log duplicate nonce details
+            local nonceCount = 0
+            for _ in pairs(_state.nonces) do nonceCount = nonceCount + 1 end
+            print("[Crypto] DUPLICATE NONCE DETECTED!")
+            print("[Crypto] Nonce: " .. tostring(envelope.n))
+            print("[Crypto] First seen at: " .. tostring(_state.nonces[envelope.n]))
+            print("[Crypto] Current time: " .. tostring(now))
+            print("[Crypto] Total tracked nonces: " .. tostring(nonceCount))
             return false, nil, "Duplicate nonce (replay attack)"
         end
     end
@@ -168,6 +179,8 @@ local function verifyWithKey(envelope, key, skipNonceCheck)
     -- Record nonce (only for global secret verification)
     if not skipNonceCheck then
         _state.nonces[envelope.n] = envelope.t
+        -- DEBUG: Log nonce recording
+        print("[Crypto] Recorded nonce: " .. tostring(envelope.n):sub(1, 30) .. "...")
     end
 
     -- Deserialize payload

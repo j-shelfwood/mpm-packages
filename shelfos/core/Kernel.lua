@@ -566,7 +566,7 @@ function Kernel:acceptPocketPairing()
             print("")
             print("")
             print("[*] Pairing successful!")
-            print("[*] Restart ShelfOS to connect.")
+            print("[*] Initializing network...")
         end,
         onCancel = function(reason)
             -- RESUME monitor rendering
@@ -596,6 +596,10 @@ function Kernel:acceptPocketPairing()
             self.config.zone.id = zoneId
         end
         Config.save(self.config)
+
+        -- Initialize network immediately (no restart required)
+        self:initializeNetwork()
+        print("[*] Connected to swarm!")
     end
 
     EventUtils.sleep(2)

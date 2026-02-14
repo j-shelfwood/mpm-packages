@@ -96,31 +96,30 @@ function Discovery:announce(monitors)
     self.lastAnnounce = os.epoch("utc")
 end
 
--- Discover other zones using native rednet.lookup + rich metadata request
+-- Discover other zones using broadcast + poll
+-- Note: rednet.lookup requires zones to have called rednet.host() which only
+-- happens after network init. New zones may not be in the lookup yet, so we
+-- always broadcast DISCOVER to catch recently-joined zones.
 -- @param timeout How long to wait for responses
 -- @return Array of discovered zones
 function Discovery:discover(timeout)
     timeout = timeout or 3
 
-    -- First, use native CC:Tweaked service discovery
-    local peerIds = {rednet.lookup("shelfos")}
+    -- Request rich metadata from all swarm members
+    local discoverMsg = Protocol.createMessage(Protocol.MessageType.DISCOVER, {
+        zoneId = self.zoneId,
+        zoneName = self.zoneName
+    })
 
-    if #peerIds > 0 then
-        -- Request rich metadata from discovered peers
-        local discoverMsg = Protocol.createMessage(Protocol.MessageType.DISCOVER, {
-            zoneId = self.zoneId,
-            zoneName = self.zoneName
-        })
+    -- Broadcast discover request (peers will respond with ANNOUNCE)
+    -- Always broadcast - don't skip based on rednet.lookup which may be stale
+    if self.channel then
+        self.channel:broadcast(discoverMsg)
 
-        -- Broadcast discover request (peers will respond with ANNOUNCE)
-        if self.channel then
-            self.channel:broadcast(discoverMsg)
-
-            -- Collect responses
-            local deadline = os.epoch("utc") + (timeout * 1000)
-            while os.epoch("utc") < deadline do
-                self.channel:poll(0.1)
-            end
+        -- Collect responses
+        local deadline = os.epoch("utc") + (timeout * 1000)
+        while os.epoch("utc") < deadline do
+            self.channel:poll(0.1)
         end
     end
 

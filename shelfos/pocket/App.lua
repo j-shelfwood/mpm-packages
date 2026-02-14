@@ -587,15 +587,17 @@ function App:runSetupFlow()
             if p1 == "1" then
                 self:joinSwarm()
                 -- Check if we now have a secret
-                if self:loadSecret() then
-                    self:initNetwork(self.secret)
+                local secret = self:loadSecret()
+                if secret then
+                    self:initNetwork(secret)
                     return true
                 end
             elseif p1 == "2" then
                 self:createSwarm()
                 -- Check if we now have a secret
-                if self:loadSecret() then
-                    self:initNetwork(self.secret)
+                local secret = self:loadSecret()
+                if secret then
+                    self:initNetwork(secret)
                     return true
                 end
             elseif p1 == "3" then
