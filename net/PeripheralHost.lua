@@ -7,19 +7,14 @@ local Protocol = mpm('net/Protocol')
 local PeripheralHost = {}
 PeripheralHost.__index = PeripheralHost
 
--- Peripheral types to share (whitelist)
-local SHAREABLE_TYPES = {
-    "me_bridge",
-    "rsBridge",
-    "energyStorage",
-    "energy_storage",
-    "inventory",
-    "chest",
-    "fluid_storage",
-    "environment_detector",
-    "player_detector",
-    "colony_integrator",
-    "chat_box"
+-- Peripheral types to EXCLUDE from sharing (blacklist)
+-- We share everything except monitors, modems, and computers
+local EXCLUDED_TYPES = {
+    "monitor",
+    "modem",
+    "computer",
+    "turtle",
+    "pocket"
 }
 
 -- Create a new peripheral host
@@ -40,13 +35,14 @@ function PeripheralHost.new(channel, zoneId, zoneName)
 end
 
 -- Check if a peripheral type should be shared
+-- We share everything except excluded types (monitors, modems, computers)
 local function isShareable(peripheralType)
-    for _, t in ipairs(SHAREABLE_TYPES) do
+    for _, t in ipairs(EXCLUDED_TYPES) do
         if peripheralType == t then
-            return true
+            return false
         end
     end
-    return false
+    return true
 end
 
 -- Scan for local peripherals to share
