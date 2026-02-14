@@ -33,5 +33,15 @@
   {
     "name": "forcefield",
     "description": "Forcefield system for use with the Reality Forger and Reality anchors"
+  },
+  {
+    "name": "shelfos-swarm",
+    "description": "ShelfOS Swarm Controller - Pocket computer as swarm queen for coordinating zone computers",
+    "dependencies": ["crypto", "net", "utils"]
+  },
+  {
+    "name": "crypto",
+    "description": "Identity-based cryptography for secure swarm communication",
+    "dependencies": []
   }
 ]
