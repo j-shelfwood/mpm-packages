@@ -138,14 +138,27 @@ craftos --headless \
     --exec "dofile('/workspace/tests/craftos/test_runner.lua')"
 ```
 
-## CI/CD
+## Pre-Commit Hook
 
-GitHub Actions workflow runs both test suites:
+Tests run automatically before each commit via git hook.
 
-1. **lua-tests**: Ubuntu + Lua 5.4
-2. **craftos-tests**: CraftOS-PC Action
+### Install Hook
 
-See `.github/workflows/test.yml` for configuration.
+```bash
+ln -sf ../../hooks/pre-commit .git/hooks/pre-commit
+```
+
+### What It Runs
+
+1. **Lua Unit Tests** - Always runs (requires Lua 5.4)
+2. **CraftOS Integration** - Runs if CraftOS-PC installed
+3. **Swarm Simulation** - Runs if CraftOS-PC installed
+
+### Skip Hook (Emergency)
+
+```bash
+git commit --no-verify -m "message"
+```
 
 ## Writing Tests
 
