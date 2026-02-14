@@ -33,10 +33,12 @@ function KernelNetwork.initialize(kernel, config, zone)
         return nil, nil, nil, nil
     end
 
+    -- ModemUtils now returns "ender" for isWireless()=true modems
     print("[ShelfOS] Network: " .. modemType .. " modem")
 
     -- Register with native CC:Tweaked service discovery
-    rednet.host("shelfos", zone:getId())
+    -- Note: rednet.host() requires string hostname, zone:getId() may be number
+    rednet.host("shelfos", tostring(zone:getId()))
 
     -- Set up zone discovery (for rich metadata exchange)
     local Discovery = mpm('net/Discovery')

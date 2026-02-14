@@ -32,8 +32,8 @@ function AddZone.run(app)
         return
     end
 
-    local modemLabel = modemType == "wireless" and "wireless/ender" or "wired"
-    print("Modem: " .. modemLabel .. " (" .. modemName .. ")")
+    -- ModemUtils returns "ender" or "wired"
+    print("Modem: " .. modemType .. " (" .. modemName .. ")")
     print("")
     print("On the zone computer:")
     print("  1. Run: mpm run shelfos")

@@ -25,12 +25,12 @@ function Channel.new(protocol)
 end
 
 -- Open the channel (find and open modem)
--- @param preferWireless Prefer wireless/ender modem over wired (default: true)
--- @return success, modemType ("wireless", "wired", or nil)
-function Channel:open(preferWireless)
+-- @param preferEnder Prefer ender modem over wired (default: true)
+-- @return success, modemType ("ender", "wired", or nil)
+function Channel:open(preferEnder)
     -- Use ModemUtils for consistent modem selection across all modules
     -- ModemUtils.open() also handles closing other modems to prevent duplicate reception
-    local ok, modemName, modemType = ModemUtils.open(preferWireless)
+    local ok, modemName, modemType = ModemUtils.open(preferEnder)
 
     if not ok then
         return false, nil

@@ -30,7 +30,8 @@ local function showStatus()
         -- Check for modem (prefer wireless/ender for swarm communication)
         local modem, modemName, modemType = ModemUtils.find(true)
         if modem then
-            local modemLabel = modemType == "wireless" and "Wireless/Ender" or "Wired"
+            -- ModemUtils returns "ender" or "wired"
+            local modemLabel = modemType == "ender" and "Ender" or "Wired"
             print("  Modem: " .. modemLabel)
 
             -- Try to get peer count

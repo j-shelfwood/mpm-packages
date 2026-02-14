@@ -1,29 +1,37 @@
 -- ModemUtils.lua
--- Modem detection utilities with wireless-first preference
+-- Modem detection utilities with ender-first preference
 -- Solves: computers with both wired and ender modems picking the wrong one
+--
+-- CC:Tweaked modem types:
+--   - Wired modem: isWireless()=false, used for monitor/peripheral connections
+--   - Wireless modem: isWireless()=true, limited range
+--   - Ender modem: isWireless()=true, unlimited range (cross-dimensional)
+--
+-- We cannot distinguish wireless from ender via API, but for swarm networking
+-- we assume isWireless()=true means ender modem (swarm requirement).
 
 local ModemUtils = {}
 
--- Find a modem with wireless preference
+-- Find a modem with ender/wireless preference
 -- Wired modems return false for isWireless()
 -- Wireless and Ender modems return true for isWireless()
--- @param preferWireless Prefer wireless/ender over wired (default: true)
--- @return modem peripheral, modem name, modem type ("wireless" or "wired")
-function ModemUtils.find(preferWireless)
-    if preferWireless == nil then preferWireless = true end
+-- @param preferEnder Prefer ender/wireless over wired (default: true)
+-- @return modem peripheral, modem name, modem type ("ender" or "wired")
+function ModemUtils.find(preferEnder)
+    if preferEnder == nil then preferEnder = true end
 
     local modems = {peripheral.find("modem")}
 
     local wired = nil
     local wiredName = nil
-    local wireless = nil
-    local wirelessName = nil
+    local ender = nil  -- Could be wireless or ender, we assume ender for swarm
+    local enderName = nil
 
     for _, m in ipairs(modems) do
         local name = peripheral.getName(m)
         if m.isWireless() then
-            wireless = m
-            wirelessName = name
+            ender = m
+            enderName = name
         else
             wired = m
             wiredName = name
@@ -31,37 +39,41 @@ function ModemUtils.find(preferWireless)
     end
 
     -- Select based on preference
-    if preferWireless and wireless then
-        return wireless, wirelessName, "wireless"
+    if preferEnder and ender then
+        return ender, enderName, "ender"
     elseif wired then
         return wired, wiredName, "wired"
-    elseif wireless then
-        return wireless, wirelessName, "wireless"
+    elseif ender then
+        return ender, enderName, "ender"
     end
 
     return nil, nil, nil
 end
 
--- Find wireless modem only (strict)
+-- Find ender/wireless modem only (strict)
 -- @return modem peripheral, modem name, or nil
-function ModemUtils.findWireless()
+function ModemUtils.findEnder()
     local modems = {peripheral.find("modem", function(name, modem)
         return modem.isWireless()
     end)}
 
     if #modems > 0 then
-        return modems[1], peripheral.getName(modems[1]), "wireless"
+        return modems[1], peripheral.getName(modems[1]), "ender"
     end
 
     return nil, nil, nil
 end
 
--- Check if any wireless modem exists
+-- Check if any ender/wireless modem exists
 -- @return boolean
-function ModemUtils.hasWireless()
-    local m = ModemUtils.findWireless()
+function ModemUtils.hasEnder()
+    local m = ModemUtils.findEnder()
     return m ~= nil
 end
+
+-- Legacy aliases for compatibility
+ModemUtils.findWireless = ModemUtils.findEnder
+ModemUtils.hasWireless = ModemUtils.hasEnder
 
 -- Check if any modem exists
 -- @return boolean
@@ -70,12 +82,12 @@ function ModemUtils.hasAny()
     return m ~= nil
 end
 
--- Open a modem with wireless preference
+-- Open a modem with ender preference
 -- Closes other modems to prevent duplicate message reception
--- @param preferWireless Prefer wireless/ender over wired (default: true)
+-- @param preferEnder Prefer ender/wireless over wired (default: true)
 -- @return success, modemName, modemType
-function ModemUtils.open(preferWireless)
-    local modem, name, mtype = ModemUtils.find(preferWireless)
+function ModemUtils.open(preferEnder)
+    local modem, name, mtype = ModemUtils.find(preferEnder)
 
     if not modem then
         return false, nil, nil
