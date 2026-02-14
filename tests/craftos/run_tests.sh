@@ -13,27 +13,76 @@ if [ ! -x "$CRAFTOS" ]; then
     exit 1
 fi
 
-# Run tests
+TOTAL_PASSED=0
+TOTAL_FAILED=0
+ALL_PASSED=true
+
+# =============================================================================
+# INTEGRATION TESTS (test_runner.lua)
+# =============================================================================
+
 echo "=== CraftOS-PC Integration Tests ==="
 echo "Workspace: $MPM_PACKAGES"
 echo ""
 
-# Use timeout to prevent hanging
 OUTPUT=$(timeout 30 "$CRAFTOS" --headless \
     --mount-ro /workspace="$MPM_PACKAGES" \
     --exec "dofile('/workspace/tests/craftos/test_runner.lua')" 2>&1)
 
-# Extract the clean output (last lines after the terminal rendering)
-# The headless mode outputs character-by-character, so we parse for key lines
-echo "$OUTPUT" | grep -E "^\[PASS\]|\[FAIL\]|^Passed:|^ALL TESTS|^TESTS FAILED|^===|^Failures:" | uniq
+# Extract clean output
+RESULTS=$(echo "$OUTPUT" | grep -E "^\[PASS\]|\[FAIL\]|^Passed:|^ALL TESTS|^TESTS FAILED|^===|^Failures:" | uniq)
+echo "$RESULTS"
 
-# Check exit status
-if echo "$OUTPUT" | grep -q "ALL TESTS PASSED"; then
+PASSED=$(echo "$RESULTS" | grep -c "^\[PASS\]" || true)
+FAILED=$(echo "$RESULTS" | grep -c "^\[FAIL\]" || true)
+TOTAL_PASSED=$((TOTAL_PASSED + PASSED))
+TOTAL_FAILED=$((TOTAL_FAILED + FAILED))
+
+if ! echo "$OUTPUT" | grep -q "ALL TESTS PASSED"; then
+    ALL_PASSED=false
+fi
+
+echo ""
+
+# =============================================================================
+# SWARM SIMULATION TESTS (swarm_simulation.lua)
+# =============================================================================
+
+echo "=== CraftOS-PC Swarm Simulation Tests ==="
+echo ""
+
+OUTPUT=$(timeout 120 "$CRAFTOS" --headless \
+    --mount-ro /workspace="$MPM_PACKAGES" \
+    --exec "dofile('/workspace/tests/craftos/swarm_simulation.lua')" 2>&1)
+
+# Extract clean output
+RESULTS=$(echo "$OUTPUT" | grep -E "^\[PASS\]|\[FAIL\]|^Passed:|^ALL TESTS|^TESTS FAILED|^===|^Failures:" | uniq)
+echo "$RESULTS"
+
+PASSED=$(echo "$RESULTS" | grep -c "^\[PASS\]" || true)
+FAILED=$(echo "$RESULTS" | grep -c "^\[FAIL\]" || true)
+TOTAL_PASSED=$((TOTAL_PASSED + PASSED))
+TOTAL_FAILED=$((TOTAL_FAILED + FAILED))
+
+if ! echo "$OUTPUT" | grep -q "ALL TESTS PASSED"; then
+    ALL_PASSED=false
+fi
+
+echo ""
+
+# =============================================================================
+# SUMMARY
+# =============================================================================
+
+echo "=== CraftOS-PC Test Summary ==="
+echo "Passed: $TOTAL_PASSED, Failed: $TOTAL_FAILED"
+
+if [ "$ALL_PASSED" = true ]; then
     echo ""
-    echo "SUCCESS: All CraftOS-PC integration tests passed"
+    echo "SUCCESS: All CraftOS-PC tests passed"
     exit 0
 else
     echo ""
-    echo "FAILURE: Some CraftOS-PC integration tests failed"
+    echo "FAILURE: Some CraftOS-PC tests failed"
     exit 1
 fi
