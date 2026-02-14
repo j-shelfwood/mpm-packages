@@ -1,8 +1,11 @@
 -- CraftOS-PC Test Runner
 -- Runs ShelfOS tests inside a real CraftOS environment
--- Usage: craftos --headless --mount-ro /workspace=<mpm-packages-path> --script /workspace/tests/craftos/test_runner.lua
+-- Usage: craftos --headless --mount-ro /workspace=<mpm-packages-path> --exec "dofile('/workspace/tests/craftos/test_runner.lua')"
 
 local WORKSPACE = "/workspace"
+
+-- Detect CI environment (suppress verbose output)
+local CI_MODE = os.getenv and os.getenv("CI") == "true"
 
 -- Simple test framework
 local tests = {}
@@ -36,6 +39,13 @@ end
 local function assert_not_nil(value, msg)
     if value == nil then
         error(msg or "Expected non-nil value")
+    end
+end
+
+local function assert_contains(haystack, needle, msg)
+    if type(haystack) ~= "string" or not haystack:find(needle, 1, true) then
+        error((msg or "String does not contain expected value") ..
+              string.format(" (looking for '%s')", tostring(needle)))
     end
 end
 
@@ -350,7 +360,10 @@ end)
 -- =============================================================================
 
 local function run_tests()
-    print("")
+    -- Clear screen for clean output
+    term.clear()
+    term.setCursorPos(1, 1)
+
     print("=== CraftOS-PC Integration Tests ===")
     print("")
 
@@ -375,13 +388,13 @@ local function run_tests()
         print("")
         print("Failures:")
         for _, e in ipairs(errors) do
-            print("  - " .. e.name .. ": " .. e.error)
+            print("  - " .. e.name .. ": " .. tostring(e.error):sub(1, 80))
         end
     end
 
     print("")
 
-    -- Exit with appropriate code
+    -- Exit marker for CI parsing
     if failed > 0 then
         print("TESTS FAILED")
     else

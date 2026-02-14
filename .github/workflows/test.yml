@@ -1,0 +1,58 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lua-tests:
+    name: Lua Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Lua
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.4
+
+      - name: Run Lua tests
+        run: |
+          lua5.4 tests/lua/run.lua .
+
+  craftos-tests:
+    name: CraftOS-PC Integration Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run CraftOS-PC tests
+        uses: Commandcracker/craftos-pc-action@v1
+        with:
+          root: ./
+          timeout: 2m
+          options: --mount-ro /workspace=.
+        env:
+          # Disable multishell for proper logging
+          CRAFTOS_SETTINGS: |
+            bios.use_multishell = false
+
+      - name: Run test harness
+        uses: Commandcracker/craftos-pc-action@v1
+        with:
+          root: ./tests/craftos
+          timeout: 2m
+          options: --mount-ro /workspace=.
+
+  all-tests:
+    name: All Tests Summary
+    runs-on: ubuntu-latest
+    needs: [lua-tests, craftos-tests]
+
+    steps:
+      - name: All tests passed
+        run: echo "All test suites passed!"
