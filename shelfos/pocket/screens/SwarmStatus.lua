@@ -281,9 +281,23 @@ end
 -- @return action string ("add", "notifications", "quit", "refresh")
 function SwarmStatus.run(discovery, callbacks, pairedComputers)
     local selectedIndex = 1
-    local nodes = buildNodeList(discovery, pairedComputers)
     local lastRefresh = os.epoch("utc")
     local refreshInterval = 5000  -- 5 seconds
+
+    -- Initial discovery before first render
+    if discovery then
+        -- Show loading state
+        term.clear()
+        term.setCursorPos(1, 1)
+        term.setTextColor(colors.yellow)
+        print("Discovering swarm...")
+        term.setTextColor(colors.white)
+
+        -- Do blocking discovery (2 second timeout)
+        discovery:discover(2)
+    end
+
+    local nodes = buildNodeList(discovery, pairedComputers)
 
     -- Initial render
     SwarmStatus.render(nodes, selectedIndex)

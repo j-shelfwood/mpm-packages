@@ -61,6 +61,10 @@ function App:initNetwork(secret)
         return false
     end
 
+    -- Register with CC:Tweaked native service discovery
+    -- This allows zones to find us via rednet.lookup("shelfos")
+    rednet.host("shelfos", "pocket_" .. os.getComputerID())
+
     -- Set up discovery
     self.discovery = Discovery.new(self.channel)
     self.discovery:setIdentity("pocket_" .. os.getComputerID(), "Pocket")
@@ -417,6 +421,9 @@ function App:leaveSwarm()
             -- Clear credentials
             fs.delete("/shelfos_secret.txt")
             fs.delete("/shelfos_pocket.config")
+
+            -- Unregister from service discovery
+            rednet.unhost("shelfos")
 
             -- Reset state
             if self.channel then
