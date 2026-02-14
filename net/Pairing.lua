@@ -85,7 +85,7 @@ function Pairing.acceptFromPocket(callbacks)
     end
 
     if callbacks.onStatus then
-        callbacks.onStatus("Broadcasting presence...")
+        callbacks.onStatus("Broadcasting on " .. modemType .. " modem...")
     end
 
     -- Broadcast PAIR_READY - NOTE: NO code/token in message (security)

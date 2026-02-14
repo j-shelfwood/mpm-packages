@@ -487,9 +487,9 @@ function Kernel:acceptPocketPairing()
             end
             print("")
             print("On your pocket computer:")
-            print("  1. Select 'Add Computer'")
-            print("  2. Select this computer")
-            print("  3. Enter the code shown")
+            print("  1. Run: mpm run shelfos-swarm")
+            print("  2. Press [A] -> Add Zone")
+            print("  3. Select this zone, enter code")
             print("")
             print("Press [Q] to cancel")
         end,

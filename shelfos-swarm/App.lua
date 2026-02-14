@@ -10,8 +10,6 @@ local Protocol = mpm('net/Protocol')
 local Envelope = mpm('crypto/Envelope')
 local EventUtils = mpm('utils/EventUtils')
 
-local Protocol = mpm('net/Protocol')
-
 local App = {}
 App.__index = App
 
@@ -225,10 +223,27 @@ function App:addZone()
     print("         Add Zone to Swarm")
     print("=====================================")
     print("")
+
+    -- Ensure modem is open for receiving
+    local modem = peripheral.find("modem")
+    if not modem then
+        print("[!] No modem found")
+        sleep(2)
+        return
+    end
+
+    local modemName = peripheral.getName(modem)
+    if not rednet.isOpen(modemName) then
+        rednet.open(modemName)
+    end
+
+    local modemType = modem.isWireless() and "wireless/ender" or "wired"
+    print("Modem: " .. modemType .. " (" .. modemName .. ")")
+    print("")
     print("On the zone computer:")
     print("  1. Run: mpm run shelfos")
-    print("  2. Press [L] -> Accept pairing")
-    print("  3. Note the FINGERPRINT shown")
+    print("  2. Press [L] -> Accept from pocket")
+    print("  3. Note the PAIRING CODE shown")
     print("")
     print("Scanning for zones...")
     print("")
