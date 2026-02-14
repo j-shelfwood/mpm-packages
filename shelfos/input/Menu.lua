@@ -88,7 +88,7 @@ function Menu.showStatus(config, target)
         table.insert(lines, "Use pocket computer to add zones")
     else
         table.insert(lines, "Network: Standalone (not in swarm)")
-        table.insert(lines, "  Press [L] to create or join a swarm")
+        table.insert(lines, "  Press [L] to pair with pocket")
     end
 
     -- Local shared peripherals (shareable types)
@@ -525,7 +525,7 @@ function Menu.showLink(config, target)
 
         target.setTextColor(colors.gray)
         target.setCursorPos(2, 4)
-        target.write("Use pocket or code to join")
+        target.write("Pair with pocket to join")
         startY = 6
     end
 

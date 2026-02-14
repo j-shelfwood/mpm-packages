@@ -1,10 +1,12 @@
 -- Config.lua
 -- Persistent configuration store for ShelfOS
 
+local Paths = mpm('shelfos/core/Paths')
+
 local Config = {}
 
--- Configuration file path
-local CONFIG_PATH = "/shelfos.config"
+-- Configuration file path (use centralized Paths module)
+local CONFIG_PATH = Paths.ZONE_CONFIG
 
 -- Default configuration
 local DEFAULT_CONFIG = {

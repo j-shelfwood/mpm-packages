@@ -5,6 +5,7 @@
 local Protocol = mpm('net/Protocol')
 local Crypto = mpm('net/Crypto')
 local Pairing = mpm('net/Pairing')
+local Paths = mpm('shelfos/core/Paths')
 local EventUtils = mpm('utils/EventUtils')
 
 local AddComputer = {}
@@ -20,9 +21,8 @@ local function loadConfig()
     local zoneId = "pocket_" .. os.getComputerID()
 
     -- Load secret
-    local secretPath = "/shelfos_secret.txt"
-    if fs.exists(secretPath) then
-        local file = fs.open(secretPath, "r")
+    if fs.exists(Paths.POCKET_SECRET) then
+        local file = fs.open(Paths.POCKET_SECRET, "r")
         if file then
             secret = file.readAll()
             file.close()
@@ -30,9 +30,8 @@ local function loadConfig()
     end
 
     -- Load pocket config for zoneId override
-    local configPath = "/shelfos_pocket.config"
-    if fs.exists(configPath) then
-        local file = fs.open(configPath, "r")
+    if fs.exists(Paths.POCKET_CONFIG) then
+        local file = fs.open(Paths.POCKET_CONFIG, "r")
         if file then
             local content = file.readAll()
             file.close()

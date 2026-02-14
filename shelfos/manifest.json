@@ -8,6 +8,7 @@
     "core/Config.lua",
     "core/ConfigUI.lua",
     "core/Monitor.lua",
+    "core/Paths.lua",
     "core/Zone.lua",
     "core/Terminal.lua",
     "input/Menu.lua",

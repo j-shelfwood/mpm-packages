@@ -3,9 +3,12 @@
 -- Runs on computers without monitors, shares peripherals over network
 
 local Config = mpm('shelfos/core/Config')
+local Paths = mpm('shelfos/core/Paths')
 local Channel = mpm('net/Channel')
 local PeripheralHost = mpm('net/PeripheralHost')
+local Pairing = mpm('net/Pairing')
 local Crypto = mpm('net/Crypto')
+local PairingScreen = mpm('shelfos/ui/PairingScreen')
 
 local headless = {}
 
@@ -45,8 +48,68 @@ local function drawStatus(host, channel, config)
 
     print("")
     print("-------------------")
-    print("Press Q to quit")
-    print("Press R to rescan peripherals")
+    print("[Q] Quit  [R] Rescan  [X] Reset")
+end
+
+-- Accept pairing from pocket computer
+-- @param config Current configuration
+-- @return success, secret, zoneId
+function headless.acceptPairing(config)
+    local modem = peripheral.find("modem")
+    if not modem then
+        print("[!] No modem found")
+        sleep(2)
+        return false, nil, nil
+    end
+
+    local modemType = modem.isWireless() and "wireless" or "wired"
+    local computerLabel = os.getComputerLabel() or ("Computer #" .. os.getComputerID())
+
+    local displayCode = nil
+
+    local callbacks = {
+        onDisplayCode = function(code)
+            displayCode = code
+            term.clear()
+            term.setCursorPos(1, 1)
+            print("=====================================")
+            print("   Waiting for Pocket Pairing")
+            print("=====================================")
+            print("")
+            print("  Computer: " .. computerLabel)
+            print("  Modem: " .. modemType)
+            print("")
+            print("  +-----------------------+")
+            print("  |  PAIRING CODE:        |")
+            print("  |                       |")
+            print("  |      " .. code .. "      |")
+            print("  |                       |")
+            print("  +-----------------------+")
+            print("")
+            print("On your pocket computer:")
+            print("  1. Select 'Add Computer'")
+            print("  2. Select this computer")
+            print("  3. Enter the code shown")
+            print("")
+            print("Press [Q] to cancel")
+        end,
+        onStatus = function(msg)
+            local _, h = term.getSize()
+            term.setCursorPos(1, h)
+            term.clearLine()
+            term.write("[*] " .. msg)
+        end,
+        onSuccess = function(secret, zoneId)
+            print("")
+            print("[*] Pairing successful!")
+        end,
+        onCancel = function(reason)
+            print("")
+            print("[*] " .. (reason or "Cancelled"))
+        end
+    }
+
+    return Pairing.acceptFromPocket(callbacks)
 end
 
 -- Run headless mode
@@ -72,12 +135,45 @@ function headless.run()
     if not config.network or not config.network.secret then
         print("")
         print("[ShelfOS] Not in swarm yet")
-        print("[ShelfOS] Run: mpm run shelfos/tools/pair_accept")
-        print("[ShelfOS] Then pair from pocket computer")
         print("")
-        print("Press any key to exit...")
-        os.pullEvent("key")
-        return
+        print("[L] Accept pairing from pocket")
+        print("[Q] Quit")
+        print("")
+
+        -- Wait for pairing or quit
+        while true do
+            local event, key = os.pullEvent("key")
+            if key == keys.q then
+                return
+            elseif key == keys.l then
+                -- Run pairing flow
+                local success, secret, zoneId = headless.acceptPairing(config)
+                if success then
+                    -- Save credentials
+                    Config.setNetworkSecret(config, secret)
+                    if zoneId then
+                        config.zone = config.zone or {}
+                        config.zone.id = zoneId
+                    end
+                    Config.save(config)
+
+                    print("")
+                    print("[*] Paired successfully!")
+                    print("[*] Restarting...")
+                    sleep(2)
+                    os.reboot()
+                else
+                    -- Redraw unpaired screen
+                    term.clear()
+                    term.setCursorPos(1, 1)
+                    print("[ShelfOS] Not in swarm yet")
+                    print("")
+                    print("[L] Accept pairing from pocket")
+                    print("[Q] Quit")
+                    print("")
+                end
+            end
+        end
     end
 
     -- Initialize crypto with secret
@@ -137,6 +233,22 @@ function headless.run()
                 drawStatus(host, channel, config)
                 print("")
                 print("Rescanned: " .. newCount .. " peripheral(s)")
+            elseif key == keys.x then
+                -- Factory reset
+                channel:close()
+                Crypto.clearSecret()
+                Paths.deleteZoneFiles()
+
+                term.clear()
+                term.setCursorPos(1, 1)
+                print("=====================================")
+                print("   FACTORY RESET")
+                print("=====================================")
+                print("")
+                print("Configuration deleted.")
+                print("Rebooting in 2 seconds...")
+                sleep(2)
+                os.reboot()
             end
 
         elseif event == "peripheral" then

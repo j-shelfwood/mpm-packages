@@ -2,6 +2,7 @@
 -- Setup and reconfiguration wizard for ShelfOS
 
 local Config = mpm('shelfos/core/Config')
+local Paths = mpm('shelfos/core/Paths')
 local Zone = mpm('shelfos/core/Zone')
 local ViewManager = mpm('views/Manager')
 local Crypto = mpm('net/Crypto')
@@ -41,10 +42,19 @@ function setup.run()
             print("[*] Cancelled")
             return
         elseif choice == 3 then
-            fs.delete(Config.getPath())
-            print("[*] Configuration deleted")
-            existingConfig = nil
-            isReconfigure = false
+            -- Factory reset
+            Crypto.clearSecret()
+            Paths.deleteZoneFiles()
+
+            print("")
+            print("=====================================")
+            print("   FACTORY RESET")
+            print("=====================================")
+            print("")
+            print("Configuration deleted.")
+            print("Rebooting in 2 seconds...")
+            sleep(2)
+            os.reboot()
         elseif choice == 2 then
             print("")
             write("New zone name: ")
@@ -148,61 +158,17 @@ function setup.run()
 
     print("")
 
-    -- Network setup
+    -- Network info
     print("=== Network Configuration ===")
     print("")
-    print("ShelfOS can communicate with pocket computers")
-    print("and other zones over rednet.")
+    print("To join a swarm (network with pocket):")
     print("")
-
-    write("Enable networking? (y/n): ")
-    local enableNetwork = read():lower() == "y"
-
-    local networkSecret = nil
-
-    if enableNetwork then
-        -- Check for modem
-        local hasModem = peripheral.find("modem") ~= nil
-
-        if not hasModem then
-            print("[!] No modem found. Networking disabled.")
-            enableNetwork = false
-        else
-            print("")
-            print("RECOMMENDED: Use pocket pairing instead!")
-            print("  1. Create swarm on pocket computer")
-            print("  2. Press L -> Accept from pocket")
-            print("")
-            print("Manual setup (advanced):")
-            print("")
-
-            write("Generate secret manually? (y/n): ")
-            if read():lower() == "y" then
-                networkSecret = Crypto.generateSecret()
-                print("")
-                print("Generated secret:")
-                print("")
-                print("  " .. networkSecret)
-                print("")
-                print("NOTE: Pocket pairing is easier!")
-                print("This secret must match your pocket.")
-                print("")
-                write("Press Enter to continue...")
-                read()
-            else
-                print("")
-                write("Enter secret from pocket: ")
-                networkSecret = read()
-
-                if #networkSecret < 16 then
-                    print("[!] Secret too short. Networking disabled.")
-                    enableNetwork = false
-                    networkSecret = nil
-                end
-            end
-        end
-    end
-
+    print("  1. Start ShelfOS: mpm run shelfos")
+    print("  2. Press L -> Accept from pocket")
+    print("  3. Pair from pocket computer")
+    print("")
+    print("Network is NOT configured by this wizard.")
+    print("Pocket pairing is required for security.")
     print("")
 
     -- Create configuration
@@ -211,10 +177,7 @@ function setup.run()
 
     local config = Config.create(zoneId, zoneName)
     config.monitors = monitorConfigs
-
-    if enableNetwork and networkSecret then
-        Config.setNetworkSecret(config, networkSecret)
-    end
+    -- Note: Network is NOT configured here - use pocket pairing
 
     local saved = Config.save(config)
 

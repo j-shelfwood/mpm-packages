@@ -291,23 +291,42 @@ function Kernel:handleMenuKey(key, runningRef)
         end)
 
         if confirmed then
-            -- Close network connection first
+            -- FACTORY RESET: Delete everything and force reboot
+            -- Must reboot immediately to prevent in-memory config from being saved
+
+            -- 1. Clear monitors visually
+            for _, monitor in ipairs(self.monitors) do
+                monitor:clear()
+            end
+
+            -- 2. Close network
             if self.channel then
                 rednet.unhost("shelfos")
                 self.channel:close()
-                self.channel = nil
             end
-            -- Clear crypto state (prevents stale secret in _G)
+
+            -- 3. Clear crypto state
             local Crypto = mpm('net/Crypto')
             Crypto.clearSecret()
-            -- Delete config and quit
-            fs.delete(Config.getPath())
-            Terminal.clearLog()
-            print("[ShelfOS] Configuration deleted.")
-            print("[ShelfOS] Restart to auto-configure.")
-            EventUtils.sleep(1)
-            runningRef.value = false
-            return
+
+            -- 4. Delete ALL config files
+            fs.delete(Config.getPath())  -- /shelfos.config
+
+            -- 5. Restore terminal and show message
+            term.redirect(term.native())
+            term.clear()
+            term.setCursorPos(1, 1)
+            print("=====================================")
+            print("   FACTORY RESET")
+            print("=====================================")
+            print("")
+            print("Configuration deleted.")
+            print("Rebooting in 2 seconds...")
+
+            -- 6. HARD REBOOT - prevents any save-on-exit from running
+            sleep(2)
+            os.reboot()
+            -- Code never reaches here
         else
             Terminal.clearLog()
             self:drawMenu()
@@ -322,25 +341,47 @@ function Kernel:handleMenuKey(key, runningRef)
 
         if result == "link_pocket_accept" then
             self:acceptPocketPairing()
+            self:drawMenu()
         elseif result == "link_disconnect" then
-            -- Close existing network connection
+            -- LEAVE SWARM: Clear credentials and reboot for clean state
+
+            -- 1. Clear monitors
+            for _, monitor in ipairs(self.monitors) do
+                monitor:clear()
+            end
+
+            -- 2. Close network
             if self.channel then
                 rednet.unhost("shelfos")
                 self.channel:close()
-                self.channel = nil
             end
-            -- Clear crypto state (prevents stale secret in _G)
+
+            -- 3. Clear crypto state
             local Crypto = mpm('net/Crypto')
             Crypto.clearSecret()
+
+            -- 4. Update and save config (keep monitors, clear network)
             self.config.network.enabled = false
             self.config.network.secret = nil
             Config.save(self.config)
-            print("[ShelfOS] Disconnected from swarm.")
-            print("[ShelfOS] Restart to apply changes.")
-            EventUtils.sleep(2)
-        end
 
-        self:drawMenu()
+            -- 5. Restore terminal and show message
+            term.redirect(term.native())
+            term.clear()
+            term.setCursorPos(1, 1)
+            print("=====================================")
+            print("   LEFT SWARM")
+            print("=====================================")
+            print("")
+            print("Network credentials cleared.")
+            print("Rebooting in 2 seconds...")
+
+            -- 6. REBOOT for clean state
+            sleep(2)
+            os.reboot()
+        else
+            self:drawMenu()
+        end
 
     elseif action == "monitors" then
         local availableViews = ViewManager.getMountableViews()

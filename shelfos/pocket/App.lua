@@ -10,6 +10,7 @@ local Crypto = mpm('net/Crypto')
 local Protocol = mpm('net/Protocol')
 local Discovery = mpm('net/Discovery')
 local Pairing = mpm('net/Pairing')
+local Paths = mpm('shelfos/core/Paths')
 local Notifications = mpm('shelfos/pocket/Notifications')
 local EventUtils = mpm('utils/EventUtils')
 local AddComputerScreen = mpm('shelfos/pocket/screens/AddComputer')
@@ -84,10 +85,8 @@ end
 
 -- Load secret from file
 function App:loadSecret()
-    local secretPath = "/shelfos_secret.txt"
-
-    if fs.exists(secretPath) then
-        local file = fs.open(secretPath, "r")
+    if fs.exists(Paths.POCKET_SECRET) then
+        local file = fs.open(Paths.POCKET_SECRET, "r")
         if file then
             local secret = file.readAll()
             file.close()
@@ -102,8 +101,7 @@ end
 
 -- Save secret to file
 function App:saveSecret(secret)
-    local secretPath = "/shelfos_secret.txt"
-    local file = fs.open(secretPath, "w")
+    local file = fs.open(Paths.POCKET_SECRET, "w")
     if file then
         file.write(secret)
         file.close()
@@ -343,12 +341,11 @@ function App:joinSwarm()
                         self:initNetwork(response.secret)
 
                         -- Save config
-                        local configPath = "/shelfos_pocket.config"
                         local config = {
                             zoneId = response.zoneId,
                             zoneName = response.zoneName
                         }
-                        local file = fs.open(configPath, "w")
+                        local file = fs.open(Paths.POCKET_CONFIG, "w")
                         if file then
                             file.write(textutils.serialize(config))
                             file.close()
@@ -392,11 +389,10 @@ function App:createSwarm()
     self:initNetwork(secret)
 
     -- Save config
-    local configPath = "/shelfos_pocket.config"
     local config = {
         isController = true
     }
-    local file = fs.open(configPath, "w")
+    local file = fs.open(Paths.POCKET_CONFIG, "w")
     if file then
         file.write(textutils.serialize(config))
         file.close()
@@ -426,28 +422,32 @@ function App:leaveSwarm()
     while true do
         local event, key = EventUtils.pullEvent("key")
         if key == keys.y then
-            -- Clear credentials
-            fs.delete("/shelfos_secret.txt")
-            fs.delete("/shelfos_pocket.config")
+            -- LEAVE SWARM: Clear all credentials and reboot
 
-            -- Unregister from service discovery
-            rednet.unhost("shelfos")
-
-            -- Reset state
+            -- 1. Close network
             if self.channel then
                 self.channel:close()
-                self.channel = nil
             end
-            self.discovery = nil
-            self.hasSecret = false
+            rednet.unhost("shelfos")
 
-            -- Clear crypto state (prevents stale secret in _G)
+            -- 2. Clear crypto state
             Crypto.clearSecret()
 
+            -- 3. Delete all pocket files
+            Paths.deletePocketFiles()
+
+            -- 4. Show message and reboot
+            term.clear()
+            term.setCursorPos(1, 1)
+            print("=====================================")
+            print("   LEFT SWARM")
+            print("=====================================")
             print("")
-            print("[*] Left swarm")
-            EventUtils.sleep(1)
-            return
+            print("Credentials cleared.")
+            print("Rebooting in 2 seconds...")
+
+            sleep(2)
+            os.reboot()
         elseif key == keys.n then
             return
         end

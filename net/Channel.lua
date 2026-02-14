@@ -89,37 +89,37 @@ end
 
 -- Send a message to a specific computer
 -- @param targetId Target computer ID
--- @param message Message table (will be wrapped with crypto if secret set)
+-- @param message Message table (MUST have crypto secret set)
 -- @return success
 function Channel:send(targetId, message)
     if not self.opened then
         return false
     end
 
-    local envelope
-    if Crypto.hasSecret() then
-        envelope = Crypto.wrap(message)
-    else
-        envelope = message
+    -- SECURITY: Channel requires crypto for swarm communication
+    -- Plaintext transmission is a security violation
+    if not Crypto.hasSecret() then
+        error("SECURITY: Channel.send() called without swarm secret. Initialize network first.")
     end
 
+    local envelope = Crypto.wrap(message)
     return rednet.send(targetId, envelope, self.protocol)
 end
 
 -- Broadcast a message
--- @param message Message table
+-- @param message Message table (MUST have crypto secret set)
 function Channel:broadcast(message)
     if not self.opened then
         return false
     end
 
-    local envelope
-    if Crypto.hasSecret() then
-        envelope = Crypto.wrap(message)
-    else
-        envelope = message
+    -- SECURITY: Channel requires crypto for swarm communication
+    -- Plaintext transmission is a security violation
+    if not Crypto.hasSecret() then
+        error("SECURITY: Channel.broadcast() called without swarm secret. Initialize network first.")
     end
 
+    local envelope = Crypto.wrap(message)
     rednet.broadcast(envelope, self.protocol)
     return true
 end
@@ -164,25 +164,24 @@ function Channel:receive(timeout)
         return nil, nil
     end
 
+    -- SECURITY: Channel requires crypto for swarm communication
+    if not Crypto.hasSecret() then
+        return nil, nil  -- Silently ignore - we shouldn't be receiving without secret
+    end
+
     local senderId, envelope = rednet.receive(self.protocol, timeout)
 
     if not senderId then
         return nil, nil
     end
 
-    -- Unwrap crypto if secret is set
-    local message
-    if Crypto.hasSecret() then
-        local data, err = Crypto.unwrap(envelope)
-        if not data then
-            return nil, nil  -- Silent fail for invalid/replayed messages
-        end
-        message = data
-    else
-        message = envelope
+    -- Unwrap and verify crypto signature
+    local data, err = Crypto.unwrap(envelope)
+    if not data then
+        return nil, nil  -- Silent fail for invalid/replayed messages
     end
 
-    return senderId, message
+    return senderId, data
 end
 
 -- Register a message handler
