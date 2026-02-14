@@ -6,8 +6,8 @@
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MPM_PACKAGES="$(dirname "$SCRIPT_DIR")"
+# Use git to find repo root (works correctly even when called via symlink)
+MPM_PACKAGES="$(git rev-parse --show-toplevel)"
 
 # Colors
 RED='\033[0;31m'
@@ -53,13 +53,14 @@ if [ -x "$CRAFTOS" ]; then
         --mount-ro /workspace="$MPM_PACKAGES" \
         --exec "dofile('/workspace/tests/craftos/test_runner.lua')" 2>&1 || true)
 
-    if echo "$OUTPUT" | grep -q "TESTS FAILED"; then
+    # Check for explicit success marker (more reliable than checking for failure)
+    if ! echo "$OUTPUT" | grep -q "ALL TESTS PASSED"; then
         echo -e "${RED}CraftOS integration tests failed!${NC}"
-        echo "$OUTPUT" | grep -E "^\[FAIL\]" | uniq | head -5
+        echo "$OUTPUT" | grep -E "\[FAIL\]" | uniq | head -5
         exit 1
     fi
 
-    PASSED=$(echo "$OUTPUT" | grep -E "^Passed:" | tail -1)
+    PASSED=$(echo "$OUTPUT" | grep -E "Passed:.*Failed:" | tail -1)
     echo "$PASSED"
     echo ""
 
@@ -69,13 +70,14 @@ if [ -x "$CRAFTOS" ]; then
         --mount-ro /workspace="$MPM_PACKAGES" \
         --exec "dofile('/workspace/tests/craftos/swarm_simulation.lua')" 2>&1 || true)
 
-    if echo "$OUTPUT" | grep -q "TESTS FAILED"; then
+    # Check for explicit success marker
+    if ! echo "$OUTPUT" | grep -q "ALL TESTS PASSED"; then
         echo -e "${RED}Swarm simulation tests failed!${NC}"
-        echo "$OUTPUT" | grep -E "^\[FAIL\]" | uniq | head -5
+        echo "$OUTPUT" | grep -E "\[FAIL\]" | uniq | head -5
         exit 1
     fi
 
-    PASSED=$(echo "$OUTPUT" | grep -E "^Passed:" | tail -1)
+    PASSED=$(echo "$OUTPUT" | grep -E "Passed:.*Failed:" | tail -1)
     echo "$PASSED"
     echo ""
 else

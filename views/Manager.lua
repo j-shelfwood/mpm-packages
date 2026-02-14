@@ -42,13 +42,15 @@ function Manager.getAvailableViews()
 
     local views = {}
     for _, filename in ipairs(manifest.files or {}) do
-        -- Skip utility files and factories (not actual views)
-        -- Utility files: Manager.lua, BaseView.lua
-        -- Factories: anything in subdirectories (contains '/')
+        -- Skip non-view files:
+        -- 1. Utility files: Manager.lua, BaseView.lua
+        -- 2. Renderer helpers: *Renderers.lua (e.g., BaseViewRenderers.lua)
+        -- 3. Factories: anything in subdirectories (contains '/')
         local isUtility = filename == "Manager.lua" or filename == "BaseView.lua"
+        local isRenderer = filename:match("Renderers%.lua$") ~= nil
         local isSubdirectory = filename:find("/") ~= nil
 
-        if not isUtility and not isSubdirectory then
+        if not isUtility and not isRenderer and not isSubdirectory then
             -- Remove .lua extension
             local viewName = filename:gsub("%.lua$", "")
             table.insert(views, viewName)
@@ -69,17 +71,19 @@ function Manager.load(viewName)
 
     -- Try to load
     local ok, View = pcall(mpm, 'views/' .. viewName)
-    if ok and View then
-        viewCache[viewName] = View
-        return View
-    end
-
-    -- Log error for debugging
     if not ok then
         print("[ViewManager] Error loading " .. viewName .. ": " .. tostring(View))
+        return nil
     end
 
-    return nil
+    -- Validate that this is actually a view module (must have new function)
+    if not View or type(View) ~= "table" or type(View.new) ~= "function" then
+        print("[ViewManager] Invalid view module: " .. viewName .. " (missing new function)")
+        return nil
+    end
+
+    viewCache[viewName] = View
+    return View
 end
 
 -- Check if a view can mount (has required peripherals)
