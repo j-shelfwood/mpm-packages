@@ -317,19 +317,14 @@ function Protocol.createPairReady(token, computerLabel, computerId)
 end
 
 -- Create pair deliver message (pocket sends swarm secret to computer)
--- @param token The token from PAIR_READY (for verification)
+-- Note: The message is signed with the display code shown on the zone's screen
 -- @param secret The swarm secret
--- @param pairingCode The swarm pairing code
--- @param zoneId Zone ID to join
--- @param zoneName Zone name
+-- @param zoneId Zone ID for the new member
 -- @return Pair deliver message
-function Protocol.createPairDeliver(token, secret, pairingCode, zoneId, zoneName)
+function Protocol.createPairDeliver(secret, zoneId)
     return Protocol.createMessage(Protocol.MessageType.PAIR_DELIVER, {
-        token = token,
         secret = secret,
-        pairingCode = pairingCode,
-        zoneId = zoneId,
-        zoneName = zoneName
+        zoneId = zoneId
     })
 end
 

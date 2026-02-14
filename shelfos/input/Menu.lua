@@ -85,8 +85,7 @@ function Menu.showStatus(config, target)
         end
 
         table.insert(lines, "")
-        table.insert(lines, "Pairing code: " .. (config.network.pairingCode or "N/A"))
-        table.insert(lines, "  (use this code to add computers)")
+        table.insert(lines, "Use pocket computer to add zones")
     else
         table.insert(lines, "Network: Standalone (not in swarm)")
         table.insert(lines, "  Press [L] to create or join a swarm")
@@ -474,23 +473,18 @@ function Menu.showLink(config, target)
     local isInSwarm = config.network and config.network.secret ~= nil
 
     if isInSwarm then
-        -- IN SWARM: Can host pairing, show code, or disconnect
+        -- IN SWARM: Can re-pair with pocket or disconnect
         options = {
-            { value = "show_code", label = "Show swarm pairing code" },
-            { value = "host", label = "Host pairing (for code join)" },
             { value = "pocket_accept", label = "Re-pair with pocket" },
             { value = "disconnect", label = "Leave swarm" },
             { value = "back", label = "Back" }
         }
     else
-        -- NOT IN SWARM: Can only accept from pocket or join with code
+        -- NOT IN SWARM: Can only accept from pocket
         options = {
             { value = "pocket_accept", label = "Accept from pocket" },
-            { value = "join", label = "Join with pairing code" },
             { value = "back", label = "Back" }
         }
-        -- Note: "Host pairing" removed - requires being in swarm first
-        -- Note: "Show code" removed - no code until in swarm
     end
 
     -- Build title with status
@@ -523,11 +517,7 @@ function Menu.showLink(config, target)
         else
             target.write("In swarm (no peers found)")
         end
-
-        target.setTextColor(colors.yellow)
-        target.setCursorPos(2, 4)
-        target.write("Code: " .. (config.network.pairingCode or "N/A"))
-        startY = 6
+        startY = 5
     else
         target.setTextColor(colors.orange)
         target.setCursorPos(2, 3)
@@ -565,38 +555,10 @@ function Menu.showLink(config, target)
 
                     if selected == "back" then
                         return nil
-                    elseif selected == "show_code" then
-                        Controller.showInfo(target, "Swarm Pairing Code", {
-                            "",
-                            "Code: " .. (config.network.pairingCode or "N/A"),
-                            "",
-                            "Other zones can join by pressing",
-                            "L -> Join with pairing code"
-                        })
-                        return nil
-                    elseif selected == "host" then
-                        return "link_host"
                     elseif selected == "pocket_accept" then
                         return "link_pocket_accept"
                     elseif selected == "disconnect" then
                         return "link_disconnect"
-                    elseif selected == "join" then
-                        -- Need to get pairing code input
-                        target.setCursorPos(2, height - 2)
-                        target.setTextColor(colors.white)
-                        write("Enter pairing code: ")
-
-                        local code = read()
-
-                        if code and #code >= 8 then
-                            return "link_join", code
-                        else
-                            target.setCursorPos(2, height - 1)
-                            target.setTextColor(colors.red)
-                            target.write("Invalid code (min 8 chars)")
-                            EventUtils.sleep(1)
-                            return nil
-                        end
                     end
                 end
             end
@@ -610,28 +572,10 @@ function Menu.showLink(config, target)
 
                     if selected == "back" then
                         return nil
-                    elseif selected == "show_code" then
-                        Controller.showInfo(target, "Swarm Pairing Code", {
-                            "",
-                            "Code: " .. (config.network.pairingCode or "N/A"),
-                            "",
-                            "Zones join via L -> Join with code"
-                        })
-                        return nil
-                    elseif selected == "host" then
-                        return "link_host"
                     elseif selected == "pocket_accept" then
                         return "link_pocket_accept"
                     elseif selected == "disconnect" then
                         return "link_disconnect"
-                    elseif selected == "join" then
-                        -- Can't input on monitor
-                        Controller.showInfo(target, "Join Swarm", {
-                            "",
-                            "Text input required.",
-                            "Use terminal keyboard to enter code."
-                        })
-                        return nil
                     end
                 end
             end

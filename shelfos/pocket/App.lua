@@ -328,10 +328,9 @@ function App:joinSwarm()
                         self:saveSecret(response.secret)
                         self:initNetwork(response.secret)
 
-                        -- Save pairing code for future use
+                        -- Save config
                         local configPath = "/shelfos_pocket.config"
                         local config = {
-                            pairingCode = response.pairingCode or code,
                             zoneId = response.zoneId,
                             zoneName = response.zoneName
                         }
@@ -373,7 +372,6 @@ function App:createSwarm()
 
     -- Generate new secret using Pairing module
     local secret = Pairing.generateSecret()
-    local pairingCode = Pairing.generateCode()
 
     -- Save secret
     self:saveSecret(secret)
@@ -382,7 +380,6 @@ function App:createSwarm()
     -- Save config
     local configPath = "/shelfos_pocket.config"
     local config = {
-        pairingCode = pairingCode,
         isController = true
     }
     local file = fs.open(configPath, "w")
@@ -393,11 +390,8 @@ function App:createSwarm()
 
     print("[*] Swarm created!")
     print("")
-    print("Pairing code:")
-    print("  " .. pairingCode)
-    print("")
     print("Use 'Add Computer'")
-    print("to add zones.")
+    print("to add zones to swarm.")
     print("")
     print("Press any key...")
     EventUtils.pullEvent("key")

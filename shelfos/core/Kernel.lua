@@ -310,11 +310,7 @@ function Kernel:handleMenuKey(key, runningRef)
 
         Terminal.clearLog()
 
-        if result == "link_host" then
-            self:hostPairing()
-        elseif result == "link_join" and code then
-            self:joinNetwork(code)
-        elseif result == "link_pocket_accept" then
+        if result == "link_pocket_accept" then
             self:acceptPocketPairing()
         elseif result == "link_disconnect" then
             -- Close existing network connection
@@ -355,114 +351,9 @@ function Kernel:handleMenuKey(key, runningRef)
     end
 end
 
--- NOTE: createNetwork() was removed - zones cannot create their own secrets
+-- NOTE: createNetwork() and legacy pairing functions removed
 -- Zones must pair with pocket computer to join swarm (pocket-as-queen architecture)
 -- See: mpm-packages/docs/SWARM_ARCHITECTURE.md
-
--- Host a pairing session (blocking - waits for clients)
--- Requires already being in swarm (has secret)
-function Kernel:hostPairing()
-    local Pairing = mpm('net/Pairing')
-
-    -- Must be in swarm to host pairing
-    if not Config.isInSwarm(self.config) then
-        print("")
-        print("[!] Not in swarm yet")
-        print("    Press L -> Accept from pocket to join first")
-        EventUtils.sleep(2)
-        return
-    end
-
-    -- Ensure pairing code exists
-    if not self.config.network.pairingCode then
-        self.config.network.pairingCode = Pairing.generateCode()
-        Config.save(self.config)
-    end
-
-    -- Display pairing info
-    print("")
-    print("=====================================")
-    print("    ShelfOS Swarm Pairing")
-    print("=====================================")
-    print("")
-    print("  PAIRING CODE: " .. self.config.network.pairingCode)
-    print("")
-    print("=====================================")
-    print("")
-    print("On other computers or pocket:")
-    print("  Enter this code to join swarm")
-    print("")
-    print("Press [Q] to stop hosting")
-    print("")
-
-    -- Use Pairing module
-    local callbacks = {
-        onJoin = function(computerId)
-            print("[+] Computer #" .. computerId .. " joined!")
-        end,
-        onCancel = function()
-            -- Silent
-        end
-    }
-
-    local clientsJoined = Pairing.hostSession(
-        self.config.network.secret,
-        self.config.network.pairingCode,
-        self.config.zone.id,
-        self.config.zone.name,
-        callbacks
-    )
-
-    print("")
-    print("[*] Pairing session ended")
-    print("    " .. clientsJoined .. " computer(s) joined")
-    EventUtils.sleep(2)
-end
-
--- Join an existing network using pairing code
-function Kernel:joinNetwork(code)
-    local Pairing = mpm('net/Pairing')
-
-    -- Close existing channel to avoid conflicts
-    if self.channel then
-        rednet.unhost("shelfos")
-        self.channel:close()
-        self.channel = nil
-    end
-
-    print("")
-    print("[*] Searching for swarm host...")
-
-    local callbacks = {
-        onSuccess = function(response)
-            print("[*] Joined swarm!")
-            print("    Zone: " .. (response.zoneName or "Unknown"))
-        end,
-        onFail = function(err)
-            print("[!] Failed: " .. err)
-        end
-    }
-
-    local success, secret, pairingCode, zoneId, zoneName = Pairing.joinWithCode(code, callbacks)
-
-    if success then
-        -- Save credentials
-        Config.setNetworkSecret(self.config, secret)
-        if pairingCode then
-            self.config.network.pairingCode = pairingCode
-        end
-        if zoneId then
-            self.config.zone.id = zoneId
-        end
-        Config.save(self.config)
-
-        print("")
-        print("[*] Restart ShelfOS to connect")
-        EventUtils.sleep(3)
-    else
-        EventUtils.sleep(2)
-    end
-end
 
 -- Accept pairing from a pocket computer
 -- This is how zones join the swarm - pocket delivers the secret
@@ -554,7 +445,7 @@ function Kernel:acceptPocketPairing()
             term.clearLine()
             term.write("[*] " .. msg)
         end,
-        onSuccess = function(secret, pairingCode, zoneId)
+        onSuccess = function(secret, zoneId)
             -- RESUME monitor rendering
             for _, monitor in ipairs(kernelRef.monitors) do
                 monitor:setPairingMode(false)
@@ -583,14 +474,11 @@ function Kernel:acceptPocketPairing()
         end
     }
 
-    local success, secret, pairingCode, zoneId = Pairing.acceptFromPocket(callbacks)
+    local success, secret, zoneId = Pairing.acceptFromPocket(callbacks)
 
     if success then
         -- Save credentials
         Config.setNetworkSecret(self.config, secret)
-        if pairingCode then
-            self.config.network.pairingCode = pairingCode
-        end
         if zoneId then
             self.config.zone = self.config.zone or {}
             self.config.zone.id = zoneId

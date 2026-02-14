@@ -85,7 +85,7 @@ local function acceptPairing()
             term.clearLine()
             term.write("[*] " .. msg)
         end,
-        onSuccess = function(secret, pairingCode, zoneId)
+        onSuccess = function(secret, zoneId)
             PairingScreen.clearAll(monitorNames)
             print("")
             print("")
@@ -102,7 +102,7 @@ local function acceptPairing()
         end
     }
 
-    local success, secret, pairingCode, zoneId = Pairing.acceptFromPocket(callbacks)
+    local success, secret, zoneId = Pairing.acceptFromPocket(callbacks)
 
     if success then
         -- Load or create config
@@ -116,9 +116,6 @@ local function acceptPairing()
 
         -- Save credentials
         Config.setNetworkSecret(config, secret)
-        if pairingCode then
-            config.network.pairingCode = pairingCode
-        end
         if zoneId then
             config.zone = config.zone or {}
             config.zone.id = zoneId

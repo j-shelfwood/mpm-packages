@@ -14,12 +14,10 @@ local TIMEOUT_SECONDS = 30
 local STALE_THRESHOLD_MS = 15000  -- Remove entries older than 15 seconds
 
 -- Load pocket configuration
--- @return secret, pairingCode, zoneId, zoneName
+-- @return secret, zoneId
 local function loadConfig()
     local secret = nil
-    local pairingCode = nil
-    local zoneId = nil
-    local zoneName = "Swarm"
+    local zoneId = "pocket_" .. os.getComputerID()
 
     -- Load secret
     local secretPath = "/shelfos_secret.txt"
@@ -31,7 +29,7 @@ local function loadConfig()
         end
     end
 
-    -- Load pocket config
+    -- Load pocket config for zoneId override
     local configPath = "/shelfos_pocket.config"
     if fs.exists(configPath) then
         local file = fs.open(configPath, "r")
@@ -39,26 +37,13 @@ local function loadConfig()
             local content = file.readAll()
             file.close()
             local ok, config = pcall(textutils.unserialize, content)
-            if ok and config then
-                pairingCode = config.pairingCode
+            if ok and config and config.zoneId then
                 zoneId = config.zoneId
-                zoneName = config.zoneName or zoneName
             end
         end
     end
 
-    -- Generate pairing code if needed
-    if not pairingCode and secret then
-        pairingCode = Pairing.generateCode()
-        local config = { pairingCode = pairingCode, zoneId = zoneId, zoneName = zoneName }
-        local file = fs.open(configPath, "w")
-        if file then
-            file.write(textutils.serialize(config))
-            file.close()
-        end
-    end
-
-    return secret, pairingCode, zoneId, zoneName
+    return secret, zoneId
 end
 
 -- Draw the main waiting screen
@@ -113,24 +98,16 @@ end
 
 -- Send PAIR_DELIVER to the target computer
 -- @param pair Target pair info
--- @param enteredCode Code entered by user
+-- @param enteredCode Code entered by user (used to sign the message)
 -- @param secret Swarm secret
--- @param pairingCode Swarm pairing code
 -- @param zoneId Zone ID
--- @param zoneName Zone name
 -- @return boolean success
-local function sendPairDeliver(pair, enteredCode, secret, pairingCode, zoneId, zoneName)
+local function sendPairDeliver(pair, enteredCode, secret, zoneId)
     print("")
     print("[*] Sending to " .. pair.label .. "...")
 
     -- Create PAIR_DELIVER and sign with entered code
-    local deliverMsg = Protocol.createPairDeliver(
-        nil,  -- No token (code is auth)
-        secret,
-        pairingCode,
-        zoneId,
-        zoneName
-    )
+    local deliverMsg = Protocol.createPairDeliver(secret, zoneId)
 
     -- Sign with the entered code as ephemeral key
     local signedEnvelope = Crypto.wrapWith(deliverMsg, enteredCode)
@@ -232,7 +209,7 @@ end
 -- @return boolean success
 function AddComputer.run()
     -- Load configuration
-    local secret, pairingCode, zoneId, zoneName = loadConfig()
+    local secret, zoneId = loadConfig()
 
     if not secret then
         term.clear()
@@ -325,7 +302,7 @@ function AddComputer.run()
                     print("[!] Code too short")
                     EventUtils.sleep(1)
                 else
-                    local success = sendPairDeliver(pair, enteredCode, secret, pairingCode, zoneId, zoneName)
+                    local success = sendPairDeliver(pair, enteredCode, secret, zoneId)
                     if success then
                         EventUtils.sleep(2)
                         return true

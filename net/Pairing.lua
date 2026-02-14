@@ -55,8 +55,8 @@ end
 -- Zone broadcasts PAIR_READY and waits for pocket to deliver secret
 -- SECURITY: The displayCode is shown on screen only (NEVER broadcast)
 -- The pocket must enter this code, which is used to sign PAIR_DELIVER
--- @param callbacks Table with: onStatus(msg), onDisplayCode(code), onSuccess(secret, pairingCode, zoneId), onCancel(reason)
--- @return success, secret, pairingCode, zoneId
+-- @param callbacks Table with: onStatus(msg), onDisplayCode(code), onSuccess(secret, zoneId), onCancel(reason)
+-- @return success, secret, zoneId
 function Pairing.acceptFromPocket(callbacks)
     callbacks = callbacks or {}
 
@@ -98,7 +98,7 @@ function Pairing.acceptFromPocket(callbacks)
     local deadline = startTime + (Pairing.TOKEN_VALIDITY * 1000)
     local lastBroadcast = startTime
     local success = false
-    local resultSecret, resultCode, resultZoneId
+    local resultSecret, resultZoneId
 
     while os.epoch("utc") < deadline do
         -- Re-broadcast presence every 3 seconds
@@ -130,7 +130,6 @@ function Pairing.acceptFromPocket(callbacks)
                     if data and data.type == Protocol.MessageType.PAIR_DELIVER then
                         -- Signature valid - extract secret
                         resultSecret = data.data and data.data.secret
-                        resultCode = data.data and data.data.pairingCode
                         resultZoneId = data.data and data.data.zoneId
 
                         if resultSecret then
@@ -168,170 +167,10 @@ function Pairing.acceptFromPocket(callbacks)
     end
 
     if success and callbacks.onSuccess then
-        callbacks.onSuccess(resultSecret, resultCode, resultZoneId)
+        callbacks.onSuccess(resultSecret, resultZoneId)
     end
 
-    return success, resultSecret, resultCode, resultZoneId
-end
-
--- =============================================================================
--- ZONE SIDE: Host pairing session (share secret with code)
--- =============================================================================
-
--- Zone hosts pairing, waiting for other zones to join with code
--- @param secret The swarm secret to share
--- @param pairingCode The pairing code others must enter
--- @param zoneId Zone identifier
--- @param zoneName Zone display name
--- @param callbacks Table with: onStatus(msg), onJoin(computerId), onCancel()
--- @return clientsJoined count
-function Pairing.hostSession(secret, pairingCode, zoneId, zoneName, callbacks)
-    callbacks = callbacks or {}
-
-    local modem = peripheral.find("modem")
-    if not modem then
-        return 0, "No modem found"
-    end
-
-    local modemName = peripheral.getName(modem)
-    local wasOpen = rednet.isOpen(modemName)
-    if not wasOpen then
-        rednet.open(modemName)
-    end
-
-    if callbacks.onStatus then
-        callbacks.onStatus("Hosting pairing session - Code: " .. pairingCode)
-    end
-
-    local running = true
-    local clientsJoined = 0
-
-    while running do
-        local timer = os.startTimer(0.5)
-        local event, p1, p2, p3 = os.pullEvent()
-
-        if event == "rednet_message" then
-            local senderId = p1
-            local message = p2
-            local msgProtocol = p3
-
-            if msgProtocol == Pairing.PROTOCOL and type(message) == "table" then
-                if message.type == "pair_request" then
-                    if message.code == pairingCode then
-                        -- Valid code - send secret
-                        local response = {
-                            type = "pair_response",
-                            success = true,
-                            secret = secret,
-                            pairingCode = pairingCode,
-                            zoneId = zoneId,
-                            zoneName = zoneName
-                        }
-                        rednet.send(senderId, response, Pairing.PROTOCOL)
-
-                        clientsJoined = clientsJoined + 1
-                        if callbacks.onJoin then
-                            callbacks.onJoin(senderId)
-                        end
-                    else
-                        -- Invalid code
-                        local response = {
-                            type = "pair_response",
-                            success = false,
-                            error = "Invalid pairing code"
-                        }
-                        rednet.send(senderId, response, Pairing.PROTOCOL)
-                    end
-                end
-            end
-        elseif event == "key" then
-            if p1 == keys.q then
-                running = false
-                if callbacks.onCancel then
-                    callbacks.onCancel()
-                end
-            end
-        end
-    end
-
-    if not wasOpen then
-        rednet.close(modemName)
-    end
-
-    return clientsJoined
-end
-
--- =============================================================================
--- ZONE SIDE: Join existing swarm with code
--- =============================================================================
-
--- Zone joins swarm by entering pairing code
--- @param code The pairing code to use
--- @param callbacks Table with: onStatus(msg), onSuccess(response), onFail(error)
--- @return success, secret, pairingCode, zoneId, zoneName
-function Pairing.joinWithCode(code, callbacks)
-    callbacks = callbacks or {}
-
-    local modem = peripheral.find("modem")
-    if not modem then
-        return false, nil, nil, nil, nil, "No modem found"
-    end
-
-    local modemName = peripheral.getName(modem)
-    local wasOpen = rednet.isOpen(modemName)
-    if not wasOpen then
-        rednet.open(modemName)
-    end
-
-    if callbacks.onStatus then
-        callbacks.onStatus("Searching for swarm host...")
-    end
-
-    -- Broadcast pair request
-    rednet.broadcast({ type = "pair_request", code = code }, Pairing.PROTOCOL)
-
-    -- Wait for response
-    local deadline = os.epoch("utc") + (Pairing.RESPONSE_TIMEOUT * 1000)
-    local success = false
-    local resultSecret, resultCode, resultZoneId, resultZoneName
-
-    while os.epoch("utc") < deadline do
-        local senderId, response, protocol = rednet.receive(Pairing.PROTOCOL, 1)
-
-        if response and type(response) == "table" then
-            if response.type == "pair_response" then
-                if response.success then
-                    resultSecret = response.secret
-                    resultCode = response.pairingCode
-                    resultZoneId = response.zoneId
-                    resultZoneName = response.zoneName
-                    success = true
-
-                    if callbacks.onSuccess then
-                        callbacks.onSuccess(response)
-                    end
-                    break
-                else
-                    if callbacks.onFail then
-                        callbacks.onFail(response.error or "Invalid code")
-                    end
-                    break
-                end
-            end
-        end
-    end
-
-    if not wasOpen then
-        rednet.close(modemName)
-    end
-
-    if not success and not resultSecret then
-        if callbacks.onFail then
-            callbacks.onFail("No response from host")
-        end
-    end
-
-    return success, resultSecret, resultCode, resultZoneId, resultZoneName
+    return success, resultSecret, resultZoneId
 end
 
 -- =============================================================================
@@ -342,13 +181,11 @@ end
 -- SECURITY: User must enter the code displayed on the zone's screen
 -- PAIR_DELIVER is signed with that code as an ephemeral key
 -- @param secret The swarm secret to deliver
--- @param pairingCode The swarm pairing code (for zone config)
 -- @param zoneId Zone identifier (optional)
--- @param zoneName Zone display name (optional)
 -- @param callbacks Table with: onReady(computer), onCodePrompt(computer, callback), onComplete(computer), onCancel(), onCodeInvalid()
 -- @param timeout Timeout in seconds (default 30)
 -- @return success, pairedComputer
-function Pairing.deliverToPending(secret, pairingCode, zoneId, zoneName, callbacks, timeout)
+function Pairing.deliverToPending(secret, zoneId, callbacks, timeout)
     callbacks = callbacks or {}
     timeout = timeout or 30
 
@@ -456,13 +293,7 @@ function Pairing.deliverToPending(secret, pairingCode, zoneId, zoneName, callbac
                     end
                 else
                     -- Create PAIR_DELIVER message and sign with entered code
-                    local deliverMsg = Protocol.createPairDeliver(
-                        nil,  -- No token needed (code is the auth)
-                        secret,
-                        pairingCode,
-                        zoneId,
-                        zoneName
-                    )
+                    local deliverMsg = Protocol.createPairDeliver(secret, zoneId)
 
                     -- Sign the message with the entered code as ephemeral key
                     local signedEnvelope = Crypto.wrapWith(deliverMsg, enteredCode)

@@ -22,7 +22,7 @@ ShelfOS uses a **pocket-as-queen** architecture where a pocket computer acts as 
 2. **Pocket is source of truth** - The master secret originates from pocket
 3. **Explicit pairing required** - No networking until paired
 4. **Secure by default** - HMAC-signed messages, nonces, timestamps
-5. **Display-only pairing codes** - Codes are never broadcast (physical security)
+5. **Display-only pairing codes** - Codes shown on screen only (never broadcast)
 
 ## Components
 
@@ -30,8 +30,8 @@ ShelfOS uses a **pocket-as-queen** architecture where a pocket computer acts as 
 
 | File | Purpose |
 |------|---------|
-| `net/Pairing.lua` | Consolidated pairing logic (callbacks-based API) |
-| `net/Crypto.lua` | HMAC signing, nonce tracking, secret management |
+| `net/Pairing.lua` | Pairing logic with display-code security |
+| `net/Crypto.lua` | HMAC signing, nonce tracking, ephemeral keys |
 | `net/Channel.lua` | Rednet abstraction with auto crypto wrapping |
 | `net/Protocol.lua` | Message types and validation |
 | `net/Discovery.lua` | Zone discovery and announcements |
@@ -45,9 +45,9 @@ ShelfOS uses a **pocket-as-queen** architecture where a pocket computer acts as 
 | `shelfos/pocket/App.lua` | Pocket UI, swarm creation/management |
 | `shelfos/tools/pair_accept.lua` | Standalone bootstrap pairing |
 
-## Pairing Flows
+## Pairing Flow
 
-### Flow 1: Pocket Creates Swarm
+### Step 1: Pocket Creates Swarm
 
 ```
 POCKET (unconfigured)
@@ -59,7 +59,6 @@ Menu: "2. Create Swarm"
 App:createSwarm()
     |
     +-- Pairing.generateSecret() --> secret
-    +-- Pairing.generateCode() --> pairing code
     +-- Save to /shelfos_secret.txt
     +-- Save to /shelfos_pocket.config
     |
@@ -67,7 +66,7 @@ App:createSwarm()
 POCKET (configured as controller)
 ```
 
-### Flow 2: Zone Joins via Pocket
+### Step 2: Zone Joins via Pocket
 
 ```
 ZONE                                    POCKET
@@ -102,40 +101,14 @@ ZONE (in swarm)                         Shows "Joined!"
 **Security:** The pairing code is displayed on the zone's physical screen and never
 transmitted. An attacker would need physical access to complete pairing.
 
-### Flow 3: Pocket Joins Existing Swarm
-
-If pocket needs to join an already-running swarm (recovery scenario):
-
-```
-ZONE (in swarm)                         POCKET (unconfigured)
-  |                                       |
-  | L -> Host pairing                     | Menu: Join Swarm
-  v                                       v
-Kernel:hostPairing()                    App:joinSwarm()
-  |                                       |
-  | (displays pairing code)               | (user enters code)
-  |                                       |
-  |<------ pair_request (code) -----------+
-  |                                       |
-  +-- validate code                       |
-  +-- send pair_response (secret) ------->|
-  |                                       |
-  |                                       +-- Save secret
-  |                                       |
-  v                                       v
-Still hosting                           POCKET (in swarm)
-```
-
 ## Message Types
 
 ### Pairing Protocol: `shelfos_pair`
 
 | Message | Direction | Data | Notes |
 |---------|-----------|------|-------|
-| `pair_request` | Any -> Host | `{code}` | Code-based join (zone to zone) |
-| `pair_response` | Host -> Any | `{success, secret, pairingCode, zoneId, zoneName}` | Response to pair_request |
-| `PAIR_READY` | Zone -> Pocket | `{label, computerId}` | **No code/token** - code is display-only |
-| `PAIR_DELIVER` | Pocket -> Zone | `{secret, pairingCode, zoneId}` | **Signed envelope** using display code as key |
+| `PAIR_READY` | Zone -> Pocket | `{label, computerId}` | **No code** - code is display-only |
+| `PAIR_DELIVER` | Pocket -> Zone | `{secret, zoneId}` | **Signed envelope** using display code as key |
 | `PAIR_COMPLETE` | Zone -> Pocket | `{label, success}` | Confirmation |
 | `PAIR_REJECT` | Any | `{reason}` | Cancellation |
 
@@ -160,8 +133,8 @@ All messages wrapped with `Crypto.wrap()`:
 | Device | Location | Format |
 |--------|----------|--------|
 | Pocket | `/shelfos_secret.txt` | Raw secret string |
-| Pocket | `/shelfos_pocket.config` | `{pairingCode, zoneId, zoneName, isController}` |
-| Zone | `/shelfos.config` | `{network: {secret, pairingCode, enabled}}` |
+| Pocket | `/shelfos_pocket.config` | `{isController}` |
+| Zone | `/shelfos.config` | `{network: {secret, enabled}}` |
 
 ## Pairing Module API
 
@@ -174,41 +147,16 @@ that the pocket user must enter.
 local callbacks = {
     onDisplayCode = function(code) end,  -- Called with the code to display
     onStatus = function(msg) end,
-    onSuccess = function(secret, pairingCode, zoneId) end,
+    onSuccess = function(secret, zoneId) end,
     onCancel = function(reason) end
 }
-local success, secret, pairingCode, zoneId = Pairing.acceptFromPocket(callbacks)
+local success, secret, zoneId = Pairing.acceptFromPocket(callbacks)
 ```
 
 **SECURITY:** The code passed to `onDisplayCode` must be displayed to the user
 but NEVER transmitted over the network. The pocket user enters this code manually.
 
-### `Pairing.hostSession(secret, pairingCode, zoneId, zoneName, callbacks)`
-
-Host pairing session for others to join with code.
-
-```lua
-local callbacks = {
-    onJoin = function(computerId) end,
-    onCancel = function() end
-}
-local clientsJoined = Pairing.hostSession(secret, code, zoneId, zoneName, callbacks)
-```
-
-### `Pairing.joinWithCode(code, callbacks)`
-
-Join swarm using pairing code.
-
-```lua
-local callbacks = {
-    onStatus = function(msg) end,
-    onSuccess = function(response) end,
-    onFail = function(error) end
-}
-local success, secret, pairingCode, zoneId, zoneName = Pairing.joinWithCode(code, callbacks)
-```
-
-### `Pairing.deliverToPending(secret, pairingCode, zoneId, zoneName, callbacks, timeout)`
+### `Pairing.deliverToPending(secret, zoneId, callbacks, timeout)`
 
 Pocket listens for zones and delivers secret to selected one.
 User must enter the code displayed on the zone's screen.
@@ -216,12 +164,12 @@ User must enter the code displayed on the zone's screen.
 ```lua
 local callbacks = {
     onReady = function(computer) end,
-    onCodePrompt = function(computer) end,  -- Return entered code (optional, fallback to terminal prompt)
+    onCodePrompt = function(computer) end,  -- Return entered code
     onCodeInvalid = function(msg) end,
     onComplete = function(label) end,
     onCancel = function() end
 }
-local success, pairedComputer = Pairing.deliverToPending(secret, code, zoneId, zoneName, callbacks, 30)
+local success, pairedComputer = Pairing.deliverToPending(secret, zoneId, callbacks, 30)
 ```
 
 **SECURITY:** When user selects a computer, they are prompted to enter the code
@@ -232,8 +180,7 @@ using `Crypto.wrapWith()` before transmission.
 
 ```lua
 Pairing.generateSecret()  -- 32-char random secret
-Pairing.generateCode()    -- XXXX-XXXX format pairing code
-Pairing.generateToken()   -- 16-char one-time token
+Pairing.generateCode()    -- XXXX-XXXX format display code
 ```
 
 ## Config Helper Functions
@@ -244,9 +191,6 @@ Config.isInSwarm(config) -- returns true if secret exists
 
 -- Set network secret (enables networking)
 Config.setNetworkSecret(config, secret)
-
--- Ensure pairing code exists (only if already in swarm)
-Config.ensurePairingCode(config)
 ```
 
 ## Boot Sequence
@@ -316,7 +260,7 @@ ZONE                                    POCKET
   |                                       |
   |<------ PAIR_DELIVER (signed) ---------|
   |   Signed with code as ephemeral key   |
-  |   Contains: {secret, pairingCode}     |
+  |   Contains: {secret, zoneId}          |
   |                                       |
   | Verifies signature with display code  |
   | If valid: extracts secret, saves      |
@@ -370,9 +314,9 @@ Nonces are tracked in `_G._shelfos_crypto.nonces` to prevent replay attacks. Old
 
 If the pocket computer is lost/destroyed:
 
-1. Any zone already in swarm can host pairing
-2. New pocket can "Join Swarm" using zone's pairing code
-3. New pocket receives secret, becomes controller
+1. No direct recovery - zones have secret but no way to share it
+2. Create new swarm on new pocket
+3. Re-pair all zones
 
 ### Zone Needs Re-pairing
 
@@ -386,17 +330,6 @@ If the pocket computer is lost/destroyed:
 1. On pocket: Leave Swarm -> Create new swarm
 2. Re-pair all zones with new secret
 
-## Testing Checklist
-
-- [ ] Pocket creates swarm (generates secret)
-- [ ] Zone shows "Not in swarm" on first boot
-- [ ] Zone accepts pairing from pocket
-- [ ] Zone restarts and joins network
-- [ ] Remote peripherals discovered
-- [ ] Zone can host pairing (when in swarm)
-- [ ] Pocket can join existing swarm
-- [ ] Crypto errors don't spam when unpaired
-
 ## Remote Peripheral RPC
 
 ShelfOS enables peripheral sharing across ender modems via custom RPC, since
@@ -406,17 +339,17 @@ CC:Tweaked's native `modem.callRemote()` only works on wired networks.
 
 ```
 Zone A (client)                     Zone B (host)
-    │                                   │
-    │  PERIPH_DISCOVER ────────────────>│
-    │                                   │  Enumerate local peripherals
-    │  <──────────────── PERIPH_LIST ───│  {name, type, methods}
-    │                                   │
-    │  Store in remotePeripherals       │
-    │                                   │
-    │  PERIPH_CALL ────────────────────>│  {peripheral, method, args}
-    │  (with requestId)                 │
-    │                                   │  peripheral.call(name, method, ...)
-    │  <──────────────── PERIPH_RESULT ─│  {results} (with matching requestId)
+    |                                   |
+    |  PERIPH_DISCOVER ---------------->|
+    |                                   |  Enumerate local peripherals
+    |  <-------------- PERIPH_LIST -----|  {name, type, methods}
+    |                                   |
+    |  Store in remotePeripherals       |
+    |                                   |
+    |  PERIPH_CALL -------------------->|  {peripheral, method, args}
+    |  (with requestId)                 |
+    |                                   |  peripheral.call(name, method, ...)
+    |  <-------------- PERIPH_RESULT ---|  {results} (with matching requestId)
 ```
 
 ### Request/Response Correlation
@@ -435,10 +368,6 @@ function Protocol.createRequest(msgType, data)
 end
 ```
 
-Request message types that auto-generate requestId:
-- `PERIPH_DISCOVER`
-- `PERIPH_CALL`
-
 ## Known Limitations
 
 1. **Single secret per swarm** - All zones share one secret
@@ -450,26 +379,26 @@ Request message types that auto-generate requestId:
 
 ```
 net/
-├── Pairing.lua         # All pairing logic
-├── Crypto.lua          # HMAC, nonces, secrets
-├── Channel.lua         # Rednet + auto-crypto
-├── Protocol.lua        # Message types + requestId generation
-├── Discovery.lua       # Zone announcements
-├── PeripheralClient.lua  # Remote peripheral consumer
-├── PeripheralHost.lua    # Remote peripheral provider
-├── RemoteProxy.lua       # Proxy objects for remote peripherals
-└── RemotePeripheral.lua  # Global accessor for remote peripherals
+|-- Pairing.lua           # Display-code pairing logic
+|-- Crypto.lua            # HMAC, nonces, ephemeral keys
+|-- Channel.lua           # Rednet + auto-crypto
+|-- Protocol.lua          # Message types + requestId generation
+|-- Discovery.lua         # Zone announcements
+|-- PeripheralClient.lua  # Remote peripheral consumer
+|-- PeripheralHost.lua    # Remote peripheral provider
+|-- RemoteProxy.lua       # Proxy objects for remote peripherals
++-- RemotePeripheral.lua  # Global accessor for remote peripherals
 
 shelfos/
-├── core/
-│   ├── Config.lua      # isInSwarm(), setNetworkSecret()
-│   └── Kernel.lua      # acceptPocketPairing(), hostPairing()
-├── pocket/
-│   ├── App.lua         # Main pocket app + setup flow
-│   └── screens/
-│       ├── SwarmStatus.lua   # Main swarm overview (default view)
-│       └── AddComputer.lua   # Pairing flow for new computers
-└── tools/
-    ├── pair_accept.lua  # Bootstrap tool
-    └── link.lua         # CLI pairing
+|-- core/
+|   |-- Config.lua        # isInSwarm(), setNetworkSecret()
+|   +-- Kernel.lua        # acceptPocketPairing()
+|-- pocket/
+|   |-- App.lua           # Main pocket app + setup flow
+|   +-- screens/
+|       |-- SwarmStatus.lua   # Main swarm overview (default view)
+|       +-- AddComputer.lua   # Pairing flow for new computers
++-- tools/
+    |-- pair_accept.lua   # Bootstrap tool
+    +-- link.lua          # Status display
 ```

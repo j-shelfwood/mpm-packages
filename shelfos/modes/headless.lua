@@ -25,9 +25,6 @@ local function drawStatus(host, channel, config)
     -- Network status
     if channel and channel:isOpen() then
         print("Network: Connected")
-        if config.network and config.network.pairingCode then
-            print("Pairing Code: " .. config.network.pairingCode)
-        end
     else
         print("Network: Disconnected")
     end

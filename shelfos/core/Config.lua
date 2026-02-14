@@ -143,11 +143,6 @@ function Config.load()
 
     -- Note: Do NOT auto-generate network secret here
     -- Zone must be paired with pocket to join swarm
-    -- Only ensure pairing code exists IF secret already exists
-    if config.network and config.network.secret and not config.network.pairingCode then
-        config.network.pairingCode = Config.generatePairingCode()
-        Config.save(config)
-    end
 
     return config
 end
@@ -248,25 +243,6 @@ function Config.setNetworkSecret(config, secret)
     config.network.enabled = secret ~= nil
 end
 
--- Ensure pairing code exists (only if secret already exists)
--- DOES NOT auto-generate secret - zones must pair with pocket
--- @param config Configuration table
--- @return true if pairing code was generated, false otherwise
-function Config.ensurePairingCode(config)
-    if not config.network or not config.network.secret then
-        -- No secret = not in swarm, don't generate anything
-        return false
-    end
-
-    -- Secret exists, ensure pairing code
-    if not config.network.pairingCode then
-        config.network.pairingCode = Config.generatePairingCode()
-        return true
-    end
-
-    return false
-end
-
 -- Check if zone is paired with a swarm
 -- @param config Configuration table
 -- @return true if has valid secret
@@ -348,19 +324,6 @@ function Config.autoCreate()
     end
 
     return config, #monitors
-end
-
--- Generate a short pairing code for network linking
--- @return code (8 chars, human-readable)
-function Config.generatePairingCode()
-    local chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  -- No I,O,0,1 to avoid confusion
-    local code = ""
-    for i = 1, 8 do
-        if i == 5 then code = code .. "-" end
-        local idx = math.random(1, #chars)
-        code = code .. chars:sub(idx, idx)
-    end
-    return code
 end
 
 return Config
