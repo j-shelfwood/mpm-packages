@@ -753,6 +753,41 @@ function App:addComputerToSwarm()
     EventUtils.sleep(1)
 end
 
+-- Process a network message directly (without polling, to avoid event loss)
+-- @param senderId Sender computer ID
+-- @param envelope Raw message envelope
+-- @param msgProtocol Protocol name
+function App:processNetworkMessage(senderId, envelope, msgProtocol)
+    -- Only process our protocol
+    if msgProtocol ~= self.channel.protocol then
+        return
+    end
+
+    -- Unwrap crypto
+    local message
+    if Crypto.hasSecret() then
+        local data, err = Crypto.unwrap(envelope)
+        if not data then
+            return  -- Invalid signature, ignore
+        end
+        message = data
+    else
+        message = envelope
+    end
+
+    -- Validate message
+    local valid, err = Protocol.validate(message)
+    if not valid then
+        return
+    end
+
+    -- Call handler if registered
+    local handler = self.channel.handlers[message.type]
+    if handler then
+        pcall(handler, senderId, message, self.channel)
+    end
+end
+
 -- Main run loop
 function App:run()
     if not self:init() then
@@ -767,8 +802,8 @@ function App:run()
     while self.running do
         self:showMainMenu()
 
-        -- Wait for input
-        local event, p1 = os.pullEvent()
+        -- Wait for input (capture all event params for rednet handling)
+        local event, p1, p2, p3 = os.pullEvent()
 
         if event == "char" then
             if self.hasSecret then
@@ -794,12 +829,12 @@ function App:run()
                     self.running = false
                 end
             end
+        elseif event == "rednet_message" and self.channel then
+            -- Process network message inline (p1=senderId, p2=message, p3=protocol)
+            self:processNetworkMessage(p1, p2, p3)
         end
-
-        -- Process any pending network messages (if connected)
-        if self.channel then
-            self.channel:poll(0)
-        end
+        -- NOTE: Removed self.channel:poll(0) - it was eating char events!
+        -- Network messages are now handled inline via rednet_message event
     end
 
     -- Cleanup
