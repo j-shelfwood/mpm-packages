@@ -9,11 +9,22 @@ local Crypto = {}
 -- even if mpm() doesn't cache modules properly
 _G._shelfos_crypto = _G._shelfos_crypto or {
     secret = nil,
-    nonces = {}
+    nonces = {},
+    rngSeeded = false
 }
 local _state = _G._shelfos_crypto
 local NONCE_EXPIRY = 120000  -- 2 minutes in milliseconds
 local MAX_MESSAGE_AGE = 60000  -- 1 minute in milliseconds
+
+-- Seed RNG once per session with unique values
+-- Prevents duplicate nonces across restarts
+if not _state.rngSeeded then
+    local seed = os.epoch("utc") + (os.getComputerID() * 100000) + math.floor(os.clock() * 1000)
+    math.randomseed(seed)
+    -- Burn initial values to improve randomness
+    for _ = 1, 10 do math.random() end
+    _state.rngSeeded = true
+end
 
 -- Simple hash function (not cryptographically secure, but sufficient for CC)
 -- In a real environment, you'd want a proper hash
@@ -53,8 +64,9 @@ function Crypto.getSecret()
 end
 
 -- Generate a random nonce
+-- Format: computerID_timestamp_random to ensure uniqueness across computers and time
 local function generateNonce()
-    return string.format("%08x%08x", math.random(0, 0xFFFFFFFF), os.epoch("utc"))
+    return string.format("%d_%d_%08x", os.getComputerID(), os.epoch("utc"), math.random(0, 0xFFFFFFFF))
 end
 
 -- Clean expired nonces
