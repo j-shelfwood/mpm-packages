@@ -34,10 +34,14 @@ end
 
 -- Run appropriate mode
 if mode == "pocket" then
-    -- Pocket computer companion
-    local App = mpm('shelfos/pocket/App')
-    local app = App.new()
-    app:run()
+    -- Redirect to shelfos-swarm (pocket is swarm controller)
+    print("[ShelfOS] Pocket computer detected")
+    print("")
+    print("Use: mpm run shelfos-swarm")
+    print("")
+    print("The pocket computer is the swarm controller.")
+    print("Zone computers use: mpm run shelfos")
+    return
 elseif mode == "headless" then
     -- Peripheral host mode
     local headless = mpm('shelfos/modes/headless')
