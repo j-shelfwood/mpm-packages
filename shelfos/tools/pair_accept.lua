@@ -9,6 +9,75 @@
 local Config = mpm('shelfos/core/Config')
 local Pairing = mpm('net/Pairing')
 
+-- Display pairing code on a monitor as large as possible
+local function displayPairingCodeOnMonitor(mon, code, label)
+    local w, h = mon.getSize()
+
+    -- Determine best text scale (larger monitors get larger text)
+    local scale = 1
+    if w >= 40 and h >= 20 then
+        scale = 2
+    elseif w >= 60 and h >= 30 then
+        scale = 3
+    elseif w >= 80 and h >= 40 then
+        scale = 4
+    end
+
+    mon.setTextScale(scale)
+    w, h = mon.getSize()  -- Re-get size after scale change
+
+    mon.setBackgroundColor(colors.blue)
+    mon.clear()
+
+    -- Title
+    mon.setTextColor(colors.white)
+    local title = "PAIRING CODE"
+    mon.setCursorPos(math.floor((w - #title) / 2) + 1, 2)
+    mon.write(title)
+
+    -- Code (centered, highlighted)
+    mon.setBackgroundColor(colors.white)
+    mon.setTextColor(colors.black)
+    local codeY = math.floor(h / 2)
+    local codeX = math.floor((w - #code) / 2) + 1
+
+    -- Draw background box for code
+    for y = codeY - 1, codeY + 1 do
+        mon.setCursorPos(codeX - 2, y)
+        mon.write(string.rep(" ", #code + 4))
+    end
+
+    -- Draw code
+    mon.setCursorPos(codeX, codeY)
+    mon.write(code)
+
+    -- Instructions
+    mon.setBackgroundColor(colors.blue)
+    mon.setTextColor(colors.yellow)
+    local instr = "Enter on pocket"
+    mon.setCursorPos(math.floor((w - #instr) / 2) + 1, h - 2)
+    mon.write(instr)
+
+    -- Label at bottom
+    mon.setTextColor(colors.lightGray)
+    local labelText = label:sub(1, w - 2)
+    mon.setCursorPos(math.floor((w - #labelText) / 2) + 1, h - 1)
+    mon.write(labelText)
+end
+
+-- Clear pairing display from all monitors
+local function clearPairingDisplays(monitors)
+    for _, name in ipairs(monitors) do
+        local mon = peripheral.wrap(name)
+        if mon then
+            mon.setTextScale(1)
+            mon.setBackgroundColor(colors.black)
+            mon.setTextColor(colors.white)
+            mon.clear()
+        end
+    end
+end
+
 -- Main pairing acceptor
 local function acceptPairing()
     -- Check for modem
@@ -23,13 +92,30 @@ local function acceptPairing()
     local computerId = os.getComputerID()
     local computerLabel = os.getComputerLabel() or ("Computer #" .. computerId)
 
+    -- Find all connected monitors
+    local monitorNames = {}
+    for _, name in ipairs(peripheral.getNames()) do
+        if peripheral.hasType(name, "monitor") then
+            table.insert(monitorNames, name)
+        end
+    end
+
     -- Use Pairing module with callbacks
     local displayCode = nil
 
     local callbacks = {
         onDisplayCode = function(code)
             displayCode = code
-            -- Display pairing screen with the code
+
+            -- Display code on ALL monitors (large as possible)
+            for _, name in ipairs(monitorNames) do
+                local mon = peripheral.wrap(name)
+                if mon then
+                    displayPairingCodeOnMonitor(mon, code, computerLabel)
+                end
+            end
+
+            -- Display pairing screen on terminal
             term.clear()
             term.setCursorPos(1, 1)
 
@@ -48,11 +134,15 @@ local function acceptPairing()
             print("  |                       |")
             print("  +-----------------------+")
             print("")
+            if #monitorNames > 0 then
+                print("Code shown on " .. #monitorNames .. " monitor(s)")
+            end
+            print("")
             print("On your pocket computer:")
             print("  1. Open ShelfOS Pocket")
             print("  2. Select 'Add Computer'")
             print("  3. Select this computer")
-            print("  4. Enter the code above")
+            print("  4. Enter the code shown")
             print("")
             print("Press [Q] to cancel")
         end,
@@ -64,6 +154,7 @@ local function acceptPairing()
             term.write("[*] " .. msg)
         end,
         onSuccess = function(secret, pairingCode, zoneId)
+            clearPairingDisplays(monitorNames)
             print("")
             print("")
             print("=====================================")
@@ -72,6 +163,7 @@ local function acceptPairing()
             print("")
         end,
         onCancel = function(reason)
+            clearPairingDisplays(monitorNames)
             print("")
             print("")
             print("[*] " .. (reason or "Cancelled"))

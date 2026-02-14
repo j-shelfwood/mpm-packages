@@ -169,12 +169,14 @@ function setup.run()
             enableNetwork = false
         else
             print("")
-            print("A shared secret is required for security.")
-            print("All zones and pocket computers must use")
-            print("the same secret.")
+            print("RECOMMENDED: Use pocket pairing instead!")
+            print("  1. Create swarm on pocket computer")
+            print("  2. Press L -> Accept from pocket")
+            print("")
+            print("Manual setup (advanced):")
             print("")
 
-            write("Generate new secret? (y/n): ")
+            write("Generate secret manually? (y/n): ")
             if read():lower() == "y" then
                 networkSecret = Crypto.generateSecret()
                 print("")
@@ -182,14 +184,14 @@ function setup.run()
                 print("")
                 print("  " .. networkSecret)
                 print("")
-                print("IMPORTANT: Save this secret!")
-                print("You'll need it for other devices.")
+                print("NOTE: Pocket pairing is easier!")
+                print("This secret must match your pocket.")
                 print("")
                 write("Press Enter to continue...")
                 read()
             else
                 print("")
-                write("Enter shared secret: ")
+                write("Enter secret from pocket: ")
                 networkSecret = read()
 
                 if #networkSecret < 16 then

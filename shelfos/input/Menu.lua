@@ -566,12 +566,12 @@ function Menu.showLink(config, target)
                     if selected == "back" then
                         return nil
                     elseif selected == "show_code" then
-                        Controller.showInfo(target, "Pairing Code", {
+                        Controller.showInfo(target, "Swarm Pairing Code", {
                             "",
                             "Code: " .. (config.network.pairingCode or "N/A"),
                             "",
-                            "Share this code with other computers",
-                            "to join this swarm."
+                            "Other zones can join by pressing",
+                            "L -> Join with pairing code"
                         })
                         return nil
                     elseif selected == "host" then
@@ -611,11 +611,11 @@ function Menu.showLink(config, target)
                     if selected == "back" then
                         return nil
                     elseif selected == "show_code" then
-                        Controller.showInfo(target, "Pairing Code", {
+                        Controller.showInfo(target, "Swarm Pairing Code", {
                             "",
                             "Code: " .. (config.network.pairingCode or "N/A"),
                             "",
-                            "Share this code with other computers."
+                            "Zones join via L -> Join with code"
                         })
                         return nil
                     elseif selected == "host" then

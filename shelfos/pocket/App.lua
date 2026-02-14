@@ -447,8 +447,8 @@ function App:discoverZones()
     if #zones == 0 then
         print("No zones found")
         print("")
-        print("Make sure zone computers are running")
-        print("and using the same secret.")
+        print("Make sure zone computers are")
+        print("paired and in the swarm.")
     else
         print("Found " .. #zones .. " zone(s):")
         print("")

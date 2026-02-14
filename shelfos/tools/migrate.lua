@@ -93,7 +93,10 @@ function migrate.run()
         local Crypto = mpm('net/Crypto')
 
         print("")
-        print("Enter shared secret (min 16 chars):")
+        print("TIP: Use pocket pairing instead!")
+        print("Press L -> Accept from pocket")
+        print("")
+        print("Or enter secret from pocket:")
         write("> ")
         local secret = read()
 

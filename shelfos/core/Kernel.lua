@@ -173,9 +173,9 @@ function Kernel:initializeNetwork()
         -- Discover remote peripherals (non-blocking, short timeout)
         print("[ShelfOS] Discovering remote peripherals...")
         print("[ShelfOS] Crypto ready: " .. tostring(Crypto.hasSecret()))
-        -- Debug: show first 8 chars of secret hash to verify both computers have same secret
-        local secretHash = tostring(self.config.network.secret):sub(1, 8)
-        print("[ShelfOS] Secret prefix: " .. secretHash)
+        -- Debug: show first 8 chars of secret to verify swarm membership
+        local secretPrefix = tostring(self.config.network.secret):sub(1, 8)
+        print("[ShelfOS] Secret prefix: " .. secretPrefix)
         local count = self.peripheralClient:discover(2)
         if count > 0 then
             print("[ShelfOS] Found " .. count .. " remote peripheral(s)")
@@ -384,7 +384,9 @@ function Kernel:createNetwork()
     print("  PAIRING CODE: " .. self.config.network.pairingCode)
     print("=================================")
     print("")
-    print("Share this code with other computers.")
+    print("Other zones can join with this code")
+    print("via L -> Join with pairing code")
+    print("")
     print("Press any key to continue...")
     os.pullEvent("key")
 end
@@ -494,6 +496,79 @@ function Kernel:joinNetwork(code)
     end
 end
 
+-- Display pairing code on a monitor as large as possible
+-- @param mon Monitor peripheral
+-- @param code Pairing code (e.g., "ABCD-EFGH")
+-- @param label Computer label
+local function displayPairingCodeOnMonitor(mon, code, label)
+    local w, h = mon.getSize()
+
+    -- Determine best text scale (larger monitors get larger text)
+    local scale = 1
+    if w >= 40 and h >= 20 then
+        scale = 2
+    elseif w >= 60 and h >= 30 then
+        scale = 3
+    elseif w >= 80 and h >= 40 then
+        scale = 4
+    end
+
+    mon.setTextScale(scale)
+    w, h = mon.getSize()  -- Re-get size after scale change
+
+    mon.setBackgroundColor(colors.blue)
+    mon.clear()
+
+    -- Title
+    mon.setTextColor(colors.white)
+    local title = "PAIRING CODE"
+    mon.setCursorPos(math.floor((w - #title) / 2) + 1, 2)
+    mon.write(title)
+
+    -- Code (centered, highlighted)
+    mon.setBackgroundColor(colors.white)
+    mon.setTextColor(colors.black)
+    local codeY = math.floor(h / 2)
+    local codeX = math.floor((w - #code) / 2) + 1
+
+    -- Draw background box for code
+    for y = codeY - 1, codeY + 1 do
+        mon.setCursorPos(codeX - 2, y)
+        mon.write(string.rep(" ", #code + 4))
+    end
+
+    -- Draw code
+    mon.setCursorPos(codeX, codeY)
+    mon.write(code)
+
+    -- Instructions
+    mon.setBackgroundColor(colors.blue)
+    mon.setTextColor(colors.yellow)
+    local instr = "Enter on pocket"
+    mon.setCursorPos(math.floor((w - #instr) / 2) + 1, h - 2)
+    mon.write(instr)
+
+    -- Label at bottom
+    mon.setTextColor(colors.lightGray)
+    local labelText = label:sub(1, w - 2)
+    mon.setCursorPos(math.floor((w - #labelText) / 2) + 1, h - 1)
+    mon.write(labelText)
+end
+
+-- Clear pairing display from all monitors
+-- @param monitors Table of monitor names
+local function clearPairingDisplays(monitors)
+    for _, name in ipairs(monitors) do
+        local mon = peripheral.wrap(name)
+        if mon then
+            mon.setTextScale(1)
+            mon.setBackgroundColor(colors.black)
+            mon.setTextColor(colors.white)
+            mon.clear()
+        end
+    end
+end
+
 -- Accept pairing from a pocket computer
 -- This is how zones join the swarm - pocket delivers the secret
 -- SECURITY: A code is displayed on screen (never broadcast)
@@ -512,6 +587,14 @@ function Kernel:acceptPocketPairing()
     local modemType = modem.isWireless() and "wireless" or "wired"
     local computerLabel = os.getComputerLabel() or ("Computer #" .. os.getComputerID())
 
+    -- Find all connected monitors
+    local monitorNames = {}
+    for _, name in ipairs(peripheral.getNames()) do
+        if peripheral.hasType(name, "monitor") then
+            table.insert(monitorNames, name)
+        end
+    end
+
     -- Close existing channel temporarily
     if self.channel then
         rednet.unhost("shelfos")
@@ -525,7 +608,16 @@ function Kernel:acceptPocketPairing()
     local callbacks = {
         onDisplayCode = function(code)
             displayCode = code
-            -- Draw the pairing screen with the code
+
+            -- Display code on ALL monitors (large as possible)
+            for _, name in ipairs(monitorNames) do
+                local mon = peripheral.wrap(name)
+                if mon then
+                    displayPairingCodeOnMonitor(mon, code, computerLabel)
+                end
+            end
+
+            -- Also draw on terminal
             print("")
             print("=====================================")
             print("   Waiting for Pocket Pairing")
@@ -541,10 +633,14 @@ function Kernel:acceptPocketPairing()
             print("  |                       |")
             print("  +-----------------------+")
             print("")
+            if #monitorNames > 0 then
+                print("Code shown on " .. #monitorNames .. " monitor(s)")
+            end
+            print("")
             print("On your pocket computer:")
             print("  1. Select 'Add Computer'")
             print("  2. Select this computer")
-            print("  3. Enter the code above")
+            print("  3. Enter the code shown")
             print("")
             print("Press [Q] to cancel")
         end,
@@ -556,12 +652,18 @@ function Kernel:acceptPocketPairing()
             term.write("[*] " .. msg)
         end,
         onSuccess = function(secret, pairingCode, zoneId)
+            -- Clear monitor displays
+            clearPairingDisplays(monitorNames)
+
             print("")
             print("")
             print("[*] Pairing successful!")
             print("[*] Restart ShelfOS to connect.")
         end,
         onCancel = function(reason)
+            -- Clear monitor displays
+            clearPairingDisplays(monitorNames)
+
             print("")
             print("")
             print("[*] " .. (reason or "Cancelled"))
