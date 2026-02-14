@@ -8,6 +8,7 @@ This project has two test environments:
 |-------------|-------|---------|
 | Lua 5.4 (Native) | 95 | Unit tests with mocked CC:Tweaked APIs |
 | CraftOS-PC (Headless) | 22 | Integration tests with real CC:Tweaked |
+| CraftOS-PC (Simulation) | 5 | Multi-computer pairing simulation |
 
 ## Running Tests
 
@@ -62,7 +63,8 @@ tests/
 └── craftos/                # CraftOS-PC tests
     ├── run_tests.sh        # Shell runner
     ├── startup.lua         # CI entry point
-    └── test_runner.lua     # Test harness
+    ├── test_runner.lua     # Test harness (22 tests)
+    └── swarm_simulation.lua # Multi-computer pairing simulation (5 tests)
 ```
 
 ## Mock Framework
@@ -205,3 +207,23 @@ end)
 
 - Mount conditions
 - Rendering with mocked data
+
+### Swarm Simulation (5 tests)
+
+Multi-computer pairing flow tests using parallel coroutines:
+
+- Single zone-pocket pairing succeeds
+- Wrong display code fails pairing
+- Multiple zones discovered by pocket
+- Pocket selects correct zone among multiple
+- Credential structure matches SwarmAuthority format
+
+These tests use an in-memory MessageBus that simulates radio broadcast semantics.
+
+#### Running Swarm Simulation
+
+```bash
+craftos --headless \
+    --mount-ro /workspace=/path/to/mpm-packages \
+    --exec "dofile('/workspace/tests/craftos/swarm_simulation.lua')"
+```
