@@ -11,6 +11,7 @@
     "core/Zone.lua",
     "core/Terminal.lua",
     "input/Menu.lua",
+    "ui/PairingScreen.lua",
     "modes/headless.lua",
     "pocket/start.lua",
     "pocket/App.lua",

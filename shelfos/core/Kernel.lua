@@ -10,6 +10,7 @@ local Controller = mpm('ui/Controller')
 local Menu = mpm('shelfos/input/Menu')
 local ViewManager = mpm('views/Manager')
 local EventUtils = mpm('utils/EventUtils')
+local PairingScreen = mpm('shelfos/ui/PairingScreen')
 -- Note: TimerDispatch no longer needed - parallel API gives each coroutine its own event queue
 
 local Kernel = {}
@@ -463,79 +464,6 @@ function Kernel:joinNetwork(code)
     end
 end
 
--- Display pairing code on a monitor as large as possible
--- @param mon Monitor peripheral
--- @param code Pairing code (e.g., "ABCD-EFGH")
--- @param label Computer label
-local function displayPairingCodeOnMonitor(mon, code, label)
-    local w, h = mon.getSize()
-
-    -- Determine best text scale (larger monitors get larger text)
-    local scale = 1
-    if w >= 40 and h >= 20 then
-        scale = 2
-    elseif w >= 60 and h >= 30 then
-        scale = 3
-    elseif w >= 80 and h >= 40 then
-        scale = 4
-    end
-
-    mon.setTextScale(scale)
-    w, h = mon.getSize()  -- Re-get size after scale change
-
-    mon.setBackgroundColor(colors.blue)
-    mon.clear()
-
-    -- Title
-    mon.setTextColor(colors.white)
-    local title = "PAIRING CODE"
-    mon.setCursorPos(math.floor((w - #title) / 2) + 1, 2)
-    mon.write(title)
-
-    -- Code (centered, highlighted)
-    mon.setBackgroundColor(colors.white)
-    mon.setTextColor(colors.black)
-    local codeY = math.floor(h / 2)
-    local codeX = math.floor((w - #code) / 2) + 1
-
-    -- Draw background box for code
-    for y = codeY - 1, codeY + 1 do
-        mon.setCursorPos(codeX - 2, y)
-        mon.write(string.rep(" ", #code + 4))
-    end
-
-    -- Draw code
-    mon.setCursorPos(codeX, codeY)
-    mon.write(code)
-
-    -- Instructions
-    mon.setBackgroundColor(colors.blue)
-    mon.setTextColor(colors.yellow)
-    local instr = "Enter on pocket"
-    mon.setCursorPos(math.floor((w - #instr) / 2) + 1, h - 2)
-    mon.write(instr)
-
-    -- Label at bottom
-    mon.setTextColor(colors.lightGray)
-    local labelText = label:sub(1, w - 2)
-    mon.setCursorPos(math.floor((w - #labelText) / 2) + 1, h - 1)
-    mon.write(labelText)
-end
-
--- Clear pairing display from all monitors
--- @param monitors Table of monitor names
-local function clearPairingDisplays(monitors)
-    for _, name in ipairs(monitors) do
-        local mon = peripheral.wrap(name)
-        if mon then
-            mon.setTextScale(1)
-            mon.setBackgroundColor(colors.black)
-            mon.setTextColor(colors.white)
-            mon.clear()
-        end
-    end
-end
-
 -- Accept pairing from a pocket computer
 -- This is how zones join the swarm - pocket delivers the secret
 -- SECURITY: A code is displayed on screen (never broadcast)
@@ -588,7 +516,7 @@ function Kernel:acceptPocketPairing()
             for _, name in ipairs(monitorNames) do
                 local mon = peripheral.wrap(name)
                 if mon then
-                    displayPairingCodeOnMonitor(mon, code, computerLabel)
+                    PairingScreen.drawCode(mon, code, computerLabel)
                 end
             end
 
@@ -633,7 +561,7 @@ function Kernel:acceptPocketPairing()
             end
 
             -- Clear monitor displays
-            clearPairingDisplays(monitorNames)
+            PairingScreen.clearAll(monitorNames)
 
             print("")
             print("")
@@ -647,7 +575,7 @@ function Kernel:acceptPocketPairing()
             end
 
             -- Clear monitor displays
-            clearPairingDisplays(monitorNames)
+            PairingScreen.clearAll(monitorNames)
 
             print("")
             print("")
