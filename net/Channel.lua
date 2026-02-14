@@ -175,9 +175,7 @@ function Channel:receive(timeout)
     if Crypto.hasSecret() then
         local data, err = Crypto.unwrap(envelope)
         if not data then
-            -- Log crypto failure for debugging
-            print("[Channel] Crypto unwrap failed: " .. tostring(err))
-            return nil, nil
+            return nil, nil  -- Silent fail for invalid/replayed messages
         end
         message = data
     else
