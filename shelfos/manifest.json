@@ -16,6 +16,7 @@
     "pocket/start.lua",
     "pocket/App.lua",
     "pocket/Notifications.lua",
+    "pocket/screens/AddComputer.lua",
     "tools/setup.lua",
     "tools/migrate.lua",
     "tools/link.lua",
