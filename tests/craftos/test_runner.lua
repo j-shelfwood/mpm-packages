@@ -178,10 +178,10 @@ test("Protocol.createPairReady structure", function()
     setup_mpm()
     local Protocol = mpm("net/Protocol")
 
-    local ready = Protocol.createPairReady(nil, "Test Zone", 42)
+    local ready = Protocol.createPairReady(nil, "Test Computer", 42)
 
     assert_eq(Protocol.MessageType.PAIR_READY, ready.type, "Type should be PAIR_READY")
-    assert_eq("Test Zone", ready.data.label, "Label should match")
+    assert_eq("Test Computer", ready.data.label, "Label should match")
     assert_eq(42, ready.data.computerId, "ComputerId should match")
 end)
 
@@ -189,11 +189,11 @@ test("Protocol.createPairDeliver structure", function()
     setup_mpm()
     local Protocol = mpm("net/Protocol")
 
-    local deliver = Protocol.createPairDeliver("secret123", "zone_42")
+    local deliver = Protocol.createPairDeliver("secret123", "computer_42")
 
     assert_eq(Protocol.MessageType.PAIR_DELIVER, deliver.type, "Type should be PAIR_DELIVER")
     assert_eq("secret123", deliver.data.secret, "Secret should match")
-    assert_eq("zone_42", deliver.data.zoneId, "ZoneId should match")
+    assert_eq("computer_42", deliver.data.computerId, "ComputerId should match")
 end)
 
 test("keys table has expected scancodes", function()
@@ -234,26 +234,26 @@ test("Full pairing message flow simulation", function()
     -- Simulate the complete message exchange
     local displayCode = Pairing.generateCode()
     local swarmSecret = Crypto.generateSecret()
-    local zoneId = "zone_" .. os.getComputerID()
+    local computerId = "computer_" .. os.getComputerID()
 
-    -- 1. Zone creates PAIR_READY
-    local ready = Protocol.createPairReady(nil, "Test Zone", os.getComputerID())
+    -- 1. Computer creates PAIR_READY
+    local ready = Protocol.createPairReady(nil, "Test Computer", os.getComputerID())
     assert_eq(Protocol.MessageType.PAIR_READY, ready.type)
 
     -- 2. Pocket creates and signs PAIR_DELIVER with display code
-    local deliver = Protocol.createPairDeliver(swarmSecret, zoneId)
+    local deliver = Protocol.createPairDeliver(swarmSecret, computerId)
     local signedDeliver = Crypto.wrapWith(deliver, displayCode)
     assert_not_nil(signedDeliver.s, "PAIR_DELIVER should be signed")
 
-    -- 3. Zone verifies PAIR_DELIVER with its display code
+    -- 3. Computer verifies PAIR_DELIVER with its display code
     -- unwrapWith returns: data, error (not success, data, error)
     local unwrapped, err = Crypto.unwrapWith(signedDeliver, displayCode)
-    assert_not_nil(unwrapped, "Zone should verify with display code: " .. tostring(err))
+    assert_not_nil(unwrapped, "Computer should verify with display code: " .. tostring(err))
     assert_eq(Protocol.MessageType.PAIR_DELIVER, unwrapped.type)
     assert_eq(swarmSecret, unwrapped.data.secret)
 
-    -- 4. Zone creates PAIR_COMPLETE
-    local complete = Protocol.createPairComplete("Test Zone")
+    -- 4. Computer creates PAIR_COMPLETE
+    local complete = Protocol.createPairComplete("Test Computer")
     assert_eq(Protocol.MessageType.PAIR_COMPLETE, complete.type)
 end)
 
@@ -267,10 +267,10 @@ test("Pairing rejects wrong display code", function()
     local wrongCode = Pairing.generateCode()  -- Different code
 
     -- Pocket signs with wrong code
-    local deliver = Protocol.createPairDeliver("secret", "zone")
+    local deliver = Protocol.createPairDeliver("secret", "computer")
     local signedDeliver = Crypto.wrapWith(deliver, wrongCode)
 
-    -- Zone tries to verify with real code
+    -- Computer tries to verify with real code
     local success, _, _ = Crypto.unwrapWith(signedDeliver, realCode)
     assert_false(success, "Should reject wrong display code")
 end)
@@ -282,7 +282,7 @@ test("wrapWith/unwrapWith roundtrip with pairing data", function()
     local displayCode = "ABCD-1234"
     local credentials = {
         swarmSecret = "secret-abc-123",
-        zoneId = "zone_42",
+        computerId = "computer_42",
         swarmFingerprint = "FP-XYZ-789"
     }
 
@@ -292,7 +292,7 @@ test("wrapWith/unwrapWith roundtrip with pairing data", function()
 
     assert_not_nil(unwrapped, "Should unwrap successfully: " .. tostring(err))
     assert_eq(credentials.swarmSecret, unwrapped.swarmSecret)
-    assert_eq(credentials.zoneId, unwrapped.zoneId)
+    assert_eq(credentials.computerId, unwrapped.computerId)
     assert_eq(credentials.swarmFingerprint, unwrapped.swarmFingerprint)
 end)
 
@@ -320,7 +320,7 @@ test("textutils.serialize/unserialize roundtrip", function()
     local data = {
         type = "PAIR_READY",
         data = {
-            label = "Zone A",
+            label = "Computer A",
             computerId = 42
         },
         timestamp = os.epoch("utc")

@@ -1,21 +1,25 @@
 -- App.lua
 -- ShelfOS Swarm - Pocket computer swarm controller
--- The "queen" of the swarm - manages zone registration and revocation
+-- The "queen" of the swarm - manages computer registration and revocation
 --
 -- Refactored to use ScreenManager for navigation and TermUI for rendering.
 -- Init flow detects modem, loads/creates swarm, then pushes appropriate screen.
 --
 -- Screen modules:
---   screens/MainMenu.lua     - Main menu with swarm info
---   screens/CreateSwarm.lua  - Swarm creation wizard
---   screens/AddZone.lua      - Zone pairing flow
---   screens/ViewZones.lua    - Zone registry display
---   screens/DeleteSwarm.lua  - Swarm deletion confirmation
+--   screens/MainMenu.lua       - Main menu with swarm info
+--   screens/CreateSwarm.lua    - Swarm creation wizard
+--   screens/AddComputer.lua    - Computer pairing flow
+--   screens/ViewComputers.lua  - Computer registry display
+--   screens/DeleteSwarm.lua    - Swarm deletion confirmation
+--   screens/RebootSwarm.lua    - Remote reboot confirmation
+--   screens/ViewPeripherals.lua - Peripheral discovery viewer
 
 local SwarmAuthority = mpm('shelfos-swarm/core/SwarmAuthority')
 local ScreenManager = mpm('shelfos-swarm/ui/ScreenManager')
 local TermUI = mpm('shelfos-swarm/ui/TermUI')
 local ModemUtils = mpm('utils/ModemUtils')
+local Channel = mpm('net/Channel')
+local Crypto = mpm('net/Crypto')
 
 -- Screen modules (lazy loaded to avoid circular deps)
 local MainMenu = mpm('shelfos-swarm/screens/MainMenu')
@@ -28,6 +32,7 @@ function App.new()
     local self = setmetatable({}, App)
     self.authority = SwarmAuthority.new()
     self.modemType = nil
+    self.channel = nil  -- Authenticated swarm channel
     self.initialScreen = nil
 
     return self
@@ -64,12 +69,12 @@ function App:init()
             local info = self.authority:getInfo()
             TermUI.drawInfoLine(y, "Swarm", info.name, colors.white)
             y = y + 1
-            TermUI.drawInfoLine(y, "Zones", info.zoneCount .. " active", colors.lime)
+            TermUI.drawInfoLine(y, "Computers", info.computerCount .. " active", colors.lime)
             y = y + 1
             TermUI.drawInfoLine(y, "FP", info.fingerprint, colors.lightGray)
             y = y + 1
 
-            -- Initialize networking
+            -- Initialize networking (modem + crypto channel)
             local netOk, netErr = self:initNetwork()
             if netOk then
                 TermUI.drawInfoLine(y, "Network", "ready", colors.lime)
@@ -133,7 +138,7 @@ function App:init()
     end
 end
 
--- Initialize networking
+-- Initialize networking (modem + crypto channel for authenticated communication)
 function App:initNetwork()
     local ok, modemName, modemType = ModemUtils.open(true)
     if not ok then
@@ -143,6 +148,19 @@ function App:initNetwork()
     local info = self.authority:getInfo()
     if info then
         rednet.host("shelfos_swarm", info.id)
+    end
+
+    -- Initialize crypto with swarm secret for authenticated channel
+    if self.authority.identity and self.authority.identity.secret then
+        Crypto.setSecret(self.authority.identity.secret)
+
+        -- Create authenticated channel for swarm communication
+        self.channel = Channel.new()
+        local chanOk, chanType = self.channel:open(true)
+        if not chanOk then
+            self.channel = nil
+            return false, "Channel open failed"
+        end
     end
 
     return true
@@ -164,6 +182,16 @@ end
 -- Shutdown
 function App:shutdown()
     rednet.unhost("shelfos_swarm")
+
+    -- Close authenticated channel
+    if self.channel then
+        self.channel:close()
+        self.channel = nil
+    end
+
+    -- Clear crypto state
+    Crypto.clearSecret()
+
     TermUI.clear()
     TermUI.drawCentered(10, "ShelfOS Swarm stopped.", colors.lightGray)
 end

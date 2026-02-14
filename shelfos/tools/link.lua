@@ -20,8 +20,8 @@ local function showStatus()
         return
     end
 
-    print("  Zone: " .. (config.zone.name or "Unknown"))
-    print("  Zone ID: " .. (config.zone.id or "Unknown"))
+    print("  Computer: " .. (config.computer.name or "Unknown"))
+    print("  Computer ID: " .. (config.computer.id or "Unknown"))
     print("")
 
     if Config.isInSwarm(config) then

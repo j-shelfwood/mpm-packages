@@ -10,14 +10,14 @@ local ConfigMigration = mpm('shelfos/core/ConfigMigration')
 local Config = {}
 
 -- Configuration file path (use centralized Paths module)
-local CONFIG_PATH = Paths.ZONE_CONFIG
+local CONFIG_PATH = Paths.CONFIG
 
 -- Default configuration
 local DEFAULT_CONFIG = {
     version = 1,
-    zone = {
+    computer = {
         id = nil,  -- Set during setup
-        name = "Unnamed Zone"
+        name = "Unnamed Computer"
     },
     monitors = {},
     network = {
@@ -68,7 +68,7 @@ function Config.load()
     local migrated = ConfigMigration.migrateFromDisplays(DEFAULT_CONFIG)
     if migrated then
         -- Note: Do NOT auto-generate network secret
-        -- Zone must be paired with pocket to join swarm
+        -- Computer must be paired with pocket to join swarm
         Config.save(migrated)
         -- Delete old config
         fs.delete("displays.config")
@@ -93,11 +93,17 @@ function Config.load()
         return nil
     end
 
+    -- Migrate zone → computer key if needed
+    if config.zone and not config.computer then
+        config.computer = config.zone
+        config.zone = nil
+    end
+
     -- Merge with defaults to ensure all fields exist
     config = merge(DEFAULT_CONFIG, config)
 
     -- Note: Do NOT auto-generate network secret here
-    -- Zone must be paired with pocket to join swarm
+    -- Computer must be paired with pocket to join swarm
 
     return config
 end
@@ -122,13 +128,13 @@ function Config.exists()
 end
 
 -- Create a new configuration with defaults
--- @param zoneId Zone identifier
--- @param zoneName Zone name
+-- @param computerId Computer identifier
+-- @param computerName Computer name
 -- @return new config
-function Config.create(zoneId, zoneName)
+function Config.create(computerId, computerName)
     local config = deepCopy(DEFAULT_CONFIG)
-    config.zone.id = zoneId or ("zone_" .. os.getComputerID())
-    config.zone.name = zoneName or ("Zone " .. os.getComputerID())
+    config.computer.id = computerId or ("computer_" .. os.getComputerID())
+    config.computer.name = computerName or ("Computer " .. os.getComputerID())
     return config
 end
 
@@ -198,7 +204,7 @@ function Config.setNetworkSecret(config, secret)
     config.network.enabled = secret ~= nil
 end
 
--- Check if zone is paired with a swarm
+-- Check if computer is paired with a swarm
 -- @param config Configuration table
 -- @return true if has valid secret
 function Config.isInSwarm(config)
@@ -216,8 +222,8 @@ function Config.validate(config)
         return false, "Config is nil"
     end
 
-    if not config.zone or not config.zone.id then
-        return false, "Missing zone ID"
+    if not config.computer or not config.computer.id then
+        return false, "Missing computer ID"
     end
 
     if not config.monitors then
@@ -238,16 +244,16 @@ end
 function Config.autoCreate()
     local ViewManager = mpm('views/Manager')
 
-    -- Generate zone identity
-    local zoneId = "zone_" .. os.getComputerID() .. "_" .. (os.epoch("utc") % 100000)
-    local zoneName = os.getComputerLabel() or ("Zone " .. os.getComputerID())
+    -- Generate computer identity
+    local computerId = "computer_" .. os.getComputerID() .. "_" .. (os.epoch("utc") % 100000)
+    local computerName = os.getComputerLabel() or ("Computer " .. os.getComputerID())
 
     local config = deepCopy(DEFAULT_CONFIG)
-    config.zone.id = zoneId
-    config.zone.name = zoneName
+    config.computer.id = computerId
+    config.computer.name = computerName
 
     -- Note: Do NOT auto-generate network secret
-    -- Zone starts unpaired - must pair with pocket to join swarm
+    -- Computer starts unpaired - must pair with pocket to join swarm
     -- network.secret = nil, network.enabled = false (from DEFAULT_CONFIG)
 
     -- Discover monitors

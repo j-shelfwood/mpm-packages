@@ -99,7 +99,7 @@ function CreateSwarm.drawSuccess(ctx)
         TermUI.drawInfoLine(y, "Fingerprint", state.info.fingerprint, colors.yellow)
         y = y + 2
 
-        TermUI.drawWrapped(y, "This fingerprint identifies your swarm. Zones will display it after pairing.", colors.lightGray, 2, 3)
+        TermUI.drawWrapped(y, "This fingerprint identifies your swarm. Computers will display it after pairing.", colors.lightGray, 2, 3)
     end
 
     TermUI.drawStatusBar("Press any key to continue...")

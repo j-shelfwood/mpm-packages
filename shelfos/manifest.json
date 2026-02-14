@@ -1,6 +1,6 @@
 {
   "name": "shelfos",
-  "description": "ShelfOS - Zone computer display management with touch config and swarm networking",
+  "description": "ShelfOS - Computer display management with touch config and swarm networking",
   "dependencies": ["views", "ui", "net", "peripherals", "utils"],
   "files": [
     "start.lua",
@@ -15,7 +15,7 @@
     "core/Monitor.lua",
     "core/MonitorConfigMenu.lua",
     "core/Paths.lua",
-    "core/Zone.lua",
+    "core/Identity.lua",
     "core/Terminal.lua",
     "input/Menu.lua",
     "input/MenuViewSelector.lua",

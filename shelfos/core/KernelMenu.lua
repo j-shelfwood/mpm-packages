@@ -113,7 +113,7 @@ function KernelMenu.doFactoryReset(kernel)
     Crypto.clearSecret()
 
     -- 4. Delete ALL config files
-    Paths.deleteZoneFiles()
+    Paths.deleteFiles()
 
     -- 5. Restore terminal and show message
     term.redirect(term.native())

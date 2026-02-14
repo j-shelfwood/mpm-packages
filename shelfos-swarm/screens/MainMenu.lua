@@ -12,12 +12,16 @@ local MainMenu = {}
 local screens = {}
 local function getScreen(name)
     if not screens[name] then
-        if name == "AddZone" then
-            screens[name] = mpm('shelfos-swarm/screens/AddZone')
-        elseif name == "ViewZones" then
-            screens[name] = mpm('shelfos-swarm/screens/ViewZones')
+        if name == "AddComputer" then
+            screens[name] = mpm('shelfos-swarm/screens/AddComputer')
+        elseif name == "ViewComputers" then
+            screens[name] = mpm('shelfos-swarm/screens/ViewComputers')
         elseif name == "DeleteSwarm" then
             screens[name] = mpm('shelfos-swarm/screens/DeleteSwarm')
+        elseif name == "RebootSwarm" then
+            screens[name] = mpm('shelfos-swarm/screens/RebootSwarm')
+        elseif name == "ViewPeripherals" then
+            screens[name] = mpm('shelfos-swarm/screens/ViewPeripherals')
         end
     end
     return screens[name]
@@ -39,8 +43,8 @@ function MainMenu.draw(ctx)
         TermUI.drawInfoLine(y, "Fingerprint", info.fingerprint, colors.lightGray)
         y = y + 1
 
-        local zoneColor = info.zoneCount > 0 and colors.lime or colors.orange
-        TermUI.drawInfoLine(y, "Zones", info.zoneCount .. " active", zoneColor)
+        local computerColor = info.computerCount > 0 and colors.lime or colors.orange
+        TermUI.drawInfoLine(y, "Computers", info.computerCount .. " active", computerColor)
         y = y + 1
     end
 
@@ -50,13 +54,18 @@ function MainMenu.draw(ctx)
 
     -- Menu items
     y = y + 2
-    TermUI.drawMenuItem(y, "A", "Add Zone")
+    TermUI.drawMenuItem(y, "A", "Add Computer")
     y = y + 1
 
-    local zoneBadge = info and ("(" .. info.zoneCount .. ")") or nil
-    TermUI.drawMenuItem(y, "Z", "View Zones", { badge = zoneBadge })
+    local computerBadge = info and ("(" .. info.computerCount .. ")") or nil
+    TermUI.drawMenuItem(y, "C", "View Computers", { badge = computerBadge })
     y = y + 1
 
+    TermUI.drawMenuItem(y, "P", "Peripherals")
+    y = y + 1
+
+    y = y + 1
+    TermUI.drawMenuItem(y, "R", "Reboot Swarm", { color = colors.orange })
     y = y + 1
     TermUI.drawMenuItem(y, "D", "Delete Swarm", { color = colors.red })
 
@@ -74,9 +83,13 @@ function MainMenu.handleEvent(ctx, event, p1, ...)
         if keyName == "q" then
             return "quit"
         elseif keyName == "a" then
-            return { push = getScreen("AddZone") }
-        elseif keyName == "z" then
-            return { push = getScreen("ViewZones") }
+            return { push = getScreen("AddComputer") }
+        elseif keyName == "c" then
+            return { push = getScreen("ViewComputers") }
+        elseif keyName == "p" then
+            return { push = getScreen("ViewPeripherals") }
+        elseif keyName == "r" then
+            return { push = getScreen("RebootSwarm") }
         elseif keyName == "d" then
             return { push = getScreen("DeleteSwarm") }
         end

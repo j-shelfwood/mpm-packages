@@ -1,6 +1,6 @@
 -- MenuStatus.lua
 -- Status dialog rendering for Menu
--- Shows zone info, monitors, swarm status, peripherals
+-- Shows computer info, monitors, swarm status, peripherals
 -- Extracted from Menu.lua for maintainability
 
 local Controller = mpm('ui/Controller')
@@ -13,8 +13,8 @@ local MenuStatus = {}
 function MenuStatus.buildLines(config)
     local lines = {
         "",
-        "Zone: " .. (config.zone.name or "Unknown"),
-        "Zone ID: " .. (config.zone.id or "N/A"),
+        "Computer: " .. (config.computer.name or "Unknown"),
+        "Computer ID: " .. (config.computer.id or "N/A"),
         ""
     }
 
@@ -62,7 +62,7 @@ function MenuStatus.buildLines(config)
         end
 
         table.insert(lines, "")
-        table.insert(lines, "Use pocket computer to add zones")
+        table.insert(lines, "Use pocket computer to add computers")
     else
         table.insert(lines, "Network: Standalone (not in swarm)")
         table.insert(lines, "  Press [L] to pair with pocket")
@@ -104,8 +104,8 @@ function MenuStatus.buildLines(config)
         -- Get remote peripherals with host info
         if client and client.remotePeripherals then
             for name, info in pairs(client.remotePeripherals) do
-                local hostZone = client.hostZones[info.hostId]
-                local hostName = hostZone and hostZone.zoneName or ("Computer #" .. info.hostId)
+                local hostComputer = client.hostComputers[info.hostId]
+                local hostName = hostComputer and hostComputer.computerName or ("Computer #" .. info.hostId)
                 table.insert(remotePeriphs, {
                     name = name,
                     type = info.type,

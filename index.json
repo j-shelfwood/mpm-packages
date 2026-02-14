@@ -36,7 +36,7 @@
   },
   {
     "name": "shelfos-swarm",
-    "description": "ShelfOS Swarm Controller - Pocket computer as swarm queen for coordinating zone computers",
+    "description": "ShelfOS Swarm Controller - Pocket computer as swarm queen for coordinating swarm computers",
     "dependencies": ["crypto", "net", "utils"]
   },
   {

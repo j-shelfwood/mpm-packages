@@ -1,11 +1,11 @@
 -- Registry.lua
 -- Trust registry for managing authorized identities
--- Used by SwarmAuthority to track which zones are authorized
+-- Used by SwarmAuthority to track which computers are authorized
 --
 -- Each entry contains:
--- - id: Unique zone identifier
+-- - id: Unique computer identifier
 -- - label: Human-readable name
--- - secret: Shared secret for this zone (generated during pairing)
+-- - secret: Shared secret for this computer (generated during pairing)
 -- - fingerprint: Human-readable fingerprint for verification
 -- - addedAt: Timestamp when added
 -- - status: "active", "revoked", "pending"
@@ -35,9 +35,9 @@ function Registry:initSwarm(swarmId, secret)
     self.swarmSecret = secret
 end
 
--- Generate a new zone secret
+-- Generate a new secret for a computer
 -- @return secret string
-function Registry:generateZoneSecret()
+function Registry:generateSecret()
     local chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
     local secret = ""
     for i = 1, 32 do
@@ -47,60 +47,60 @@ function Registry:generateZoneSecret()
     return secret
 end
 
--- Add a new zone to registry
--- @param zoneId Zone identifier
+-- Add a new computer to registry
+-- @param computerId Computer identifier
 -- @param label Human-readable label
--- @param secret Zone's secret (generated during pairing)
+-- @param secret Computer's secret (generated during pairing)
 -- @return entry
-function Registry:add(zoneId, label, secret)
-    if self.entries[zoneId] then
-        return nil, "Zone already exists"
+function Registry:add(computerId, label, secret)
+    if self.entries[computerId] then
+        return nil, "Computer already exists"
     end
 
     local entry = {
-        id = zoneId,
-        label = label or ("Zone " .. zoneId),
+        id = computerId,
+        label = label or ("Computer " .. computerId),
         secret = secret,
         fingerprint = KeyPair.fingerprint(secret),
         addedAt = os.epoch("utc"),
         status = "active"
     }
 
-    self.entries[zoneId] = entry
+    self.entries[computerId] = entry
     return entry
 end
 
--- Get zone entry
--- @param zoneId Zone identifier
+-- Get computer entry
+-- @param computerId Computer identifier
 -- @return entry or nil
-function Registry:get(zoneId)
-    return self.entries[zoneId]
+function Registry:get(computerId)
+    return self.entries[computerId]
 end
 
--- Get zone secret (for message verification)
--- @param zoneId Zone identifier
+-- Get computer secret (for message verification)
+-- @param computerId Computer identifier
 -- @return secret or nil
-function Registry:getSecret(zoneId)
-    local entry = self.entries[zoneId]
+function Registry:getSecret(computerId)
+    local entry = self.entries[computerId]
     if entry and entry.status == "active" then
         return entry.secret
     end
     return nil
 end
 
--- Check if zone is authorized
--- @param zoneId Zone identifier
+-- Check if computer is authorized
+-- @param computerId Computer identifier
 -- @return boolean
-function Registry:isAuthorized(zoneId)
-    local entry = self.entries[zoneId]
+function Registry:isAuthorized(computerId)
+    local entry = self.entries[computerId]
     return entry ~= nil and entry.status == "active"
 end
 
--- Revoke a zone
--- @param zoneId Zone identifier
+-- Revoke a computer
+-- @param computerId Computer identifier
 -- @return success
-function Registry:revoke(zoneId)
-    local entry = self.entries[zoneId]
+function Registry:revoke(computerId)
+    local entry = self.entries[computerId]
     if entry then
         entry.status = "revoked"
         entry.revokedAt = os.epoch("utc")
@@ -109,15 +109,15 @@ function Registry:revoke(zoneId)
     return false
 end
 
--- Remove a zone completely
--- @param zoneId Zone identifier
-function Registry:remove(zoneId)
-    self.entries[zoneId] = nil
+-- Remove a computer completely
+-- @param computerId Computer identifier
+function Registry:remove(computerId)
+    self.entries[computerId] = nil
 end
 
--- Get all active zones
+-- Get all active computers
 -- @return array of entries
-function Registry:getActiveZones()
+function Registry:getActiveComputers()
     local result = {}
     for _, entry in pairs(self.entries) do
         if entry.status == "active" then
@@ -127,9 +127,9 @@ function Registry:getActiveZones()
     return result
 end
 
--- Get all zones (including revoked)
+-- Get all computers (including revoked)
 -- @return array of entries
-function Registry:getAllZones()
+function Registry:getAllComputers()
     local result = {}
     for _, entry in pairs(self.entries) do
         table.insert(result, entry)
@@ -137,7 +137,7 @@ function Registry:getAllZones()
     return result
 end
 
--- Count active zones
+-- Count active computers
 -- @return number
 function Registry:countActive()
     local count = 0

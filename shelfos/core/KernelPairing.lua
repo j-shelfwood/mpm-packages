@@ -11,7 +11,7 @@ local ModemUtils = mpm('utils/ModemUtils')
 local KernelPairing = {}
 
 -- Accept pairing from a pocket computer
--- This is how zones join the swarm - pocket delivers the secret
+-- This is how computers join the swarm - pocket delivers the secret
 -- SECURITY: A code is displayed on screen (never broadcast)
 -- The pocket user must enter this code to complete pairing
 -- @param kernel Kernel instance
@@ -86,8 +86,8 @@ function KernelPairing.acceptFromPocket(kernel)
             print("")
             print("On your pocket computer:")
             print("  1. Run: mpm run shelfos-swarm")
-            print("  2. Press [A] -> Add Zone")
-            print("  3. Select this zone, enter code")
+            print("  2. Press [A] -> Add Computer")
+            print("  3. Select this computer, enter code")
             print("")
             print("Press [Q] to cancel")
         end,
@@ -98,7 +98,7 @@ function KernelPairing.acceptFromPocket(kernel)
             term.clearLine()
             term.write("[*] " .. msg)
         end,
-        onSuccess = function(secret, zoneId)
+        onSuccess = function(secret, computerId)
             -- RESUME monitor rendering
             for _, monitor in ipairs(kernel.monitors) do
                 monitor:setPairingMode(false)
@@ -127,14 +127,14 @@ function KernelPairing.acceptFromPocket(kernel)
         end
     }
 
-    local success, secret, zoneId = Pairing.acceptFromPocket(callbacks)
+    local success, secret, computerId = Pairing.acceptFromPocket(callbacks)
 
     if success then
         -- Save credentials
         Config.setNetworkSecret(kernel.config, secret)
-        if zoneId then
-            kernel.config.zone = kernel.config.zone or {}
-            kernel.config.zone.id = zoneId
+        if computerId then
+            kernel.config.computer = kernel.config.computer or {}
+            kernel.config.computer.id = computerId
         end
         Config.save(kernel.config)
 

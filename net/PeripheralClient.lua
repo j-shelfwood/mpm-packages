@@ -16,7 +16,7 @@ function PeripheralClient.new(channel)
 
     self.channel = channel
     self.remotePeripherals = {}  -- {name -> {hostId, type, methods, proxy}}
-    self.hostZones = {}          -- {hostId -> {zoneId, zoneName}}
+    self.hostComputers = {}      -- {hostId -> {computerId, computerName}}
     self.pendingRequests = {}    -- {requestId -> {callback, timeout}}
 
     return self
@@ -52,10 +52,10 @@ function PeripheralClient:handleAnnounce(senderId, msg)
     local data = msg.data
     if not data or not data.peripherals then return end
 
-    -- Store zone info
-    self.hostZones[senderId] = {
-        zoneId = data.zoneId,
-        zoneName = data.zoneName
+    -- Store computer info
+    self.hostComputers[senderId] = {
+        computerId = data.computerId,
+        computerName = data.computerName
     }
 
     -- Register peripherals
@@ -302,7 +302,7 @@ end
 -- Clear all known peripherals
 function PeripheralClient:clear()
     self.remotePeripherals = {}
-    self.hostZones = {}
+    self.hostComputers = {}
 end
 
 return PeripheralClient

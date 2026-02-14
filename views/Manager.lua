@@ -2,19 +2,9 @@
 -- View loading and lifecycle management for ShelfOS
 
 local Yield = mpm('utils/Yield')
+local Peripherals = mpm('utils/Peripherals')
 
 local Manager = {}
-
--- Get the peripheral finder (local or remote-aware)
-local function getPeripheralAPI()
-    -- Try to load RemotePeripheral for network support
-    local ok, RemotePeripheral = pcall(mpm, 'net/RemotePeripheral')
-    if ok and RemotePeripheral and RemotePeripheral.hasClient() then
-        return RemotePeripheral
-    end
-    -- Fall back to standard peripheral API
-    return peripheral
-end
 
 -- Cache of loaded views
 local viewCache = {}
@@ -185,15 +175,13 @@ end
 -- Used for auto-discovery when no config exists
 -- @return viewName, reason
 function Manager.suggestView()
-    local api = getPeripheralAPI()
-
     -- Priority order: most specific peripheral first
     local suggestions = {
-        { check = function() return api.find("me_bridge") end, view = "StorageGraph", reason = "AE2 ME Bridge detected" },
-        { check = function() return api.find("rsBridge") end, view = "StorageGraph", reason = "RS Bridge detected" },
-        { check = function() return api.find("enrichmentChamber") end, view = "MachineActivity", reason = "Mekanism machines detected" },
-        { check = function() return api.find("energyStorage") end, view = "EnergyGraph", reason = "Energy storage detected" },
-        { check = function() return api.find("environment_detector") end, view = "Clock", reason = "Environment detector found" },
+        { check = function() return Peripherals.find("me_bridge") end, view = "StorageGraph", reason = "AE2 ME Bridge detected" },
+        { check = function() return Peripherals.find("rsBridge") end, view = "StorageGraph", reason = "RS Bridge detected" },
+        { check = function() return Peripherals.find("enrichmentChamber") end, view = "MachineActivity", reason = "Mekanism machines detected" },
+        { check = function() return Peripherals.find("energyStorage") end, view = "EnergyGraph", reason = "Energy storage detected" },
+        { check = function() return Peripherals.find("environment_detector") end, view = "Clock", reason = "Environment detector found" },
     }
 
     for idx, suggestion in ipairs(suggestions) do
@@ -234,15 +222,13 @@ function Manager.suggestViewsForMonitors(monitorCount)
         return suggestions
     end
 
-    local api = getPeripheralAPI()
-
     -- Build prioritized list based on peripherals (with yields)
     local prioritized = {}
 
     -- Check for ME/RS bridge first (local or remote)
-    local hasMeBridge = api.find("me_bridge")
+    local hasMeBridge = Peripherals.find("me_bridge")
     Yield.yield()
-    local hasRsBridge = api.find("rsBridge")
+    local hasRsBridge = Peripherals.find("rsBridge")
     Yield.yield()
 
     if hasMeBridge or hasRsBridge then
@@ -257,7 +243,7 @@ function Manager.suggestViewsForMonitors(monitorCount)
     end
 
     -- Add energy if available (local or remote)
-    local hasEnergy = api.find("energyStorage")
+    local hasEnergy = Peripherals.find("energyStorage")
     Yield.yield()
 
     if hasEnergy then
@@ -270,7 +256,7 @@ function Manager.suggestViewsForMonitors(monitorCount)
     end
 
     -- Check for Mekanism machines (local or remote)
-    local hasMekanism = api.find("enrichmentChamber") or api.find("crusher") or api.find("solarGenerator")
+    local hasMekanism = Peripherals.find("enrichmentChamber") or Peripherals.find("crusher") or Peripherals.find("solarGenerator")
     Yield.yield()
 
     if hasMekanism then

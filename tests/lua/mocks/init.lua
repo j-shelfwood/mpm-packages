@@ -69,13 +69,13 @@ function Mocks.setupPocket(config)
     }
 end
 
--- Setup zone computer with modem and monitors
-function Mocks.setupZone(config)
+-- Setup computer with modem and monitors
+function Mocks.setupComputer(config)
     config = config or {}
     Mocks.reset()
     Mocks.install()
 
-    -- No pocket API on zones
+    -- No pocket API on computers
     _G.pocket = nil
 
     -- Attach modem
@@ -106,7 +106,7 @@ function Mocks.setupZone(config)
     -- Set computer ID
     local id = config.id or 10
     _G.os.getComputerID = function() return id end
-    _G.os.getComputerLabel = function() return config.label or "Zone #" .. id end
+    _G.os.getComputerLabel = function() return config.label or "Computer #" .. id end
 
     return {
         modem = modem,
@@ -117,37 +117,40 @@ function Mocks.setupZone(config)
     }
 end
 
+-- Backward compatibility alias
+Mocks.setupZone = Mocks.setupComputer
+
 -- Setup headless computer (no monitors, just peripherals)
 function Mocks.setupHeadless(config)
     config = config or {}
     config.monitors = 0
-    return Mocks.setupZone(config)
+    return Mocks.setupComputer(config)
 end
 
--- Simulate pairing message exchange between pocket and zone
-function Mocks.simulatePairing(pocket, zone, displayCode)
+-- Simulate pairing message exchange between pocket and computer
+function Mocks.simulatePairing(pocket, computer, displayCode)
     local Protocol = require("mpm-packages.net.Protocol")
     local Crypto = require("mpm-packages.net.Crypto")
 
-    -- Zone broadcasts PAIR_READY
-    local pairReady = Protocol.createPairReady(nil, zone.label or "Zone", zone.id)
+    -- Computer broadcasts PAIR_READY
+    local pairReady = Protocol.createPairReady(nil, computer.label or "Computer", computer.id)
 
     -- Pocket receives PAIR_READY
-    Rednet.queueMessage(zone.id, pairReady, "shelfos_pair")
+    Rednet.queueMessage(computer.id, pairReady, "shelfos_pair")
 
     -- Pocket sends signed PAIR_DELIVER
     local creds = {
         swarmSecret = "test_swarm_secret_12345",
-        zoneId = "zone_" .. zone.id,
+        computerId = "computer_" .. computer.id,
         swarmId = "swarm_pocket_" .. pocket.id,
         swarmFingerprint = "TEST-SWRM-FP01"
     }
-    local deliver = Protocol.createPairDeliver(creds.swarmSecret, creds.zoneId)
+    local deliver = Protocol.createPairDeliver(creds.swarmSecret, creds.computerId)
     deliver.data.credentials = creds
 
     local signedDeliver = Crypto.wrapWith(deliver, displayCode)
 
-    -- Zone receives signed PAIR_DELIVER
+    -- Computer receives signed PAIR_DELIVER
     Rednet.queueMessage(pocket.id, signedDeliver, "shelfos_pair")
 
     return creds

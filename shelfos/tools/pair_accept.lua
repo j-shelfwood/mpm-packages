@@ -84,7 +84,7 @@ local function acceptPairing()
             term.clearLine()
             term.write("[*] " .. msg)
         end,
-        onSuccess = function(secret, zoneId)
+        onSuccess = function(secret, computerId)
             PairingScreen.clearAll(monitorNames)
             print("")
             print("")
@@ -101,23 +101,23 @@ local function acceptPairing()
         end
     }
 
-    local success, secret, zoneId = Pairing.acceptFromPocket(callbacks)
+    local success, secret, resultComputerId = Pairing.acceptFromPocket(callbacks)
 
     if success then
         -- Load or create config
         local config = Config.load()
         if not config then
             config = Config.create(
-                "zone_" .. computerId .. "_" .. os.epoch("utc"),
+                "computer_" .. computerId .. "_" .. os.epoch("utc"),
                 computerLabel
             )
         end
 
         -- Save credentials
         Config.setNetworkSecret(config, secret)
-        if zoneId then
-            config.zone = config.zone or {}
-            config.zone.id = zoneId
+        if resultComputerId then
+            config.computer = config.computer or {}
+            config.computer.id = resultComputerId
         end
 
         Config.save(config)

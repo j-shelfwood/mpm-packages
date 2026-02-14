@@ -3,6 +3,7 @@
 -- Uses CC:Tweaked's generic peripheral system (energy_storage type)
 
 local Yield = mpm('utils/Yield')
+local Peripherals = mpm('utils/Peripherals')
 
 local EnergyInterface = {}
 
@@ -33,7 +34,7 @@ local STORAGE_PATTERNS = {
 
 -- Check if energy_storage peripherals exist
 function EnergyInterface.exists()
-    local p = peripheral.find("energy_storage")
+    local p = Peripherals.find("energy_storage")
     return p ~= nil
 end
 
@@ -41,15 +42,15 @@ end
 -- Returns array of { peripheral, name, type }
 function EnergyInterface.findAll()
     local storages = {}
-    local names = peripheral.getNames()
+    local names = Peripherals.getNames()
 
     for idx, name in ipairs(names) do
-        local types = {peripheral.getType(name)}
+        local types = {Peripherals.getType(name)}
 
         -- Check if this peripheral has energy_storage as one of its types
         for _, pType in ipairs(types) do
             if pType == "energy_storage" then
-                local p = peripheral.wrap(name)
+                local p = Peripherals.wrap(name)
                 if p and p.getEnergy and p.getEnergyCapacity then
                     -- Get primary type (first non-energy_storage type)
                     local primaryType = nil

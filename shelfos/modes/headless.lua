@@ -5,6 +5,7 @@
 local Config = mpm('shelfos/core/Config')
 local Paths = mpm('shelfos/core/Paths')
 local Channel = mpm('net/Channel')
+local Protocol = mpm('net/Protocol')
 local PeripheralHost = mpm('net/PeripheralHost')
 local Pairing = mpm('net/Pairing')
 local Crypto = mpm('net/Crypto')
@@ -22,7 +23,7 @@ local function drawStatus(host, channel, config)
     print("  ShelfOS - Peripheral Host Mode")
     print("=====================================")
     print("")
-    print("Zone: " .. (config.zone.name or "Unknown"))
+    print("Computer: " .. (config.computer.name or "Unknown"))
     print("Computer ID: " .. os.getComputerID())
     print("")
 
@@ -54,7 +55,7 @@ end
 
 -- Accept pairing from pocket computer
 -- @param config Current configuration
--- @return success, secret, zoneId
+-- @return success, secret, computerId
 function headless.acceptPairing(config)
     -- Pre-validate modem exists (Pairing.acceptFromPocket will open it)
     local modem, modemName, modemType = ModemUtils.find(true)
@@ -99,7 +100,7 @@ function headless.acceptPairing(config)
             term.clearLine()
             term.write("[*] " .. msg)
         end,
-        onSuccess = function(secret, zoneId)
+        onSuccess = function(secret, computerId)
             print("")
             print("[*] Pairing successful!")
         end,
@@ -124,7 +125,7 @@ function headless.run()
     local config = Config.load()
     if not config then
         config = Config.create(
-            "zone_" .. os.getComputerID() .. "_" .. os.epoch("utc"),
+            "computer_" .. os.getComputerID() .. "_" .. os.epoch("utc"),
             os.getComputerLabel() or ("Peripheral Node " .. os.getComputerID())
         )
         Config.save(config)
@@ -147,13 +148,13 @@ function headless.run()
                 return
             elseif key == keys.l then
                 -- Run pairing flow
-                local success, secret, zoneId = headless.acceptPairing(config)
+                local success, secret, computerId = headless.acceptPairing(config)
                 if success then
                     -- Save credentials
                     Config.setNetworkSecret(config, secret)
-                    if zoneId then
-                        config.zone = config.zone or {}
-                        config.zone.id = zoneId
+                    if computerId then
+                        config.computer = config.computer or {}
+                        config.computer.id = computerId
                     end
                     Config.save(config)
 
@@ -195,10 +196,16 @@ function headless.run()
     print("[ShelfOS] Network: " .. modemType .. " modem")
 
     -- Create peripheral host
-    local host = PeripheralHost.new(channel, config.zone.id, config.zone.name)
+    local host = PeripheralHost.new(channel, config.computer.id, config.computer.name)
     local count = host:start()
 
     print("[ShelfOS] Sharing " .. count .. " peripheral(s)")
+
+    -- Register REBOOT handler
+    channel:on(Protocol.MessageType.REBOOT, function(senderId, msg)
+        print("[ShelfOS] Reboot command received from #" .. senderId)
+        os.reboot()
+    end)
 
     -- Draw initial status
     drawStatus(host, channel, config)
@@ -237,7 +244,7 @@ function headless.run()
                 -- Factory reset
                 channel:close()
                 Crypto.clearSecret()
-                Paths.deleteZoneFiles()
+                Paths.deleteFiles()
 
                 term.clear()
                 term.setCursorPos(1, 1)

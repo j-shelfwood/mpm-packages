@@ -71,13 +71,13 @@ test("Pairing.acceptFromPocket succeeds with signed delivery", function()
     local now = 100000
 
     with_stubbed_env(function()
-        local success, secret, zoneId = Pairing.acceptFromPocket({
+        local success, secret, computerId = Pairing.acceptFromPocket({
             onDisplayCode = function(code) displayCode = code end
         })
 
         assert_true(success)
         assert_eq("secret-abc", secret)
-        assert_eq("zone-main", zoneId)
+        assert_eq("computer-main", computerId)
         assert_true(opened)
         assert_true(closed)
         assert_true(#broadcasts >= 1)
@@ -108,7 +108,7 @@ test("Pairing.acceptFromPocket succeeds with signed delivery", function()
         keys = { q = 16 },
         os = {
             getComputerID = function() return 12 end,
-            getComputerLabel = function() return "zone-node" end,
+            getComputerLabel = function() return "computer-node" end,
             epoch = function()
                 now = now + 100
                 return now
@@ -117,7 +117,7 @@ test("Pairing.acceptFromPocket succeeds with signed delivery", function()
             pullEvent = function()
                 if not delivered then
                     delivered = true
-                    local deliver = Protocol.createPairDeliver("secret-abc", "zone-main")
+                    local deliver = Protocol.createPairDeliver("secret-abc", "computer-main")
                     local signed = Crypto.wrapWith(deliver, displayCode)
                     return "rednet_message", 44, signed, Pairing.PROTOCOL
                 end
@@ -153,7 +153,7 @@ test("Pairing.acceptFromPocket handles reject", function()
         keys = { q = 16 },
         os = {
             getComputerID = function() return 12 end,
-            getComputerLabel = function() return "zone-node" end,
+            getComputerLabel = function() return "computer-node" end,
             epoch = function()
                 now = now + 100
                 return now
@@ -169,8 +169,8 @@ end)
 test("Pairing.deliverToPending sends signed payload and completes", function()
     local sent = {}
     local now = 300000
-    local ready = Protocol.createPairReady(nil, "Zone A", 21)
-    local complete = Protocol.createPairComplete("Zone A")
+    local ready = Protocol.createPairReady(nil, "Computer A", 21)
+    local complete = Protocol.createPairComplete("Computer A")
     local events = {
         { "rednet_message", 21, ready, Pairing.PROTOCOL },
         { "key", 13 },
@@ -178,12 +178,12 @@ test("Pairing.deliverToPending sends signed payload and completes", function()
     }
 
     with_stubbed_env(function()
-        local success, paired = Pairing.deliverToPending("swarm-secret", "zone-main", {
+        local success, paired = Pairing.deliverToPending("swarm-secret", "computer-main", {
             onCodePrompt = function() return "ABCD-EFGH" end,
         }, 5)
 
         assert_true(success)
-        assert_eq("Zone A", paired)
+        assert_eq("Computer A", paired)
         assert_eq(1, #sent)
         assert_eq(21, sent[1].id)
         assert_true(type(sent[1].msg) == "table" and sent[1].msg.v == 1, "expected signed envelope")
@@ -221,7 +221,7 @@ end)
 test("Pairing.deliverToPending rejects short code", function()
     local invalidReasons = {}
     local now = 400000
-    local ready = Protocol.createPairReady(nil, "Zone B", 22)
+    local ready = Protocol.createPairReady(nil, "Computer B", 22)
     local events = {
         { "rednet_message", 22, ready, Pairing.PROTOCOL },
         { "key", 13 },
@@ -229,7 +229,7 @@ test("Pairing.deliverToPending rejects short code", function()
     }
 
     with_stubbed_env(function()
-        local success = Pairing.deliverToPending("swarm-secret", "zone-b", {
+        local success = Pairing.deliverToPending("swarm-secret", "computer-b", {
             onCodePrompt = function() return "A" end,
             onCodeInvalid = function(reason) table.insert(invalidReasons, reason) end,
         }, 5)
@@ -276,14 +276,14 @@ test("Pairing.acceptFromPocket times out after TOKEN_VALIDITY", function()
     local statusMessages = {}
 
     with_stubbed_env(function()
-        local success, secret, zoneId = Pairing.acceptFromPocket({
+        local success, secret, computerId = Pairing.acceptFromPocket({
             onDisplayCode = function() end,
             onStatus = function(msg) table.insert(statusMessages, msg) end,
         })
 
         assert_false(success, "Should return false on timeout")
         assert_true(secret == nil, "Secret should be nil on timeout")
-        assert_true(zoneId == nil, "ZoneId should be nil on timeout")
+        assert_true(computerId == nil, "ComputerId should be nil on timeout")
         -- Should have status messages showing countdown
         assert_true(#statusMessages > 0, "Should have status updates")
     end, {
@@ -301,7 +301,7 @@ test("Pairing.acceptFromPocket times out after TOKEN_VALIDITY", function()
         keys = { q = 16 },
         os = {
             getComputerID = function() return 12 end,
-            getComputerLabel = function() return "zone-node" end,
+            getComputerLabel = function() return "computer-node" end,
             epoch = function()
                 -- Jump 5 seconds each call to quickly exceed TOKEN_VALIDITY (60s)
                 now = now + 5000
@@ -317,12 +317,12 @@ test("Pairing.acceptFromPocket times out after TOKEN_VALIDITY", function()
     })
 end)
 
-test("Pairing.deliverToPending times out with no zones", function()
+test("Pairing.deliverToPending times out with no computers", function()
     local now = 600000
     local timerCount = 0
 
     with_stubbed_env(function()
-        local success, paired = Pairing.deliverToPending("swarm-secret", "zone-id", {}, 2)
+        local success, paired = Pairing.deliverToPending("swarm-secret", "computer-id", {}, 2)
 
         assert_false(success, "Should return false on timeout")
         assert_true(paired == nil, "Paired should be nil")
@@ -396,7 +396,7 @@ test("Pairing.acceptFromPocket handles user pressing q to cancel", function()
         keys = { q = 16 },
         os = {
             getComputerID = function() return 12 end,
-            getComputerLabel = function() return "zone-node" end,
+            getComputerLabel = function() return "computer-node" end,
             epoch = function()
                 now = now + 100
                 return now
@@ -418,7 +418,7 @@ test("Pairing.deliverToPending handles user pressing q to cancel", function()
     local cancelCalled = false
 
     with_stubbed_env(function()
-        local success = Pairing.deliverToPending("swarm-secret", "zone-id", {
+        local success = Pairing.deliverToPending("swarm-secret", "computer-id", {
             onCancel = function() cancelCalled = true end,
         }, 30)
 
@@ -455,11 +455,11 @@ end)
 
 test("Pairing.acceptFromPocket handles no modem gracefully", function()
     with_stubbed_env(function()
-        local success, secret, zoneId, _, errMsg = Pairing.acceptFromPocket({})
+        local success, secret, computerId, _, errMsg = Pairing.acceptFromPocket({})
 
         assert_false(success, "Should return false with no modem")
         assert_true(secret == nil)
-        assert_true(zoneId == nil)
+        assert_true(computerId == nil)
     end, {
         peripheral = {
             find = function() return nil end,  -- No modem
@@ -475,7 +475,7 @@ test("Pairing.acceptFromPocket handles no modem gracefully", function()
         keys = { q = 16 },
         os = {
             getComputerID = function() return 12 end,
-            getComputerLabel = function() return "zone-node" end,
+            getComputerLabel = function() return "computer-node" end,
             epoch = function() return 900000 end,
             startTimer = function() return 1 end,
             pullEvent = function() return "timer", 1 end,
@@ -485,7 +485,7 @@ end)
 
 test("Pairing.deliverToPending handles no modem gracefully", function()
     with_stubbed_env(function()
-        local success, paired, errMsg = Pairing.deliverToPending("secret", "zone", {}, 5)
+        local success, paired, errMsg = Pairing.deliverToPending("secret", "computer", {}, 5)
 
         assert_false(success)
         assert_true(paired == nil)
@@ -517,7 +517,7 @@ test("Pairing.acceptFromPocket handles modem already open", function()
     local displayCode = nil
 
     with_stubbed_env(function()
-        local success, secret, zoneId = Pairing.acceptFromPocket({
+        local success, secret, computerId = Pairing.acceptFromPocket({
             onDisplayCode = function(code) displayCode = code end,
         })
 
@@ -539,7 +539,7 @@ test("Pairing.acceptFromPocket handles modem already open", function()
         keys = { q = 16 },
         os = {
             getComputerID = function() return 12 end,
-            getComputerLabel = function() return "zone-node" end,
+            getComputerLabel = function() return "computer-node" end,
             epoch = function()
                 now = now + 100
                 return now
@@ -548,7 +548,7 @@ test("Pairing.acceptFromPocket handles modem already open", function()
             pullEvent = function()
                 if not delivered then
                     delivered = true
-                    local deliver = Protocol.createPairDeliver("secret", "zone")
+                    local deliver = Protocol.createPairDeliver("secret", "computer")
                     local signed = Crypto.wrapWith(deliver, displayCode)
                     return "rednet_message", 44, signed, Pairing.PROTOCOL
                 end
@@ -568,13 +568,13 @@ test("Pairing.acceptFromPocket extracts legacy simple credentials", function()
     local displayCode = nil
 
     with_stubbed_env(function()
-        local success, secret, zoneId = Pairing.acceptFromPocket({
+        local success, secret, computerId = Pairing.acceptFromPocket({
             onDisplayCode = function(code) displayCode = code end,
         })
 
         assert_true(success)
         assert_eq("legacy-secret", secret)
-        assert_eq("legacy-zone", zoneId)
+        assert_eq("legacy-computer", computerId)
     end, {
         peripheral = {
             find = function() return { isWireless = function() return true end } end,
@@ -590,7 +590,7 @@ test("Pairing.acceptFromPocket extracts legacy simple credentials", function()
         keys = { q = 16 },
         os = {
             getComputerID = function() return 12 end,
-            getComputerLabel = function() return "zone-node" end,
+            getComputerLabel = function() return "computer-node" end,
             epoch = function()
                 now = now + 100
                 return now
@@ -599,8 +599,8 @@ test("Pairing.acceptFromPocket extracts legacy simple credentials", function()
             pullEvent = function()
                 if not delivered then
                     delivered = true
-                    -- Legacy format: secret and zoneId directly in data (no credentials sub-object)
-                    local deliver = Protocol.createPairDeliver("legacy-secret", "legacy-zone")
+                    -- Legacy format: secret and computerId directly in data (no credentials sub-object)
+                    local deliver = Protocol.createPairDeliver("legacy-secret", "legacy-computer")
                     -- Remove credentials to simulate legacy format
                     deliver.data.credentials = nil
                     local signed = Crypto.wrapWith(deliver, displayCode)
@@ -618,13 +618,13 @@ test("Pairing.acceptFromPocket extracts full SwarmAuthority credentials", functi
     local displayCode = nil
 
     with_stubbed_env(function()
-        local success, secret, zoneId = Pairing.acceptFromPocket({
+        local success, secret, computerId = Pairing.acceptFromPocket({
             onDisplayCode = function(code) displayCode = code end,
         })
 
         assert_true(success)
         assert_eq("swarm-master-secret", secret)
-        assert_eq("zone-from-creds", zoneId)
+        assert_eq("computer-from-creds", computerId)
     end, {
         peripheral = {
             find = function() return { isWireless = function() return true end } end,
@@ -640,7 +640,7 @@ test("Pairing.acceptFromPocket extracts full SwarmAuthority credentials", functi
         keys = { q = 16 },
         os = {
             getComputerID = function() return 12 end,
-            getComputerLabel = function() return "zone-node" end,
+            getComputerLabel = function() return "computer-node" end,
             epoch = function()
                 now = now + 100
                 return now
@@ -653,7 +653,7 @@ test("Pairing.acceptFromPocket extracts full SwarmAuthority credentials", functi
                     local deliver = Protocol.createPairDeliver("ignored", "ignored")
                     deliver.data.credentials = {
                         swarmSecret = "swarm-master-secret",
-                        zoneId = "zone-from-creds",
+                        computerId = "computer-from-creds",
                         swarmId = "swarm-123",
                         swarmFingerprint = "FP-ABC"
                     }
@@ -670,23 +670,23 @@ end)
 -- GAP TESTS: State machine edge cases
 -- =============================================================================
 
-test("Pairing.deliverToPending tracks multiple zones correctly", function()
+test("Pairing.deliverToPending tracks multiple computers correctly", function()
     local now = 1400000
     local readyCallCount = 0
     local events = {
-        { "rednet_message", 21, Protocol.createPairReady(nil, "Zone A", 21), Pairing.PROTOCOL },
-        { "rednet_message", 22, Protocol.createPairReady(nil, "Zone B", 22), Pairing.PROTOCOL },
-        { "rednet_message", 23, Protocol.createPairReady(nil, "Zone C", 23), Pairing.PROTOCOL },
-        { "key", 16 },  -- Cancel after seeing 3 zones
+        { "rednet_message", 21, Protocol.createPairReady(nil, "Computer A", 21), Pairing.PROTOCOL },
+        { "rednet_message", 22, Protocol.createPairReady(nil, "Computer B", 22), Pairing.PROTOCOL },
+        { "rednet_message", 23, Protocol.createPairReady(nil, "Computer C", 23), Pairing.PROTOCOL },
+        { "key", 16 },  -- Cancel after seeing 3 computers
     }
 
     with_stubbed_env(function()
-        Pairing.deliverToPending("secret", "zone", {
+        Pairing.deliverToPending("secret", "computer", {
             onReady = function(pair) readyCallCount = readyCallCount + 1 end,
             onCancel = function() end,
         }, 10)
 
-        assert_eq(3, readyCallCount, "Should have called onReady for each unique zone")
+        assert_eq(3, readyCallCount, "Should have called onReady for each unique computer")
     end, {
         peripheral = {
             find = function() return { isWireless = function() return true end } end,
@@ -714,24 +714,24 @@ test("Pairing.deliverToPending tracks multiple zones correctly", function()
     })
 end)
 
-test("Pairing.deliverToPending cleans up stale zones after 15 seconds", function()
+test("Pairing.deliverToPending cleans up stale computers after 15 seconds", function()
     local now = 1500000
     local readyCallCount = 0
     local eventIndex = 0
     local events = {
-        { "rednet_message", 21, Protocol.createPairReady(nil, "Zone A", 21), Pairing.PROTOCOL },
+        { "rednet_message", 21, Protocol.createPairReady(nil, "Computer A", 21), Pairing.PROTOCOL },
         -- After this, time will jump 16 seconds
         { "key", 16 },  -- Cancel
     }
 
     with_stubbed_env(function()
-        Pairing.deliverToPending("secret", "zone", {
+        Pairing.deliverToPending("secret", "computer", {
             onReady = function() readyCallCount = readyCallCount + 1 end,
             onCancel = function() end,
         }, 30)
 
-        -- Zone should be added then cleaned up
-        assert_eq(1, readyCallCount, "Zone should have been detected initially")
+        -- Computer should be added then cleaned up
+        assert_eq(1, readyCallCount, "Computer should have been detected initially")
     end, {
         peripheral = {
             find = function() return { isWireless = function() return true end } end,
@@ -769,23 +769,23 @@ test("Pairing.deliverToPending navigation with up/down keys", function()
     local now = 1600000
     local sent = {}
     local events = {
-        { "rednet_message", 21, Protocol.createPairReady(nil, "Zone A", 21), Pairing.PROTOCOL },
-        { "rednet_message", 22, Protocol.createPairReady(nil, "Zone B", 22), Pairing.PROTOCOL },
-        { "key", 208 },  -- down to Zone B
-        { "key", 13 },   -- enter to select Zone B
-        { "rednet_message", 22, Protocol.createPairComplete("Zone B"), Pairing.PROTOCOL },
+        { "rednet_message", 21, Protocol.createPairReady(nil, "Computer A", 21), Pairing.PROTOCOL },
+        { "rednet_message", 22, Protocol.createPairReady(nil, "Computer B", 22), Pairing.PROTOCOL },
+        { "key", 208 },  -- down to Computer B
+        { "key", 13 },   -- enter to select Computer B
+        { "rednet_message", 22, Protocol.createPairComplete("Computer B"), Pairing.PROTOCOL },
     }
 
     with_stubbed_env(function()
-        local success, paired = Pairing.deliverToPending("secret", "zone", {
+        local success, paired = Pairing.deliverToPending("secret", "computer", {
             onCodePrompt = function() return "ABCD-EFGH" end,
         }, 10)
 
         assert_true(success)
-        assert_eq("Zone B", paired)
-        -- Should have sent to Zone B (id=22), not Zone A (id=21)
+        assert_eq("Computer B", paired)
+        -- Should have sent to Computer B (id=22), not Computer A (id=21)
         assert_eq(1, #sent)
-        assert_eq(22, sent[1].id, "Should send to Zone B after navigation")
+        assert_eq(22, sent[1].id, "Should send to Computer B after navigation")
     end, {
         peripheral = {
             find = function() return { isWireless = function() return true end } end,
@@ -819,14 +819,14 @@ test("Pairing.deliverToPending wrong code results in no response callback", func
     local now = 1700000
     local invalidReasons = {}
     local events = {
-        { "rednet_message", 21, Protocol.createPairReady(nil, "Zone A", 21), Pairing.PROTOCOL },
+        { "rednet_message", 21, Protocol.createPairReady(nil, "Computer A", 21), Pairing.PROTOCOL },
         { "key", 13 },   -- enter to select
-        -- No PAIR_COMPLETE response (zone rejected wrong code)
+        -- No PAIR_COMPLETE response (computer rejected wrong code)
         { "key", 16 },   -- cancel after timeout
     }
 
     with_stubbed_env(function()
-        local success = Pairing.deliverToPending("secret", "zone", {
+        local success = Pairing.deliverToPending("secret", "computer", {
             onCodePrompt = function() return "WRONG-CODE" end,
             onCodeInvalid = function(reason) table.insert(invalidReasons, reason) end,
             onCancel = function() end,
@@ -891,7 +891,7 @@ test("Pairing.acceptFromPocket ignores invalid signature silently", function()
         keys = { q = 16 },
         os = {
             getComputerID = function() return 12 end,
-            getComputerLabel = function() return "zone-node" end,
+            getComputerLabel = function() return "computer-node" end,
             epoch = function()
                 now = now + 100
                 return now
@@ -901,13 +901,13 @@ test("Pairing.acceptFromPocket ignores invalid signature silently", function()
                 attemptsBeforeValid = attemptsBeforeValid + 1
                 if attemptsBeforeValid == 1 then
                     -- First: attacker sends with wrong code
-                    local deliver = Protocol.createPairDeliver("attacker-secret", "zone")
+                    local deliver = Protocol.createPairDeliver("attacker-secret", "computer")
                     local wrongSigned = Crypto.wrapWith(deliver, "WRONG-CODE")
                     return "rednet_message", 99, wrongSigned, Pairing.PROTOCOL
                 elseif not delivered then
                     delivered = true
                     -- Second: legitimate pocket sends with correct code
-                    local deliver = Protocol.createPairDeliver("valid-secret", "zone")
+                    local deliver = Protocol.createPairDeliver("valid-secret", "computer")
                     local signed = Crypto.wrapWith(deliver, displayCode)
                     return "rednet_message", 44, signed, Pairing.PROTOCOL
                 end
@@ -947,7 +947,7 @@ test("Pairing.acceptFromPocket re-broadcasts every 3 seconds", function()
         keys = { q = 16 },
         os = {
             getComputerID = function() return 12 end,
-            getComputerLabel = function() return "zone-node" end,
+            getComputerLabel = function() return "computer-node" end,
             epoch = function()
                 callCount = callCount + 1
                 -- Simulate 4 seconds per timer event (triggers re-broadcast)
@@ -960,7 +960,7 @@ test("Pairing.acceptFromPocket re-broadcasts every 3 seconds", function()
                 -- After several re-broadcasts, deliver valid response
                 if callCount > 10 and not delivered then
                     delivered = true
-                    local deliver = Protocol.createPairDeliver("secret", "zone")
+                    local deliver = Protocol.createPairDeliver("secret", "computer")
                     local signed = Crypto.wrapWith(deliver, displayCode)
                     return "rednet_message", 44, signed, Pairing.PROTOCOL
                 end

@@ -73,8 +73,8 @@ test("Pocket: rednet.open fails with invalid modem name", function()
     assert_false(ok, "Should fail with invalid modem")
 end)
 
-test("Zone: peripheral.find('modem') returns wireless modem", function()
-    local env = Mocks.setupZone({id = 10, modemName = "top"})
+test("Computer: peripheral.find('modem') returns wireless modem", function()
+    local env = Mocks.setupComputer({id = 10, modemName = "top"})
 
     local modem = peripheral.find("modem")
     assert_not_nil(modem, "Should find modem")
@@ -83,8 +83,8 @@ test("Zone: peripheral.find('modem') returns wireless modem", function()
     assert_eq("top", name, "Modem should be on configured side")
 end)
 
-test("Zone: peripheral.find('monitor') returns monitor", function()
-    local env = Mocks.setupZone({id = 10, monitors = 2})
+test("Computer: peripheral.find('monitor') returns monitor", function()
+    local env = Mocks.setupComputer({id = 10, monitors = 2})
 
     local mon = peripheral.find("monitor")
     assert_not_nil(mon, "Should find monitor")
@@ -94,8 +94,8 @@ test("Zone: peripheral.find('monitor') returns monitor", function()
     assert_eq(19, h, "Default height should be 19")
 end)
 
-test("Zone: ME Bridge is attached and functional", function()
-    local env = Mocks.setupZone({id = 10})
+test("Computer: ME Bridge is attached and functional", function()
+    local env = Mocks.setupComputer({id = 10})
 
     local bridge = peripheral.find("me_bridge")
     assert_not_nil(bridge, "Should find ME Bridge")
@@ -106,24 +106,24 @@ test("Zone: ME Bridge is attached and functional", function()
 end)
 
 test("Protocol: PAIR_READY message structure is correct", function()
-    Mocks.setupZone({id = 10})
+    Mocks.setupComputer({id = 10})
 
     local Protocol = mpm("net/Protocol")
-    local ready = Protocol.createPairReady(nil, "Test Zone", 10)
+    local ready = Protocol.createPairReady(nil, "Test Computer", 10)
 
     assert_eq(Protocol.MessageType.PAIR_READY, ready.type)
-    assert_eq("Test Zone", ready.data.label)
+    assert_eq("Test Computer", ready.data.label)
     assert_eq(10, ready.data.computerId)
 end)
 
 test("Crypto: wrapWith/unwrapWith roundtrip with display code", function()
-    Mocks.setupZone({id = 10})
+    Mocks.setupComputer({id = 10})
 
     local Crypto = mpm("net/Crypto")
     local Protocol = mpm("net/Protocol")
 
     local displayCode = "ABCD-EFGH"
-    local deliver = Protocol.createPairDeliver("secret123", "zone_10")
+    local deliver = Protocol.createPairDeliver("secret123", "computer_10")
 
     local wrapped = Crypto.wrapWith(deliver, displayCode)
     assert_not_nil(wrapped.v, "Should have version")
@@ -137,7 +137,7 @@ test("Crypto: wrapWith/unwrapWith roundtrip with display code", function()
 end)
 
 test("Crypto: unwrapWith rejects wrong display code", function()
-    Mocks.setupZone({id = 10})
+    Mocks.setupComputer({id = 10})
 
     local Crypto = mpm("net/Crypto")
     local Protocol = mpm("net/Protocol")
@@ -145,7 +145,7 @@ test("Crypto: unwrapWith rejects wrong display code", function()
     local correctCode = "ABCD-EFGH"
     local wrongCode = "WXYZ-1234"
 
-    local deliver = Protocol.createPairDeliver("secret123", "zone_10")
+    local deliver = Protocol.createPairDeliver("secret123", "computer_10")
     local wrapped = Crypto.wrapWith(deliver, correctCode)
 
     local unwrapped, err = Crypto.unwrapWith(wrapped, wrongCode)
@@ -153,7 +153,7 @@ test("Crypto: unwrapWith rejects wrong display code", function()
 end)
 
 test("Pairing: generateCode produces XXXX-XXXX format", function()
-    Mocks.setupZone({id = 10})
+    Mocks.setupComputer({id = 10})
 
     local Pairing = mpm("net/Pairing")
     local code = Pairing.generateCode()
@@ -171,15 +171,15 @@ test("Pairing: generateCode produces XXXX-XXXX format", function()
     end
 end)
 
-test("Full flow: Zone broadcasts PAIR_READY on rednet", function()
-    local env = Mocks.setupZone({id = 10, modemName = "top"})
+test("Full flow: Computer broadcasts PAIR_READY on rednet", function()
+    local env = Mocks.setupComputer({id = 10, modemName = "top"})
 
     local Protocol = mpm("net/Protocol")
     local Pairing = mpm("net/Pairing")
 
     rednet.open("top")
 
-    local ready = Protocol.createPairReady(nil, "Test Zone", 10)
+    local ready = Protocol.createPairReady(nil, "Test Computer", 10)
     rednet.broadcast(ready, Pairing.PROTOCOL)
 
     local log = rednet._getBroadcastLog()
@@ -195,33 +195,33 @@ test("Full flow: Pocket receives PAIR_READY and sends signed PAIR_DELIVER", func
     local Crypto = mpm("net/Crypto")
     local Pairing = mpm("net/Pairing")
 
-    -- Zone sends PAIR_READY
-    local zoneId = 10
-    local ready = Protocol.createPairReady(nil, "Test Zone", zoneId)
-    rednet._queueMessage(zoneId, ready, Pairing.PROTOCOL)
+    -- Computer sends PAIR_READY
+    local targetId = 10
+    local ready = Protocol.createPairReady(nil, "Test Computer", targetId)
+    rednet._queueMessage(targetId, ready, Pairing.PROTOCOL)
 
     -- Pocket opens modem and receives
     rednet.open("back")
     local sender, msg, protocol = rednet.receive(Pairing.PROTOCOL, 1)
 
-    assert_eq(zoneId, sender, "Should receive from zone")
+    assert_eq(targetId, sender, "Should receive from computer")
     assert_eq(Protocol.MessageType.PAIR_READY, msg.type)
 
     -- Pocket sends signed PAIR_DELIVER
     local displayCode = "TEST-CODE"
-    local deliver = Protocol.createPairDeliver("swarm_secret_xyz", "zone_10")
+    local deliver = Protocol.createPairDeliver("swarm_secret_xyz", "computer_10")
     local signed = Crypto.wrapWith(deliver, displayCode)
 
-    rednet.send(zoneId, signed, Pairing.PROTOCOL)
+    rednet.send(targetId, signed, Pairing.PROTOCOL)
 
     local sendLog = rednet._getSendLog()
     assert_eq(1, #sendLog, "Should have one send")
-    assert_eq(zoneId, sendLog[1].recipient)
+    assert_eq(targetId, sendLog[1].recipient)
     assert_not_nil(sendLog[1].message.s, "Message should be signed")
 end)
 
-test("Full flow: Zone verifies PAIR_DELIVER with display code", function()
-    local env = Mocks.setupZone({id = 10})
+test("Full flow: Computer verifies PAIR_DELIVER with display code", function()
+    local env = Mocks.setupComputer({id = 10})
 
     local Protocol = mpm("net/Protocol")
     local Crypto = mpm("net/Crypto")
@@ -231,17 +231,17 @@ test("Full flow: Zone verifies PAIR_DELIVER with display code", function()
     local pocketId = 1
 
     -- Pocket sends signed PAIR_DELIVER
-    local deliver = Protocol.createPairDeliver("swarm_secret_xyz", "zone_10")
+    local deliver = Protocol.createPairDeliver("swarm_secret_xyz", "computer_10")
     deliver.data.credentials = {
         swarmSecret = "swarm_secret_xyz",
-        zoneId = "zone_10",
+        computerId = "computer_10",
         swarmFingerprint = "FP-TEST-001"
     }
     local signed = Crypto.wrapWith(deliver, displayCode)
 
     rednet._queueMessage(pocketId, signed, Pairing.PROTOCOL)
 
-    -- Zone receives and verifies
+    -- Computer receives and verifies
     rednet.open("top")
     local sender, envelope, protocol = rednet.receive(Pairing.PROTOCOL, 1)
 
@@ -256,12 +256,12 @@ test("Full flow: Zone verifies PAIR_DELIVER with display code", function()
     -- Extract credentials
     local creds = unwrapped.data.credentials
     assert_eq("swarm_secret_xyz", creds.swarmSecret)
-    assert_eq("zone_10", creds.zoneId)
+    assert_eq("computer_10", creds.computerId)
     assert_eq("FP-TEST-001", creds.swarmFingerprint)
 end)
 
 test("Security: Attacker cannot forge PAIR_DELIVER without display code", function()
-    local env = Mocks.setupZone({id = 10})
+    local env = Mocks.setupComputer({id = 10})
 
     local Protocol = mpm("net/Protocol")
     local Crypto = mpm("net/Crypto")
@@ -270,10 +270,10 @@ test("Security: Attacker cannot forge PAIR_DELIVER without display code", functi
     local attackerCode = "FAKE-CODE"
 
     -- Attacker tries to send PAIR_DELIVER signed with wrong code
-    local maliciousDeliver = Protocol.createPairDeliver("attacker_secret", "zone_10")
+    local maliciousDeliver = Protocol.createPairDeliver("attacker_secret", "computer_10")
     local attackerSigned = Crypto.wrapWith(maliciousDeliver, attackerCode)
 
-    -- Zone tries to verify with real display code
+    -- Computer tries to verify with real display code
     local result, err = Crypto.unwrapWith(attackerSigned, realCode)
     assert_true(result == nil, "Should reject message signed with wrong code")
 end)

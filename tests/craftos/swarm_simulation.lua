@@ -1,5 +1,5 @@
 -- Swarm Simulation Test
--- Simulates a complete pairing flow between pocket and zone computers
+-- Simulates a complete pairing flow between pocket and swarm computers
 -- Uses parallel coroutines to simulate concurrent execution
 
 local WORKSPACE = "/workspace"
@@ -120,13 +120,13 @@ end
 -- SIMULATED COMPUTERS
 -- =============================================================================
 
-local function createZoneComputer(id, name, displayCode, swarmSecret)
+local function createSwarmComputer(id, name, displayCode, swarmSecret)
     return {
         id = id,
         name = name,
         displayCode = displayCode,
         receivedSecret = nil,
-        receivedZoneId = nil,
+        receivedComputerId = nil,
         state = "idle",
 
         run = function(self)
@@ -154,10 +154,10 @@ local function createZoneComputer(id, name, displayCode, swarmSecret)
                         local creds = unwrapped.data and unwrapped.data.credentials
                         if creds then
                             self.receivedSecret = creds.swarmSecret
-                            self.receivedZoneId = creds.zoneId
+                            self.receivedComputerId = creds.computerId
                         else
                             self.receivedSecret = unwrapped.data and unwrapped.data.secret
-                            self.receivedZoneId = unwrapped.data and unwrapped.data.zoneId
+                            self.receivedComputerId = unwrapped.data and unwrapped.data.computerId
                         end
 
                         -- Send PAIR_COMPLETE
@@ -182,20 +182,20 @@ local function createPocketComputer(id, swarmSecret)
     return {
         id = id,
         swarmSecret = swarmSecret,
-        discoveredZones = {},
-        pairedZone = nil,
+        discoveredComputers = {},
+        pairedComputer = nil,
         state = "idle",
 
-        run = function(self, targetZoneId, displayCode)
+        run = function(self, targetComputerId, displayCode)
             self.state = "discovering"
 
-            -- Wait for PAIR_READY from zones
+            -- Wait for PAIR_READY from computers
             local deadline = os.clock() + 0.2
             while os.clock() < deadline do
                 local sender, message, protocol = MessageBus.receive(self.id, Pairing.PROTOCOL, 0.01)
 
                 if message and message.type == Protocol.MessageType.PAIR_READY then
-                    self.discoveredZones[sender] = {
+                    self.discoveredComputers[sender] = {
                         id = sender,
                         label = message.data.label,
                         computerId = message.data.computerId
@@ -205,34 +205,34 @@ local function createPocketComputer(id, swarmSecret)
                 coroutine.yield()
             end
 
-            -- Find target zone
-            local targetZone = self.discoveredZones[targetZoneId]
-            if not targetZone then
-                self.state = "zone_not_found"
+            -- Find target computer
+            local targetComputer = self.discoveredComputers[targetComputerId]
+            if not targetComputer then
+                self.state = "computer_not_found"
                 return false
             end
 
             self.state = "pairing"
 
             -- Create and sign PAIR_DELIVER
-            local deliver = Protocol.createPairDeliver(self.swarmSecret, "zone_" .. targetZoneId)
+            local deliver = Protocol.createPairDeliver(self.swarmSecret, "computer_" .. targetComputerId)
             deliver.data.credentials = {
                 swarmSecret = self.swarmSecret,
-                zoneId = "zone_" .. targetZoneId,
+                computerId = "computer_" .. targetComputerId,
                 swarmFingerprint = "SIM-" .. self.id
             }
             local signedDeliver = Crypto.wrapWith(deliver, displayCode)
 
-            -- Send to zone
-            MessageBus.send(self.id, targetZoneId, signedDeliver, Pairing.PROTOCOL)
+            -- Send to target computer
+            MessageBus.send(self.id, targetComputerId, signedDeliver, Pairing.PROTOCOL)
 
             -- Wait for PAIR_COMPLETE
             deadline = os.clock() + 0.3
             while os.clock() < deadline do
                 local sender, message, protocol = MessageBus.receive(self.id, Pairing.PROTOCOL, 0.01)
 
-                if sender == targetZoneId and message and message.type == Protocol.MessageType.PAIR_COMPLETE then
-                    self.pairedZone = targetZone
+                if sender == targetComputerId and message and message.type == Protocol.MessageType.PAIR_COMPLETE then
+                    self.pairedComputer = targetComputer
                     self.state = "paired"
                     return true
                 end
@@ -255,17 +255,17 @@ term.setCursorPos(1, 1)
 print("=== Swarm Simulation Tests ===")
 print("")
 
-test("Single zone-pocket pairing succeeds", function()
+test("Single computer-pocket pairing succeeds", function()
     MessageBus.reset()
 
     local displayCode = "ABCD-1234"
     local swarmSecret = Crypto.generateSecret()
 
-    local zone = createZoneComputer(10, "Zone Alpha", displayCode, swarmSecret)
+    local comp = createSwarmComputer(10, "Computer Alpha", displayCode, swarmSecret)
     local pocket = createPocketComputer(1, swarmSecret)
 
     -- Run both in parallel using coroutines
-    local zoneRoutine = coroutine.create(function() return zone:run() end)
+    local compRoutine = coroutine.create(function() return comp:run() end)
     local pocketRoutine = coroutine.create(function() return pocket:run(10, displayCode) end)
 
     local maxIterations = 500
@@ -274,15 +274,15 @@ test("Single zone-pocket pairing succeeds", function()
     while iterations < maxIterations do
         iterations = iterations + 1
 
-        if coroutine.status(zoneRoutine) ~= "dead" then
-            coroutine.resume(zoneRoutine)
+        if coroutine.status(compRoutine) ~= "dead" then
+            coroutine.resume(compRoutine)
         end
 
         if coroutine.status(pocketRoutine) ~= "dead" then
             coroutine.resume(pocketRoutine)
         end
 
-        if coroutine.status(zoneRoutine) == "dead" and
+        if coroutine.status(compRoutine) == "dead" and
            coroutine.status(pocketRoutine) == "dead" then
             break
         end
@@ -290,10 +290,10 @@ test("Single zone-pocket pairing succeeds", function()
         sleep(0.001)
     end
 
-    assert_eq("paired", zone.state, "Zone should be paired")
+    assert_eq("paired", comp.state, "Computer should be paired")
     assert_eq("paired", pocket.state, "Pocket should be paired")
-    assert_eq(swarmSecret, zone.receivedSecret, "Zone should receive correct secret")
-    assert_eq("zone_10", zone.receivedZoneId, "Zone should receive correct zoneId")
+    assert_eq(swarmSecret, comp.receivedSecret, "Computer should receive correct secret")
+    assert_eq("computer_10", comp.receivedComputerId, "Computer should receive correct computerId")
 end)
 
 test("Wrong display code fails pairing", function()
@@ -303,10 +303,10 @@ test("Wrong display code fails pairing", function()
     local wrongCode = "FAKE-CODE"
     local swarmSecret = Crypto.generateSecret()
 
-    local zone = createZoneComputer(20, "Zone Beta", correctCode, swarmSecret)
+    local comp = createSwarmComputer(20, "Computer Beta", correctCode, swarmSecret)
     local pocket = createPocketComputer(2, swarmSecret)
 
-    local zoneRoutine = coroutine.create(function() return zone:run() end)
+    local compRoutine = coroutine.create(function() return comp:run() end)
     local pocketRoutine = coroutine.create(function() return pocket:run(20, wrongCode) end)
 
     local maxIterations = 500
@@ -315,14 +315,14 @@ test("Wrong display code fails pairing", function()
     while iterations < maxIterations do
         iterations = iterations + 1
 
-        if coroutine.status(zoneRoutine) ~= "dead" then
-            coroutine.resume(zoneRoutine)
+        if coroutine.status(compRoutine) ~= "dead" then
+            coroutine.resume(compRoutine)
         end
         if coroutine.status(pocketRoutine) ~= "dead" then
             coroutine.resume(pocketRoutine)
         end
 
-        if coroutine.status(zoneRoutine) == "dead" and
+        if coroutine.status(compRoutine) == "dead" and
            coroutine.status(pocketRoutine) == "dead" then
             break
         end
@@ -330,29 +330,29 @@ test("Wrong display code fails pairing", function()
         sleep(0.001)
     end
 
-    -- Zone should timeout (wrong code signature fails)
-    assert_eq("timeout", zone.state, "Zone should timeout with wrong code")
-    assert_true(zone.receivedSecret == nil, "Zone should not receive secret")
+    -- Computer should timeout (wrong code signature fails)
+    assert_eq("timeout", comp.state, "Computer should timeout with wrong code")
+    assert_true(comp.receivedSecret == nil, "Computer should not receive secret")
 end)
 
-test("Multiple zones discovered by pocket", function()
+test("Multiple computers discovered by pocket", function()
     MessageBus.reset()
 
     local swarmSecret = Crypto.generateSecret()
 
-    local zone1 = createZoneComputer(30, "Zone One", "CODE-0001", swarmSecret)
-    local zone2 = createZoneComputer(31, "Zone Two", "CODE-0002", swarmSecret)
-    local zone3 = createZoneComputer(32, "Zone Three", "CODE-0003", swarmSecret)
+    local comp1 = createSwarmComputer(30, "Computer One", "CODE-0001", swarmSecret)
+    local comp2 = createSwarmComputer(31, "Computer Two", "CODE-0002", swarmSecret)
+    local comp3 = createSwarmComputer(32, "Computer Three", "CODE-0003", swarmSecret)
     local pocket = createPocketComputer(3, swarmSecret)
 
-    -- Start all zones broadcasting
+    -- Start all computers broadcasting
     local routines = {
-        coroutine.create(function() return zone1:run() end),
-        coroutine.create(function() return zone2:run() end),
-        coroutine.create(function() return zone3:run() end),
+        coroutine.create(function() return comp1:run() end),
+        coroutine.create(function() return comp2:run() end),
+        coroutine.create(function() return comp3:run() end),
     }
 
-    -- Let zones broadcast
+    -- Let computers broadcast
     for i = 1, 30 do
         for _, r in ipairs(routines) do
             if coroutine.status(r) ~= "dead" then
@@ -362,14 +362,14 @@ test("Multiple zones discovered by pocket", function()
         sleep(0.001)
     end
 
-    -- Pocket discovers zones (but doesn't pair)
+    -- Pocket discovers computers (but doesn't pair)
     local pocketRoutine = coroutine.create(function()
         pocket.state = "discovering"
         local deadline = os.clock() + 0.1
         while os.clock() < deadline do
             local sender, message, protocol = MessageBus.receive(pocket.id, Pairing.PROTOCOL, 0.01)
             if message and message.type == Protocol.MessageType.PAIR_READY then
-                pocket.discoveredZones[sender] = {
+                pocket.discoveredComputers[sender] = {
                     id = sender,
                     label = message.data.label
                 }
@@ -390,31 +390,31 @@ test("Multiple zones discovered by pocket", function()
 
     -- Check discovery
     local count = 0
-    for _ in pairs(pocket.discoveredZones) do count = count + 1 end
+    for _ in pairs(pocket.discoveredComputers) do count = count + 1 end
 
-    assert_eq(3, count, "Pocket should discover 3 zones")
-    assert_not_nil(pocket.discoveredZones[30], "Should find Zone One")
-    assert_not_nil(pocket.discoveredZones[31], "Should find Zone Two")
-    assert_not_nil(pocket.discoveredZones[32], "Should find Zone Three")
+    assert_eq(3, count, "Pocket should discover 3 computers")
+    assert_not_nil(pocket.discoveredComputers[30], "Should find Computer One")
+    assert_not_nil(pocket.discoveredComputers[31], "Should find Computer Two")
+    assert_not_nil(pocket.discoveredComputers[32], "Should find Computer Three")
 end)
 
-test("Pocket pairs with second zone after selecting", function()
+test("Pocket pairs with second computer after selecting", function()
     MessageBus.reset()
 
     local swarmSecret = Crypto.generateSecret()
-    local targetCode = "ZONE-TWO!"
+    local targetCode = "COMP-TWO!"
 
-    local zone1 = createZoneComputer(40, "Zone A", "ZONE-ONE!", swarmSecret)
-    local zone2 = createZoneComputer(41, "Zone B", targetCode, swarmSecret)
+    local comp1 = createSwarmComputer(40, "Computer A", "COMP-ONE!", swarmSecret)
+    local comp2 = createSwarmComputer(41, "Computer B", targetCode, swarmSecret)
     local pocket = createPocketComputer(4, swarmSecret)
 
     local routines = {
-        coroutine.create(function() return zone1:run() end),
-        coroutine.create(function() return zone2:run() end),
-        coroutine.create(function() return pocket:run(41, targetCode) end),  -- Target zone 41
+        coroutine.create(function() return comp1:run() end),
+        coroutine.create(function() return comp2:run() end),
+        coroutine.create(function() return pocket:run(41, targetCode) end),  -- Target computer 41
     }
 
-    local maxIterations = 600  -- Zone 1 needs 0.5s timeout = 500+ iterations
+    local maxIterations = 600  -- Computer 1 needs 0.5s timeout = 500+ iterations
     local iterations = 0
 
     while iterations < maxIterations do
@@ -438,11 +438,11 @@ test("Pocket pairs with second zone after selecting", function()
         sleep(0.001)
     end
 
-    -- Zone 2 should be paired (correct code), Zone 1 should timeout
-    assert_eq("timeout", zone1.state, "Zone 1 should timeout (not selected)")
-    assert_eq("paired", zone2.state, "Zone 2 should be paired")
+    -- Computer 2 should be paired (correct code), Computer 1 should timeout
+    assert_eq("timeout", comp1.state, "Computer 1 should timeout (not selected)")
+    assert_eq("paired", comp2.state, "Computer 2 should be paired")
     assert_eq("paired", pocket.state, "Pocket should be paired")
-    assert_eq(swarmSecret, zone2.receivedSecret, "Zone 2 should receive secret")
+    assert_eq(swarmSecret, comp2.receivedSecret, "Computer 2 should receive secret")
 end)
 
 test("Credential structure matches SwarmAuthority format", function()
@@ -451,30 +451,30 @@ test("Credential structure matches SwarmAuthority format", function()
     local displayCode = "CRED-TEST"
     local swarmSecret = Crypto.generateSecret()
 
-    local zone = createZoneComputer(50, "Cred Zone", displayCode, swarmSecret)
+    local comp = createSwarmComputer(50, "Cred Computer", displayCode, swarmSecret)
     local pocket = createPocketComputer(5, swarmSecret)
 
-    local zoneRoutine = coroutine.create(function() return zone:run() end)
+    local compRoutine = coroutine.create(function() return comp:run() end)
     local pocketRoutine = coroutine.create(function() return pocket:run(50, displayCode) end)
 
     local maxIterations = 500
     for i = 1, maxIterations do
-        if coroutine.status(zoneRoutine) ~= "dead" then
-            coroutine.resume(zoneRoutine)
+        if coroutine.status(compRoutine) ~= "dead" then
+            coroutine.resume(compRoutine)
         end
         if coroutine.status(pocketRoutine) ~= "dead" then
             coroutine.resume(pocketRoutine)
         end
-        if coroutine.status(zoneRoutine) == "dead" and
+        if coroutine.status(compRoutine) == "dead" and
            coroutine.status(pocketRoutine) == "dead" then
             break
         end
         sleep(0.001)
     end
 
-    assert_eq("paired", zone.state)
-    assert_eq(swarmSecret, zone.receivedSecret)
-    assert_eq("zone_50", zone.receivedZoneId)
+    assert_eq("paired", comp.state)
+    assert_eq(swarmSecret, comp.receivedSecret)
+    assert_eq("computer_50", comp.receivedComputerId)
 end)
 
 -- =============================================================================

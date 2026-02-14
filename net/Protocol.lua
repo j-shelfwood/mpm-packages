@@ -15,9 +15,9 @@ Protocol.MessageType = {
     ANNOUNCE = "announce",
     DISCOVER = "discover",
 
-    -- Zone coordination
-    ZONE_STATUS = "zone_status",
-    ZONE_LIST = "zone_list",
+    -- Computer coordination
+    COMPUTER_STATUS = "computer_status",
+    COMPUTER_LIST = "computer_list",
 
     -- View management
     GET_VIEWS = "get_views",
@@ -31,12 +31,12 @@ Protocol.MessageType = {
     SET_CONFIG = "set_config",
     CONFIG_UPDATED = "config_updated",
 
-    -- Input relay (pocket → zone)
+    -- Input relay (pocket → computer)
     INPUT_REQUEST = "input_request",
     INPUT_RESPONSE = "input_response",
     INPUT_CANCEL = "input_cancel",
 
-    -- Alerts (zone → pocket)
+    -- Alerts (computer → pocket)
     ALERT = "alert",
     ALERT_ACK = "alert_ack",
 
@@ -55,6 +55,7 @@ Protocol.MessageType = {
     PAIR_REJECT = "pair_reject",            -- Either direction: pairing cancelled
 
     -- System
+    REBOOT = "reboot",                      -- Pocket → All: reboot swarm computers
     ERROR = "error",
     OK = "ok"
 }
@@ -117,35 +118,35 @@ function Protocol.createError(request, errorMessage)
 end
 
 -- Create a ping message
--- @param zoneId This zone's ID
+-- @param computerId This computer's ID
 -- @return Ping message
-function Protocol.createPing(zoneId)
+function Protocol.createPing(computerId)
     return Protocol.createMessage(Protocol.MessageType.PING, {
-        zoneId = zoneId
+        computerId = computerId
     })
 end
 
 -- Create a pong response
 -- @param ping The ping message
--- @param zoneId This zone's ID
--- @param zoneName This zone's name
+-- @param computerId This computer's ID
+-- @param computerName This computer's name
 -- @return Pong message
-function Protocol.createPong(ping, zoneId, zoneName)
+function Protocol.createPong(ping, computerId, computerName)
     return Protocol.createResponse(ping, Protocol.MessageType.PONG, {
-        zoneId = zoneId,
-        zoneName = zoneName
+        computerId = computerId,
+        computerName = computerName
     })
 end
 
--- Create an announce message (zone advertising itself)
--- @param zoneId Zone ID
--- @param zoneName Zone name
+-- Create an announce message (computer advertising itself)
+-- @param computerId Computer ID
+-- @param computerName Computer name
 -- @param monitors Array of monitor info
 -- @return Announce message
-function Protocol.createAnnounce(zoneId, zoneName, monitors)
+function Protocol.createAnnounce(computerId, computerName, monitors)
     return Protocol.createMessage(Protocol.MessageType.ANNOUNCE, {
-        zoneId = zoneId,
-        zoneName = zoneName,
+        computerId = computerId,
+        computerName = computerName,
         monitors = monitors or {}
     })
 end
@@ -154,7 +155,7 @@ end
 -- @param level Alert level from Protocol.AlertLevel
 -- @param title Alert title
 -- @param message Alert message
--- @param source Source zone/monitor
+-- @param source Source computer/monitor
 -- @return Alert message
 function Protocol.createAlert(level, title, message, source)
     return Protocol.createMessage(Protocol.MessageType.ALERT, {
@@ -165,7 +166,7 @@ function Protocol.createAlert(level, title, message, source)
     })
 end
 
--- Create an input request (zone asking pocket for text input)
+-- Create an input request (computer asking pocket for text input)
 -- @param field Field name
 -- @param fieldType Field type (string, number)
 -- @param currentValue Current value
@@ -252,12 +253,13 @@ function Protocol.createPeriphList(request, peripherals)
 end
 
 -- Create peripheral announcement (broadcast)
--- @param zoneId Zone identifier
+-- @param computerId Computer identifier
+-- @param computerName Computer name
 -- @param peripherals Array of {name, type, methods}
-function Protocol.createPeriphAnnounce(zoneId, zoneName, peripherals)
+function Protocol.createPeriphAnnounce(computerId, computerName, peripherals)
     return Protocol.createMessage(Protocol.MessageType.PERIPH_ANNOUNCE, {
-        zoneId = zoneId,
-        zoneName = zoneName,
+        computerId = computerId,
+        computerName = computerName,
         peripherals = peripherals
     })
 end
@@ -297,6 +299,12 @@ function Protocol.isResponse(msg)
     return msg.requestId ~= nil
 end
 
+-- Create a reboot command (broadcast to all swarm computers)
+-- @return Reboot message
+function Protocol.createReboot()
+    return Protocol.createMessage(Protocol.MessageType.REBOOT, {})
+end
+
 -- ============================================================================
 -- Pocket Pairing Messages (bootstrap without crypto)
 -- ============================================================================
@@ -317,14 +325,14 @@ function Protocol.createPairReady(token, computerLabel, computerId)
 end
 
 -- Create pair deliver message (pocket sends swarm secret to computer)
--- Note: The message is signed with the display code shown on the zone's screen
+-- Note: The message is signed with the display code shown on the computer's screen
 -- @param secret The swarm secret
--- @param zoneId Zone ID for the new member
+-- @param computerId Computer ID for the new member
 -- @return Pair deliver message
-function Protocol.createPairDeliver(secret, zoneId)
+function Protocol.createPairDeliver(secret, computerId)
     return Protocol.createMessage(Protocol.MessageType.PAIR_DELIVER, {
         secret = secret,
-        zoneId = zoneId
+        computerId = computerId
     })
 end
 

@@ -111,7 +111,7 @@ function TermUI.drawMenuItem(y, key, label, opts)
     term.setTextColor(labelColor)
     term.write(" " .. label)
 
-    -- Optional badge (e.g., zone count)
+    -- Optional badge (e.g., computer count)
     if badge then
         term.setTextColor(colors.lightGray)
         term.write("  " .. badge)

@@ -1,5 +1,5 @@
 -- Discovery.lua
--- Service advertisement and discovery for ShelfOS zones
+-- Service advertisement and discovery for ShelfOS computers
 
 local Channel = mpm('net/Channel')
 local Protocol = mpm('net/Protocol')
@@ -14,21 +14,21 @@ function Discovery.new(channel)
     local self = setmetatable({}, Discovery)
     self.channel = channel
     self.ownsChannel = false
-    self.zoneId = nil
-    self.zoneName = nil
-    self.knownZones = {}
+    self.computerId = nil
+    self.computerName = nil
+    self.knownComputers = {}
     self.lastAnnounce = 0
     self.announceInterval = 30000  -- 30 seconds
 
     return self
 end
 
--- Initialize with zone identity
--- @param zoneId Unique zone identifier
--- @param zoneName Human-readable zone name
-function Discovery:setIdentity(zoneId, zoneName)
-    self.zoneId = zoneId
-    self.zoneName = zoneName
+-- Initialize with computer identity
+-- @param computerId Unique computer identifier
+-- @param computerName Human-readable computer name
+function Discovery:setIdentity(computerId, computerName)
+    self.computerId = computerId
+    self.computerName = computerName
 end
 
 -- Start discovery service (opens channel if needed)
@@ -63,10 +63,10 @@ function Discovery:stop()
     end
 end
 
--- Handle zone announcement (rich metadata from peers)
+-- Handle computer announcement (rich metadata from peers)
 function Discovery:handleAnnounce(senderId, msg)
-    if msg.data and msg.data.zoneId then
-        self:registerZone(senderId, msg.data.zoneId, msg.data.zoneName, msg.data.monitors)
+    if msg.data and msg.data.computerId then
+        self:registerComputer(senderId, msg.data.computerId, msg.data.computerName, msg.data.monitors)
     end
 end
 
@@ -76,39 +76,39 @@ function Discovery:handleDiscover(senderId, msg)
     self:announce()
 end
 
--- Register a discovered zone
-function Discovery:registerZone(computerId, zoneId, zoneName, monitors)
-    self.knownZones[zoneId] = {
+-- Register a discovered computer
+function Discovery:registerComputer(ccId, computerId, computerName, monitors)
+    self.knownComputers[computerId] = {
+        ccId = ccId,
         computerId = computerId,
-        zoneId = zoneId,
-        zoneName = zoneName or zoneId,
+        computerName = computerName or computerId,
         monitors = monitors or {},
         lastSeen = os.epoch("utc")
     }
 end
 
--- Announce this zone's presence
+-- Announce this computer's presence
 function Discovery:announce(monitors)
-    if not self.zoneId or not self.channel then return end
+    if not self.computerId or not self.channel then return end
 
-    local msg = Protocol.createAnnounce(self.zoneId, self.zoneName, monitors)
+    local msg = Protocol.createAnnounce(self.computerId, self.computerName, monitors)
     self.channel:broadcast(msg)
     self.lastAnnounce = os.epoch("utc")
 end
 
--- Discover other zones using broadcast + poll
--- Note: rednet.lookup requires zones to have called rednet.host() which only
--- happens after network init. New zones may not be in the lookup yet, so we
--- always broadcast DISCOVER to catch recently-joined zones.
+-- Discover other computers using broadcast + poll
+-- Note: rednet.lookup requires computers to have called rednet.host() which only
+-- happens after network init. New computers may not be in the lookup yet, so we
+-- always broadcast DISCOVER to catch recently-joined computers.
 -- @param timeout How long to wait for responses
--- @return Array of discovered zones
+-- @return Array of discovered computers
 function Discovery:discover(timeout)
     timeout = timeout or 3
 
     -- Request rich metadata from all swarm members
     local discoverMsg = Protocol.createMessage(Protocol.MessageType.DISCOVER, {
-        zoneId = self.zoneId,
-        zoneName = self.zoneName
+        computerId = self.computerId,
+        computerName = self.computerName
     })
 
     -- Broadcast discover request (peers will respond with ANNOUNCE)
@@ -123,28 +123,28 @@ function Discovery:discover(timeout)
         end
     end
 
-    -- Return known zones (populated by ANNOUNCE responses)
-    return self:getZones()
+    -- Return known computers (populated by ANNOUNCE responses)
+    return self:getComputers()
 end
 
--- Get list of known zones
-function Discovery:getZones()
-    local zones = {}
+-- Get list of known computers
+function Discovery:getComputers()
+    local computers = {}
     local now = os.epoch("utc")
     local maxAge = 120000  -- 2 minutes
 
-    for id, zone in pairs(self.knownZones) do
-        if now - zone.lastSeen < maxAge then
-            table.insert(zones, zone)
+    for id, computer in pairs(self.knownComputers) do
+        if now - computer.lastSeen < maxAge then
+            table.insert(computers, computer)
         end
     end
 
-    return zones
+    return computers
 end
 
--- Get a specific zone by ID
-function Discovery:getZone(zoneId)
-    return self.knownZones[zoneId]
+-- Get a specific computer by ID
+function Discovery:getComputer(computerId)
+    return self.knownComputers[computerId]
 end
 
 -- Check if should re-announce (for periodic announcements)
@@ -152,26 +152,26 @@ function Discovery:shouldAnnounce()
     return os.epoch("utc") - self.lastAnnounce > self.announceInterval
 end
 
--- Clean up stale zones
+-- Clean up stale computers
 function Discovery:cleanup()
     local now = os.epoch("utc")
     local maxAge = 300000  -- 5 minutes
 
-    for id, zone in pairs(self.knownZones) do
-        if now - zone.lastSeen > maxAge then
-            self.knownZones[id] = nil
+    for id, computer in pairs(self.knownComputers) do
+        if now - computer.lastSeen > maxAge then
+            self.knownComputers[id] = nil
         end
     end
 end
 
--- Lookup zones by name (partial match)
+-- Lookup computers by name (partial match)
 function Discovery:findByName(namePattern)
     local results = {}
     local pattern = namePattern:lower()
 
-    for _, zone in pairs(self.knownZones) do
-        if zone.zoneName:lower():find(pattern) then
-            table.insert(results, zone)
+    for _, computer in pairs(self.knownComputers) do
+        if computer.computerName:lower():find(pattern) then
+            table.insert(results, computer)
         end
     end
 

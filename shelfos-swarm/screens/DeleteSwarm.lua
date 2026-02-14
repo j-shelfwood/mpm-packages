@@ -27,7 +27,7 @@ function DeleteSwarm.draw(ctx)
     y = y + 1
 
     local swarmName = info and info.name or "Unknown"
-    local zoneCount = info and info.zoneCount or 0
+    local computerCount = info and info.computerCount or 0
 
     term.setCursorPos(2, y)
     term.setTextColor(colors.lightGray)
@@ -38,7 +38,7 @@ function DeleteSwarm.draw(ctx)
 
     term.setCursorPos(2, y)
     term.setTextColor(colors.lightGray)
-    term.write("  * " .. zoneCount .. " registered zone(s)")
+    term.write("  * " .. computerCount .. " registered computer(s)")
     y = y + 1
 
     term.setCursorPos(2, y)
@@ -46,7 +46,7 @@ function DeleteSwarm.draw(ctx)
     term.write("  * All credentials")
     y = y + 2
 
-    TermUI.drawWrapped(y, "Zones will need to re-pair after deletion.", colors.gray, 2, 2)
+    TermUI.drawWrapped(y, "Computers will need to re-pair after deletion.", colors.gray, 2, 2)
 
     -- Footer with Y/N
     local w, h = TermUI.getSize()

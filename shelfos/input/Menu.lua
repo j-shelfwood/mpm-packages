@@ -127,7 +127,7 @@ function Menu.showLink(config, target)
     target = target or term.current()
 
     local options = {}
-    -- Check if zone is in swarm (has secret)
+    -- Check if computer is in swarm (has secret)
     local isInSwarm = config.network and config.network.secret ~= nil
 
     if isInSwarm then

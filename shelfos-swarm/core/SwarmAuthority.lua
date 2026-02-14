@@ -1,12 +1,12 @@
 -- SwarmAuthority.lua
 -- Central authority for swarm management
--- The pocket computer acts as the "queen" - all zones must register with it
+-- The pocket computer acts as the "queen" - all computers must register with it
 --
 -- Responsibilities:
 -- - Generate and store swarm identity
--- - Maintain zone registry
--- - Issue zone credentials during pairing
--- - Revoke compromised zones
+-- - Maintain computer registry
+-- - Issue computer credentials during pairing
+-- - Revoke compromised computers
 
 local Registry = mpm('crypto/Registry')
 local KeyPair = mpm('crypto/KeyPair')
@@ -49,7 +49,7 @@ end
 function SwarmAuthority:createSwarm(swarmName)
     -- Generate swarm identity
     local swarmId = "swarm_" .. os.getComputerID() .. "_" .. os.epoch("utc")
-    local secret = self.registry:generateZoneSecret()
+    local secret = self.registry:generateSecret()
     local fingerprint = KeyPair.fingerprint(secret)
 
     self.identity = {
@@ -132,25 +132,25 @@ function SwarmAuthority:getInfo()
         name = self.identity.name,
         fingerprint = self.identity.fingerprint,
         pocketId = self.identity.pocketId,
-        zoneCount = self.registry:countActive()
+        computerCount = self.registry:countActive()
     }
 end
 
--- Generate credentials for a new zone
--- Called during pairing when zone is verified
--- @param zoneId Zone identifier
--- @param zoneLabel Human-readable label
--- @return credentials table { zoneSecret, swarmId, swarmFingerprint }
-function SwarmAuthority:issueCredentials(zoneId, zoneLabel)
+-- Generate credentials for a new computer
+-- Called during pairing when computer is verified
+-- @param computerId Computer identifier
+-- @param computerLabel Human-readable label
+-- @return credentials table { computerSecret, swarmId, swarmFingerprint }
+function SwarmAuthority:issueCredentials(computerId, computerLabel)
     if not self.initialized then
         return nil, "Swarm not initialized"
     end
 
-    -- Generate unique secret for this zone
-    local zoneSecret = self.registry:generateZoneSecret()
+    -- Generate unique secret for this computer
+    local computerSecret = self.registry:generateSecret()
 
     -- Add to registry
-    local entry, err = self.registry:add(zoneId, zoneLabel, zoneSecret)
+    local entry, err = self.registry:add(computerId, computerLabel, computerSecret)
     if not entry then
         return nil, err
     end
@@ -158,72 +158,72 @@ function SwarmAuthority:issueCredentials(zoneId, zoneLabel)
     -- Save registry
     self:save()
 
-    -- Return credentials for zone
+    -- Return credentials for computer
     return {
-        zoneId = zoneId,
-        zoneSecret = zoneSecret,
+        computerId = computerId,
+        computerSecret = computerSecret,
         swarmId = self.identity.id,
-        swarmSecret = self.identity.secret,  -- Zone needs this to verify pocket messages
+        swarmSecret = self.identity.secret,  -- Computer needs this to verify pocket messages
         swarmFingerprint = self.identity.fingerprint
     }
 end
 
--- Get secret for a zone (for message verification)
--- @param zoneId Zone identifier
+-- Get secret for a computer (for message verification)
+-- @param computerId Computer identifier
 -- @return secret or nil
-function SwarmAuthority:getZoneSecret(zoneId)
-    return self.registry:getSecret(zoneId)
+function SwarmAuthority:getComputerSecret(computerId)
+    return self.registry:getSecret(computerId)
 end
 
 -- Create lookup function for Envelope.unwrap
 -- @return function(senderId) -> secret
 function SwarmAuthority:getSecretLookup()
     return function(senderId)
-        -- Check if it's a zone
-        local zoneSecret = self.registry:getSecret(senderId)
-        if zoneSecret then
-            return zoneSecret
+        -- Check if it's a computer
+        local computerSecret = self.registry:getSecret(senderId)
+        if computerSecret then
+            return computerSecret
         end
         -- Unknown sender
         return nil
     end
 end
 
--- Check if zone is authorized
--- @param zoneId Zone identifier
+-- Check if computer is authorized
+-- @param computerId Computer identifier
 -- @return boolean
-function SwarmAuthority:isAuthorized(zoneId)
-    return self.registry:isAuthorized(zoneId)
+function SwarmAuthority:isAuthorized(computerId)
+    return self.registry:isAuthorized(computerId)
 end
 
--- Get zone info
--- @param zoneId Zone identifier
+-- Get computer info
+-- @param computerId Computer identifier
 -- @return entry or nil
-function SwarmAuthority:getZone(zoneId)
-    return self.registry:get(zoneId)
+function SwarmAuthority:getComputer(computerId)
+    return self.registry:get(computerId)
 end
 
--- Get all active zones
--- @return array of zone entries
-function SwarmAuthority:getZones()
-    return self.registry:getActiveZones()
+-- Get all active computers
+-- @return array of computer entries
+function SwarmAuthority:getComputers()
+    return self.registry:getActiveComputers()
 end
 
--- Revoke a zone
--- @param zoneId Zone identifier
+-- Revoke a computer
+-- @param computerId Computer identifier
 -- @return success
-function SwarmAuthority:revokeZone(zoneId)
-    local ok = self.registry:revoke(zoneId)
+function SwarmAuthority:revokeComputer(computerId)
+    local ok = self.registry:revoke(computerId)
     if ok then
         self:save()
     end
     return ok
 end
 
--- Remove a zone completely
--- @param zoneId Zone identifier
-function SwarmAuthority:removeZone(zoneId)
-    self.registry:remove(zoneId)
+-- Remove a computer completely
+-- @param computerId Computer identifier
+function SwarmAuthority:removeComputer(computerId)
+    self.registry:remove(computerId)
     self:save()
 end
 
@@ -237,7 +237,7 @@ function SwarmAuthority:deleteSwarm()
     self.initialized = false
 end
 
--- Wrap a message for broadcast to all zones
+-- Wrap a message for broadcast to all computers
 -- @param data Message data
 -- @return envelope
 function SwarmAuthority:wrapMessage(data)
@@ -247,7 +247,7 @@ function SwarmAuthority:wrapMessage(data)
     return Envelope.wrap(data, self.identity.id, self.identity.secret)
 end
 
--- Unwrap a message from a zone
+-- Unwrap a message from a computer
 -- @param envelope Received envelope
 -- @return success, data, senderId, error
 function SwarmAuthority:unwrapMessage(envelope)

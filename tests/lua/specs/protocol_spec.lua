@@ -20,7 +20,7 @@ local function assert_eq(expected, actual, message)
 end
 
 test("Protocol.createRequest sets requestId", function()
-    local msg = Protocol.createRequest(Protocol.MessageType.GET_CONFIG, { zoneId = "z1" })
+    local msg = Protocol.createRequest(Protocol.MessageType.GET_CONFIG, { computerId = "z1" })
     assert_true(type(msg.requestId) == "string" and #msg.requestId > 0, "requestId should be generated")
     assert_eq(Protocol.MessageType.GET_CONFIG, msg.type)
 end)

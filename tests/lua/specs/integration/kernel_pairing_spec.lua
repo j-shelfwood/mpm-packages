@@ -46,7 +46,7 @@ end
 -- =============================================================================
 
 test("Network: rednet.open failure is handled gracefully", function()
-    local env = Mocks.setupZone({id = 10})
+    local env = Mocks.setupComputer({id = 10})
 
     -- Enable open failure mode
     rednet._setFailMode("open_fail", 1)
@@ -67,7 +67,7 @@ test("Network: rednet.open failure is handled gracefully", function()
     os.startTimer = function() return 1 end
     os.pullEvent = function() return "timer", 1 end
     os.getComputerID = function() return 10 end
-    os.getComputerLabel = function() return "Zone" end
+    os.getComputerLabel = function() return "Computer" end
 
     local success, _, _, _, errMsg = Pairing.acceptFromPocket({
         onStatus = function(msg) table.insert(statusMessages, msg) end,
@@ -86,7 +86,7 @@ test("Network: rednet.open failure is handled gracefully", function()
 end)
 
 test("Network: broadcast failure during pairing is survivable", function()
-    local env = Mocks.setupZone({id = 10})
+    local env = Mocks.setupComputer({id = 10})
 
     -- First broadcast fails, subsequent ones succeed
     rednet._setFailMode("broadcast_fail", 1)
@@ -113,11 +113,11 @@ test("Network: broadcast failure during pairing is survivable", function()
     os.epoch = function() now = now + 100; return now end
     os.startTimer = function() return 1 end
     os.getComputerID = function() return 10 end
-    os.getComputerLabel = function() return "Zone" end
+    os.getComputerLabel = function() return "Computer" end
     os.pullEvent = function()
         if not delivered and broadcastAttempts >= 2 then
             delivered = true
-            local deliver = Protocol.createPairDeliver("secret", "zone")
+            local deliver = Protocol.createPairDeliver("secret", "computer")
             local signed = Crypto.wrapWith(deliver, displayCode)
             return "rednet_message", 44, signed, Pairing.PROTOCOL
         end
@@ -152,7 +152,7 @@ test("Network: broadcast failure during pairing is survivable", function()
 end)
 
 test("Network: send failure during PAIR_COMPLETE is logged", function()
-    local env = Mocks.setupZone({id = 10})
+    local env = Mocks.setupComputer({id = 10})
 
     -- Enable send failure
     rednet._setFailMode("send_fail", 1)
@@ -177,11 +177,11 @@ test("Network: send failure during PAIR_COMPLETE is logged", function()
     os.epoch = function() now = now + 100; return now end
     os.startTimer = function() return 1 end
     os.getComputerID = function() return 10 end
-    os.getComputerLabel = function() return "Zone" end
+    os.getComputerLabel = function() return "Computer" end
     os.pullEvent = function()
         if not delivered then
             delivered = true
-            local deliver = Protocol.createPairDeliver("secret", "zone")
+            local deliver = Protocol.createPairDeliver("secret", "computer")
             local signed = Crypto.wrapWith(deliver, displayCode)
             return "rednet_message", 44, signed, Pairing.PROTOCOL
         end
@@ -192,9 +192,9 @@ test("Network: send failure during PAIR_COMPLETE is logged", function()
 
     -- The Pairing.acceptFromPocket does NOT wrap rednet.send in pcall
     -- So a send failure will propagate up
-    local success, secret, zoneId
+    local success, secret, computerId
     local ok, err = pcall(function()
-        success, secret, zoneId = Pairing.acceptFromPocket({
+        success, secret, computerId = Pairing.acceptFromPocket({
             onDisplayCode = function(code) displayCode = code end,
         })
     end)
@@ -218,7 +218,7 @@ end)
 -- =============================================================================
 
 test("Pairing: onDisplayCode callback error does not crash pairing", function()
-    local env = Mocks.setupZone({id = 10})
+    local env = Mocks.setupComputer({id = 10})
 
     local now = 100000
     local delivered = false
@@ -234,14 +234,14 @@ test("Pairing: onDisplayCode callback error does not crash pairing", function()
     os.epoch = function() now = now + 100; return now end
     os.startTimer = function() return 1 end
     os.getComputerID = function() return 10 end
-    os.getComputerLabel = function() return "Zone" end
+    os.getComputerLabel = function() return "Computer" end
 
     -- Capture display code before callback throws
     local capturedCode = nil
     os.pullEvent = function()
         if not delivered and capturedCode then
             delivered = true
-            local deliver = Protocol.createPairDeliver("secret", "zone")
+            local deliver = Protocol.createPairDeliver("secret", "computer")
             local signed = Crypto.wrapWith(deliver, capturedCode)
             return "rednet_message", 44, signed, Pairing.PROTOCOL
         end
@@ -278,7 +278,7 @@ end)
 
 test("Pairing: onStatus callback error does not crash re-broadcast loop", function()
     -- Same as above - documents that callbacks are not protected
-    local env = Mocks.setupZone({id = 10})
+    local env = Mocks.setupComputer({id = 10})
 
     local now = 100000
     local statusCallCount = 0
@@ -295,7 +295,7 @@ test("Pairing: onStatus callback error does not crash re-broadcast loop", functi
     end
     os.startTimer = function() return 1 end
     os.getComputerID = function() return 10 end
-    os.getComputerLabel = function() return "Zone" end
+    os.getComputerLabel = function() return "Computer" end
     os.pullEvent = function() return "timer", 1 end
 
     rednet.open("top")
@@ -333,7 +333,7 @@ test("Pairing: Empty pendingPairs when Enter pressed does nothing", function()
 
     local now = 100000
     local events = {
-        { "key", 13 },  -- Enter with no zones
+        { "key", 13 },  -- Enter with no computers
         { "key", 13 },  -- Enter again
         { "key", 16 },  -- Quit
     }
@@ -354,7 +354,7 @@ test("Pairing: Empty pendingPairs when Enter pressed does nothing", function()
 
     -- Should not crash
     local ok, err = pcall(function()
-        Pairing.deliverToPending("secret", "zone", {
+        Pairing.deliverToPending("secret", "computer", {
             onCancel = function() end,
         }, 5)
     end)
@@ -373,11 +373,11 @@ test("Pairing: selectedIndex bounds after stale cleanup", function()
     local now = 100000
     local callCount = 0
     local events = {
-        { "rednet_message", 21, Protocol.createPairReady(nil, "Zone A", 21), Pairing.PROTOCOL },
-        { "rednet_message", 22, Protocol.createPairReady(nil, "Zone B", 22), Pairing.PROTOCOL },
-        { "key", 208 },  -- down to Zone B (index 2)
-        -- Next event: time jumps 16 seconds, Zone A and B become stale
-        { "key", 13 },   -- Enter - but both zones are now stale
+        { "rednet_message", 21, Protocol.createPairReady(nil, "Computer A", 21), Pairing.PROTOCOL },
+        { "rednet_message", 22, Protocol.createPairReady(nil, "Computer B", 22), Pairing.PROTOCOL },
+        { "key", 208 },  -- down to Computer B (index 2)
+        -- Next event: time jumps 16 seconds, Computer A and B become stale
+        { "key", 13 },   -- Enter - but both computers are now stale
         { "key", 16 },   -- Quit
     }
 
@@ -388,7 +388,7 @@ test("Pairing: selectedIndex bounds after stale cleanup", function()
     os.epoch = function()
         callCount = callCount + 1
         if callCount > 4 then
-            -- After navigation, jump time to make zones stale
+            -- After navigation, jump time to make computers stale
             now = now + 16000
         else
             now = now + 100
@@ -406,7 +406,7 @@ test("Pairing: selectedIndex bounds after stale cleanup", function()
 
     -- Should not crash even when selectedIndex > #pendingPairs after cleanup
     local ok, err = pcall(function()
-        Pairing.deliverToPending("secret", "zone", {
+        Pairing.deliverToPending("secret", "computer", {
             onCodePrompt = function() return "CODE" end,
             onCancel = function() end,
         }, 30)
@@ -420,15 +420,15 @@ test("Pairing: selectedIndex bounds after stale cleanup", function()
     assert_true(ok, "Should handle selectedIndex out of bounds: " .. tostring(err))
 end)
 
-test("Pairing: Duplicate zone re-broadcast updates timestamp only", function()
+test("Pairing: Duplicate computer re-broadcast updates timestamp only", function()
     local env = Mocks.setupPocket({id = 1})
 
     local now = 100000
     local readyCallCount = 0
     local events = {
-        { "rednet_message", 21, Protocol.createPairReady(nil, "Zone A", 21), Pairing.PROTOCOL },
-        { "rednet_message", 21, Protocol.createPairReady(nil, "Zone A", 21), Pairing.PROTOCOL },
-        { "rednet_message", 21, Protocol.createPairReady(nil, "Zone A", 21), Pairing.PROTOCOL },
+        { "rednet_message", 21, Protocol.createPairReady(nil, "Computer A", 21), Pairing.PROTOCOL },
+        { "rednet_message", 21, Protocol.createPairReady(nil, "Computer A", 21), Pairing.PROTOCOL },
+        { "rednet_message", 21, Protocol.createPairReady(nil, "Computer A", 21), Pairing.PROTOCOL },
         { "key", 16 },  -- Quit
     }
 
@@ -446,7 +446,7 @@ test("Pairing: Duplicate zone re-broadcast updates timestamp only", function()
 
     rednet.open("back")
 
-    Pairing.deliverToPending("secret", "zone", {
+    Pairing.deliverToPending("secret", "computer", {
         onReady = function() readyCallCount = readyCallCount + 1 end,
         onCancel = function() end,
     }, 30)
@@ -456,8 +456,8 @@ test("Pairing: Duplicate zone re-broadcast updates timestamp only", function()
     os.startTimer = old_startTimer
     os.pullEvent = old_pullEvent
 
-    -- onReady should only be called once (for new zone, not updates)
-    assert_eq(1, readyCallCount, "Should only call onReady once for same zone")
+    -- onReady should only be called once (for new computer, not updates)
+    assert_eq(1, readyCallCount, "Should only call onReady once for same computer")
 end)
 
 test("Pairing: Code validation accepts minimum 4 characters", function()
@@ -487,14 +487,14 @@ test("Pairing: Code validation accepts minimum 4 characters", function()
     os.pullEvent = function()
         eventIndex = eventIndex + 1
         if eventIndex == 1 then
-            -- PAIR_READY from zone
-            return "rednet_message", 21, Protocol.createPairReady(nil, "Zone A", 21), Pairing.PROTOCOL
+            -- PAIR_READY from computer
+            return "rednet_message", 21, Protocol.createPairReady(nil, "Computer A", 21), Pairing.PROTOCOL
         elseif eventIndex == 2 then
             -- User presses Enter (use scancode 28)
             return "key", 28
         elseif eventIndex == 3 then
             -- PAIR_COMPLETE confirmation (in confirmation loop)
-            return "rednet_message", 21, Protocol.createPairComplete("Zone A"), Pairing.PROTOCOL
+            return "rednet_message", 21, Protocol.createPairComplete("Computer A"), Pairing.PROTOCOL
         else
             return "timer", 1
         end
@@ -502,7 +502,7 @@ test("Pairing: Code validation accepts minimum 4 characters", function()
 
     rednet.open("back")
 
-    local success = Pairing.deliverToPending("secret", "zone", {
+    local success = Pairing.deliverToPending("secret", "computer", {
         onCodePrompt = function() return "ABCD" end,  -- Exactly 4 chars (minimum)
     }, 30)
 
@@ -546,11 +546,11 @@ test("Pairing: Code with spaces is NOT trimmed by callback (documents behavior)"
     os.pullEvent = function()
         eventIndex = eventIndex + 1
         if eventIndex == 1 then
-            return "rednet_message", 21, Protocol.createPairReady(nil, "Zone A", 21), Pairing.PROTOCOL
+            return "rednet_message", 21, Protocol.createPairReady(nil, "Computer A", 21), Pairing.PROTOCOL
         elseif eventIndex == 2 then
             return "key", 28  -- Enter scancode
         elseif eventIndex == 3 then
-            return "rednet_message", 21, Protocol.createPairComplete("Zone A"), Pairing.PROTOCOL
+            return "rednet_message", 21, Protocol.createPairComplete("Computer A"), Pairing.PROTOCOL
         else
             return "timer", 1
         end
@@ -560,8 +560,8 @@ test("Pairing: Code with spaces is NOT trimmed by callback (documents behavior)"
 
     -- Code with spaces - callback should pre-normalize if needed
     -- Current behavior: spaces are kept, so code is "  AB CD  EF GH  " (16 chars)
-    -- Zone will receive message signed with "  AB CD  EF GH  "
-    local success = Pairing.deliverToPending("secret", "zone", {
+    -- Computer will receive message signed with "  AB CD  EF GH  "
+    local success = Pairing.deliverToPending("secret", "computer", {
         onCodePrompt = function() return "ABCD-EFGH" end,  -- Pre-normalized code
     }, 30)
 

@@ -2,7 +2,7 @@
 -- Migrate from legacy displays package to ShelfOS
 
 local Config = mpm('shelfos/core/Config')
-local Zone = mpm('shelfos/core/Zone')
+local Identity = mpm('shelfos/core/Identity')
 
 local migrate = {}
 
@@ -55,17 +55,17 @@ function migrate.run()
     print("")
 
     -- Create new config
-    local zoneId = Zone.generateId()
-    local zoneName = "Migrated Zone"
+    local computerId = Identity.generateId()
+    local computerName = "Migrated Computer"
 
-    print("Zone name (default: Migrated Zone):")
+    print("Computer name (default: Migrated Computer):")
     write("> ")
     local inputName = read()
     if inputName ~= "" then
-        zoneName = inputName
+        computerName = inputName
     end
 
-    local config = Config.create(zoneId, zoneName)
+    local config = Config.create(computerId, computerName)
 
     -- Migrate monitors
     print("")

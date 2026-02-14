@@ -1,12 +1,12 @@
 -- Multi-Computer Simulation Test
--- Tests pairing flow between simulated zone and pocket computers
+-- Tests pairing flow between simulated swarm and pocket computers
 -- Run with: craftos --headless --id <N> --mount-ro /workspace=<path> --exec "..."
 
 local WORKSPACE = "/workspace"
 
 -- Determine computer role based on ID
 local computerId = os.getComputerID()
-local ROLE = computerId < 10 and "pocket" or "zone"
+local ROLE = computerId < 10 and "pocket" or "computer"
 
 -- Setup mpm loader
 local module_cache = {}
@@ -30,47 +30,47 @@ print("=== Multi-Computer Pairing Test ===")
 print(string.format("Computer ID: %d, Role: %s", computerId, ROLE))
 print("")
 
-if ROLE == "zone" then
-    -- Zone computer: broadcast PAIR_READY and wait for pocket
-    print("[ZONE] Opening modem...")
+if ROLE == "computer" then
+    -- Swarm computer: broadcast PAIR_READY and wait for pocket
+    print("[COMPUTER] Opening modem...")
 
     -- Find any modem (simulated in headless mode)
     -- In headless mode without peripherals, we simulate the flow
-    print("[ZONE] Generating display code...")
+    print("[COMPUTER] Generating display code...")
     local displayCode = Pairing.generateCode()
-    print("[ZONE] Display code: " .. displayCode)
+    print("[COMPUTER] Display code: " .. displayCode)
 
-    print("[ZONE] Creating PAIR_READY message...")
-    local ready = Protocol.createPairReady(nil, "Test Zone", computerId)
-    print("[ZONE] Type: " .. tostring(ready.type))
-    print("[ZONE] Label: " .. tostring(ready.data.label))
+    print("[COMPUTER] Creating PAIR_READY message...")
+    local ready = Protocol.createPairReady(nil, "Test Computer", computerId)
+    print("[COMPUTER] Type: " .. tostring(ready.type))
+    print("[COMPUTER] Label: " .. tostring(ready.data.label))
 
     -- Simulate receiving signed PAIR_DELIVER
     print("")
-    print("[ZONE] Simulating PAIR_DELIVER reception...")
+    print("[COMPUTER] Simulating PAIR_DELIVER reception...")
 
     local swarmSecret = Crypto.generateSecret()
-    local deliver = Protocol.createPairDeliver(swarmSecret, "zone_" .. computerId)
+    local deliver = Protocol.createPairDeliver(swarmSecret, "computer_" .. computerId)
     local signedDeliver = Crypto.wrapWith(deliver, displayCode)
 
-    print("[ZONE] Verifying signature with display code...")
+    print("[COMPUTER] Verifying signature with display code...")
     local unwrapped, err = Crypto.unwrapWith(signedDeliver, displayCode)
 
     if unwrapped then
-        print("[ZONE] Signature verified!")
-        print("[ZONE] Secret: " .. tostring(unwrapped.data.secret):sub(1, 20) .. "...")
-        print("[ZONE] ZoneId: " .. tostring(unwrapped.data.zoneId))
+        print("[COMPUTER] Signature verified!")
+        print("[COMPUTER] Secret: " .. tostring(unwrapped.data.secret):sub(1, 20) .. "...")
+        print("[COMPUTER] ComputerId: " .. tostring(unwrapped.data.computerId))
 
         print("")
-        print("[ZONE] Creating PAIR_COMPLETE...")
-        local complete = Protocol.createPairComplete("Test Zone")
-        print("[ZONE] Type: " .. tostring(complete.type))
+        print("[COMPUTER] Creating PAIR_COMPLETE...")
+        local complete = Protocol.createPairComplete("Test Computer")
+        print("[COMPUTER] Type: " .. tostring(complete.type))
 
         print("")
-        print("ZONE TEST PASSED")
+        print("COMPUTER TEST PASSED")
     else
-        print("[ZONE] ERROR: " .. tostring(err))
-        print("ZONE TEST FAILED")
+        print("[COMPUTER] ERROR: " .. tostring(err))
+        print("COMPUTER TEST FAILED")
     end
 
 elseif ROLE == "pocket" then
@@ -80,15 +80,15 @@ elseif ROLE == "pocket" then
     print("[POCKET] Secret: " .. swarmSecret:sub(1, 20) .. "...")
 
     print("")
-    print("[POCKET] Simulating zone discovery...")
-    local zoneId = 42
-    local zoneName = "Remote Zone"
+    print("[POCKET] Simulating computer discovery...")
+    local targetId = 42
+    local computerName = "Remote Computer"
 
-    print("[POCKET] Found zone: " .. zoneName .. " (ID: " .. zoneId .. ")")
+    print("[POCKET] Found computer: " .. computerName .. " (ID: " .. targetId .. ")")
 
     print("")
     print("[POCKET] Creating PAIR_DELIVER...")
-    local deliver = Protocol.createPairDeliver(swarmSecret, "zone_" .. zoneId)
+    local deliver = Protocol.createPairDeliver(swarmSecret, "computer_" .. targetId)
     print("[POCKET] Type: " .. tostring(deliver.type))
     print("[POCKET] Secret in message: " .. tostring(deliver.data.secret):sub(1, 20) .. "...")
 

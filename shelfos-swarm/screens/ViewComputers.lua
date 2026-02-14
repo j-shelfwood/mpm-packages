@@ -1,48 +1,48 @@
--- ViewZones.lua
--- Zone registry display for shelfos-swarm pocket computer
--- Scrollable colored zone list with keyboard navigation
--- Shows zone status, ID, and fingerprint
+-- ViewComputers.lua
+-- Computer registry display for shelfos-swarm pocket computer
+-- Scrollable colored computer list with keyboard navigation
+-- Shows computer status, ID, and fingerprint
 
 local TermUI = mpm('shelfos-swarm/ui/TermUI')
 local Core = mpm('ui/Core')
 
-local ViewZones = {}
+local ViewComputers = {}
 
 -- Internal state
 local state = {
-    zones = {},
+    computers = {},
     scrollOffset = 0,
     pageSize = 0  -- calculated from screen height
 }
 
-function ViewZones.onEnter(ctx, args)
-    state.zones = ctx.app.authority:getZones()
+function ViewComputers.onEnter(ctx, args)
+    state.computers = ctx.app.authority:getComputers()
     state.scrollOffset = 0
-    -- Each zone takes 2 rows + 1 spacing, header=2, footer=2
+    -- Each computer takes 2 rows + 1 spacing, header=2, footer=2
     state.pageSize = math.floor((ctx.height - 4) / 3)
 end
 
-function ViewZones.draw(ctx)
+function ViewComputers.draw(ctx)
     TermUI.clear()
-    TermUI.drawTitleBar("Zone Registry")
+    TermUI.drawTitleBar("Computer Registry")
 
-    local zones = state.zones
+    local computers = state.computers
     local y = 3
 
-    if #zones == 0 then
-        TermUI.drawText(2, y, "No zones registered.", colors.lightGray)
+    if #computers == 0 then
+        TermUI.drawText(2, y, "No computers registered.", colors.lightGray)
         y = y + 2
-        TermUI.drawText(2, y, "Use [A] Add Zone from the", colors.gray)
+        TermUI.drawText(2, y, "Use [A] Add Computer from", colors.gray)
         y = y + 1
-        TermUI.drawText(2, y, "main menu to pair computers.", colors.gray)
+        TermUI.drawText(2, y, "the main menu to pair.", colors.gray)
     else
-        -- Zone count header
-        TermUI.drawText(2, y, #zones .. " zone(s) registered", colors.lightGray)
+        -- Computer count header
+        TermUI.drawText(2, y, #computers .. " computer(s) registered", colors.lightGray)
         y = y + 1
 
-        -- Scrollable zone list
+        -- Scrollable computer list
         local startIdx = state.scrollOffset + 1
-        local endIdx = math.min(#zones, state.scrollOffset + state.pageSize)
+        local endIdx = math.min(#computers, state.scrollOffset + state.pageSize)
 
         -- Scroll up indicator
         if state.scrollOffset > 0 then
@@ -51,11 +51,11 @@ function ViewZones.draw(ctx)
         y = y + 1
 
         for i = startIdx, endIdx do
-            local zone = zones[i]
-            if zone and y < ctx.height - 2 then
+            local computer = computers[i]
+            if computer and y < ctx.height - 2 then
                 -- Status icon + name
                 local statusIcon, statusColor
-                if zone.status == "active" then
+                if computer.status == "active" then
                     statusIcon = "+"
                     statusColor = colors.lime
                 else
@@ -67,30 +67,30 @@ function ViewZones.draw(ctx)
                 term.setTextColor(statusColor)
                 term.write(statusIcon)
                 term.setTextColor(colors.white)
-                term.write(" " .. Core.truncate(zone.label, ctx.width - 4))
+                term.write(" " .. Core.truncate(computer.label, ctx.width - 4))
                 y = y + 1
 
                 -- Details line
-                local fp = zone.fingerprint or "?"
+                local fp = computer.fingerprint or "?"
                 if #fp > 8 then fp = fp:sub(1, 8) .. ".." end
-                local details = "ID: " .. zone.id .. "  FP: " .. fp
+                local details = "ID: " .. computer.id .. "  FP: " .. fp
                 term.setCursorPos(4, y)
                 term.setTextColor(colors.lightGray)
                 term.write(Core.truncate(details, ctx.width - 5))
                 y = y + 1
 
-                -- Spacing between zones
+                -- Spacing between computers
                 y = y + 1
             end
         end
 
         -- Scroll down indicator
-        if endIdx < #zones then
+        if endIdx < #computers then
             TermUI.drawText(ctx.width, y - 1, "v", colors.yellow)
         end
 
         -- Page indicator
-        local totalPages = math.max(1, math.ceil(#zones / state.pageSize))
+        local totalPages = math.max(1, math.ceil(#computers / state.pageSize))
         local currentPage = math.floor(state.scrollOffset / state.pageSize) + 1
         local pageText = "Page " .. currentPage .. "/" .. totalPages
         TermUI.drawCentered(ctx.height - 1, pageText, colors.lightGray)
@@ -100,7 +100,7 @@ function ViewZones.draw(ctx)
     TermUI.drawStatusBar({{ key = "B", label = "Back" }})
 end
 
-function ViewZones.handleEvent(ctx, event, p1, ...)
+function ViewComputers.handleEvent(ctx, event, p1, ...)
     if event == "key" then
         local keyName = keys.getName(p1)
         if not keyName then return nil end
@@ -113,24 +113,24 @@ function ViewZones.handleEvent(ctx, event, p1, ...)
         -- Scroll navigation
         if keyName == "up" and state.scrollOffset > 0 then
             state.scrollOffset = state.scrollOffset - 1
-            ViewZones.draw(ctx)
+            ViewComputers.draw(ctx)
         elseif keyName == "down" then
-            local maxOffset = math.max(0, #state.zones - state.pageSize)
+            local maxOffset = math.max(0, #state.computers - state.pageSize)
             if state.scrollOffset < maxOffset then
                 state.scrollOffset = state.scrollOffset + 1
-                ViewZones.draw(ctx)
+                ViewComputers.draw(ctx)
             end
         elseif keyName == "pageup" then
             state.scrollOffset = math.max(0, state.scrollOffset - state.pageSize)
-            ViewZones.draw(ctx)
+            ViewComputers.draw(ctx)
         elseif keyName == "pagedown" then
-            local maxOffset = math.max(0, #state.zones - state.pageSize)
+            local maxOffset = math.max(0, #state.computers - state.pageSize)
             state.scrollOffset = math.min(maxOffset, state.scrollOffset + state.pageSize)
-            ViewZones.draw(ctx)
+            ViewComputers.draw(ctx)
         end
     end
 
     return nil
 end
 
-return ViewZones
+return ViewComputers

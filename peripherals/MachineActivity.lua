@@ -2,6 +2,7 @@
 -- Unified machine activity detection across mods (MI, Mekanism, etc.)
 
 local Yield = mpm('utils/Yield')
+local Peripherals = mpm('utils/Peripherals')
 
 local MachineActivity = {}
 
@@ -194,12 +195,12 @@ end
 -- Returns: { [peripheralType] = { machines = {peripheral...}, classification = {...} } }
 function MachineActivity.discoverAll()
     local result = {}
-    local names = peripheral.getNames()
+    local names = Peripherals.getNames()
 
     for idx, name in ipairs(names) do
-        local pType = peripheral.getType(name)
+        local pType = Peripherals.getType(name)
         if pType then
-            local p = peripheral.wrap(name)
+            local p = Peripherals.wrap(name)
             local supported, _ = MachineActivity.supportsActivity(p)
 
             if supported then

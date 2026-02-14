@@ -19,14 +19,14 @@ local EXCLUDED_TYPES = {
 
 -- Create a new peripheral host
 -- @param channel Channel instance for network communication
--- @param zoneId Zone identifier
--- @param zoneName Zone name
-function PeripheralHost.new(channel, zoneId, zoneName)
+-- @param computerId Computer identifier
+-- @param computerName Computer name
+function PeripheralHost.new(channel, computerId, computerName)
     local self = setmetatable({}, PeripheralHost)
 
     self.channel = channel
-    self.zoneId = zoneId
-    self.zoneName = zoneName
+    self.computerId = computerId
+    self.computerName = computerName
     self.peripherals = {}  -- {name -> {type, methods, peripheral}}
     self.lastAnnounce = 0
     self.announceInterval = 10000  -- 10 seconds
@@ -96,8 +96,8 @@ function PeripheralHost:announce()
     if not self.channel then return false end
 
     local msg = Protocol.createPeriphAnnounce(
-        self.zoneId,
-        self.zoneName,
+        self.computerId,
+        self.computerName,
         self:getPeripheralList()
     )
 

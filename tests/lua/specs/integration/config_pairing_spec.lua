@@ -1,6 +1,6 @@
 -- Config + Pairing Integration Tests
 -- Tests that Config state correctly controls pairing behavior
--- Validates the root cause of "Zone B not appearing" bug
+-- Validates the root cause of "Computer B not appearing" bug
 
 local root = _G.TEST_ROOT or "."
 
@@ -42,13 +42,13 @@ end
 -- =============================================================================
 
 test("Config.isInSwarm returns false when no network secret", function()
-    Mocks.setupZone({id = 10})
+    Mocks.setupComputer({id = 10})
 
     local Config = mpm("shelfos/core/Config")
 
     -- Config with no network secret
     local configNoSecret = {
-        zone = { id = "zone_10", name = "Test Zone" },
+        computer = { id = "computer_10", name = "Test Computer" },
         network = { enabled = false, secret = nil }
     }
 
@@ -56,13 +56,13 @@ test("Config.isInSwarm returns false when no network secret", function()
 end)
 
 test("Config.isInSwarm returns true when network secret exists", function()
-    Mocks.setupZone({id = 10})
+    Mocks.setupComputer({id = 10})
 
     local Config = mpm("shelfos/core/Config")
 
     -- Config WITH network secret
     local configWithSecret = {
-        zone = { id = "zone_10", name = "Test Zone" },
+        computer = { id = "computer_10", name = "Test Computer" },
         network = { enabled = true, secret = "swarm_secret_xyz" }
     }
 
@@ -70,7 +70,7 @@ test("Config.isInSwarm returns true when network secret exists", function()
 end)
 
 test("Config.isInSwarm returns false for nil config", function()
-    Mocks.setupZone({id = 10})
+    Mocks.setupComputer({id = 10})
 
     local Config = mpm("shelfos/core/Config")
 
@@ -82,8 +82,8 @@ end)
 -- =============================================================================
 
 test("Config.load returns nil when no config file exists", function()
-    Mocks.setupZone({id = 10})
-    -- fs is reset by setupZone, so no files exist
+    Mocks.setupComputer({id = 10})
+    -- fs is reset by setupComputer, so no files exist
 
     local Config = mpm("shelfos/core/Config")
 
@@ -92,11 +92,11 @@ test("Config.load returns nil when no config file exists", function()
 end)
 
 test("Config.save and Config.load roundtrip preserves data", function()
-    Mocks.setupZone({id = 10})
+    Mocks.setupComputer({id = 10})
 
     local Config = mpm("shelfos/core/Config")
 
-    local original = Config.create("zone_test_123", "My Test Zone")
+    local original = Config.create("computer_test_123", "My Test Computer")
     original.network = { enabled = true, secret = "test_secret_456" }
 
     -- Save
@@ -110,8 +110,8 @@ test("Config.save and Config.load roundtrip preserves data", function()
     -- Load
     local loaded = Config2.load()
     assert_not_nil(loaded, "Load should return config")
-    assert_eq("zone_test_123", loaded.zone.id)
-    assert_eq("My Test Zone", loaded.zone.name)
+    assert_eq("computer_test_123", loaded.computer.id)
+    assert_eq("My Test Computer", loaded.computer.name)
     assert_eq("test_secret_456", loaded.network.secret)
 end)
 
@@ -119,28 +119,28 @@ end)
 -- TESTS: Stale config prevents pairing
 -- =============================================================================
 
-test("Zone with existing secret: Config check prevents entering pairing mode", function()
-    Mocks.setupZone({id = 10})
+test("Computer with existing secret: Config check prevents entering pairing mode", function()
+    Mocks.setupComputer({id = 10})
 
     local Config = mpm("shelfos/core/Config")
 
     -- This simulates what happens in Kernel.lua:initializeNetwork() line 139
-    -- Zone with existing secret (stale config from previous pairing)
+    -- Computer with existing secret (stale config from previous pairing)
     local staleConfig = {
-        zone = { id = "zone_10", name = "Zone 10" },
+        computer = { id = "computer_10", name = "Computer 10" },
         network = { enabled = true, secret = "old_swarm_secret" }
     }
 
     -- The actual check from Kernel.lua:139
     local shouldSkipPairingMode = staleConfig.network and staleConfig.network.secret
-    assert_true(shouldSkipPairingMode, "Zone with secret should skip pairing mode")
+    assert_true(shouldSkipPairingMode, "Computer with secret should skip pairing mode")
 
-    -- This means the zone would NOT show [L] Accept from pocket
+    -- This means the computer would NOT show [L] Accept from pocket
     -- and would NOT broadcast PAIR_READY
 end)
 
-test("Zone without secret: Enters pairing mode and can broadcast PAIR_READY", function()
-    Mocks.setupZone({id = 11})
+test("Computer without secret: Enters pairing mode and can broadcast PAIR_READY", function()
+    Mocks.setupComputer({id = 11})
 
     local Config = mpm("shelfos/core/Config")
     local Protocol = mpm("net/Protocol")
@@ -148,21 +148,21 @@ test("Zone without secret: Enters pairing mode and can broadcast PAIR_READY", fu
 
     -- Fresh config without secret
     local freshConfig = {
-        zone = { id = "zone_11", name = "Zone 11" },
+        computer = { id = "computer_11", name = "Computer 11" },
         network = { enabled = false, secret = nil }
     }
 
     -- The actual check from Kernel.lua:139
     local shouldEnterPairingMode = not (freshConfig.network and freshConfig.network.secret)
-    assert_true(shouldEnterPairingMode, "Zone without secret should enter pairing mode")
+    assert_true(shouldEnterPairingMode, "Computer without secret should enter pairing mode")
 
     -- Can create PAIR_READY message
-    local ready = Protocol.createPairReady(nil, "Zone 11", 11)
+    local ready = Protocol.createPairReady(nil, "Computer 11", 11)
     assert_eq(Protocol.MessageType.PAIR_READY, ready.type)
-    assert_eq("Zone 11", ready.data.label)
+    assert_eq("Computer 11", ready.data.label)
     assert_eq(11, ready.data.computerId)
 
-    -- Can broadcast (modem is set up by setupZone)
+    -- Can broadcast (modem is set up by setupComputer)
     rednet.open("top")
     local broadcastOk = pcall(function()
         rednet.broadcast(ready, Pairing.PROTOCOL)
@@ -179,11 +179,11 @@ end)
 -- =============================================================================
 
 test("Config.setNetworkSecret with nil clears the secret", function()
-    Mocks.setupZone({id = 10})
+    Mocks.setupComputer({id = 10})
 
     local Config = mpm("shelfos/core/Config")
 
-    local config = Config.create("zone_10", "Zone 10")
+    local config = Config.create("computer_10", "Computer 10")
     config.network = { enabled = true, secret = "existing_secret" }
 
     -- Clear secret (what happens when leaving swarm)
@@ -195,21 +195,21 @@ test("Config.setNetworkSecret with nil clears the secret", function()
 end)
 
 test("After fs.delete of config file, Config.load returns nil", function()
-    Mocks.setupZone({id = 10})
+    Mocks.setupComputer({id = 10})
 
     local Config = mpm("shelfos/core/Config")
 
     -- Create and save config
-    local config = Config.create("zone_10", "Zone 10")
+    local config = Config.create("computer_10", "Computer 10")
     config.network = { enabled = true, secret = "test_secret" }
     Config.save(config)
 
     -- Verify it exists
     local Paths = mpm("shelfos/core/Paths")
-    assert_true(fs.exists(Paths.ZONE_CONFIG), "Config file should exist")
+    assert_true(fs.exists(Paths.CONFIG), "Config file should exist")
 
     -- Delete (factory reset)
-    fs.delete(Paths.ZONE_CONFIG)
+    fs.delete(Paths.CONFIG)
 
     -- Clear module cache
     module_cache["shelfos/core/Config"] = nil
@@ -221,117 +221,117 @@ test("After fs.delete of config file, Config.load returns nil", function()
 end)
 
 -- =============================================================================
--- TESTS: Multi-zone discovery (both zones should appear)
+-- TESTS: Multi-computer discovery (both computers should appear)
 -- =============================================================================
 
-test("Multi-zone: Two zones with different IDs both appear in pendingZones", function()
-    -- This tests the App.lua:addZone() logic at lines 319-326
-    -- Verifies that zones with different computerId values are tracked separately
+test("Multi-computer: Two computers with different IDs both appear in pendingComputers", function()
+    -- This tests the App.lua:addComputer() logic
+    -- Verifies that computers with different computerId values are tracked separately
 
-    Mocks.setupZone({id = 10})
+    Mocks.setupComputer({id = 10})
 
     local Protocol = mpm("net/Protocol")
 
-    -- Simulate two zones broadcasting PAIR_READY
-    local zone1Ready = Protocol.createPairReady(nil, "Zone A", 10)
-    local zone2Ready = Protocol.createPairReady(nil, "Zone B", 11)
+    -- Simulate two computers broadcasting PAIR_READY
+    local comp1Ready = Protocol.createPairReady(nil, "Computer A", 10)
+    local comp2Ready = Protocol.createPairReady(nil, "Computer B", 11)
 
     -- The key identifiers
-    local zone1Id = zone1Ready.data.computerId  -- 10
-    local zone2Id = zone2Ready.data.computerId  -- 11
+    local comp1Id = comp1Ready.data.computerId  -- 10
+    local comp2Id = comp2Ready.data.computerId  -- 11
 
-    -- Simulate App.lua:addZone() pendingZones tracking
-    local pendingZones = {}
+    -- Simulate App.lua:addComputer() pendingComputers tracking
+    local pendingComputers = {}
 
-    -- Process zone1
+    -- Process comp1
     local found1 = false
-    for _, z in ipairs(pendingZones) do
-        if z.id == zone1Id then
+    for _, c in ipairs(pendingComputers) do
+        if c.id == comp1Id then
             found1 = true
             break
         end
     end
     if not found1 then
-        table.insert(pendingZones, {
-            id = zone1Id,
-            label = zone1Ready.data.label
+        table.insert(pendingComputers, {
+            id = comp1Id,
+            label = comp1Ready.data.label
         })
     end
 
-    -- Process zone2
+    -- Process comp2
     local found2 = false
-    for _, z in ipairs(pendingZones) do
-        if z.id == zone2Id then
+    for _, c in ipairs(pendingComputers) do
+        if c.id == comp2Id then
             found2 = true
             break
         end
     end
     if not found2 then
-        table.insert(pendingZones, {
-            id = zone2Id,
-            label = zone2Ready.data.label
+        table.insert(pendingComputers, {
+            id = comp2Id,
+            label = comp2Ready.data.label
         })
     end
 
-    -- Both zones should be in the list
-    assert_eq(2, #pendingZones, "Should have 2 pending zones")
-    assert_eq(10, pendingZones[1].id, "Zone A should have ID 10")
-    assert_eq(11, pendingZones[2].id, "Zone B should have ID 11")
-    assert_eq("Zone A", pendingZones[1].label)
-    assert_eq("Zone B", pendingZones[2].label)
+    -- Both computers should be in the list
+    assert_eq(2, #pendingComputers, "Should have 2 pending computers")
+    assert_eq(10, pendingComputers[1].id, "Computer A should have ID 10")
+    assert_eq(11, pendingComputers[2].id, "Computer B should have ID 11")
+    assert_eq("Computer A", pendingComputers[1].label)
+    assert_eq("Computer B", pendingComputers[2].label)
 end)
 
-test("Multi-zone: Same zone broadcasting twice updates lastSeen, not duplicate", function()
-    Mocks.setupZone({id = 10})
+test("Multi-computer: Same computer broadcasting twice updates lastSeen, not duplicate", function()
+    Mocks.setupComputer({id = 10})
 
     local Protocol = mpm("net/Protocol")
 
-    -- Same zone broadcasts twice (periodic re-broadcast)
-    local zoneReady1 = Protocol.createPairReady(nil, "Zone A", 10)
-    local zoneReady2 = Protocol.createPairReady(nil, "Zone A", 10)
+    -- Same computer broadcasts twice (periodic re-broadcast)
+    local compReady1 = Protocol.createPairReady(nil, "Computer A", 10)
+    local compReady2 = Protocol.createPairReady(nil, "Computer A", 10)
 
-    local pendingZones = {}
+    local pendingComputers = {}
 
     -- First broadcast
-    local zoneId = zoneReady1.data.computerId
+    local compId = compReady1.data.computerId
     local found = false
-    for _, z in ipairs(pendingZones) do
-        if z.id == zoneId then
+    for _, c in ipairs(pendingComputers) do
+        if c.id == compId then
             found = true
-            z.lastSeen = 1000
+            c.lastSeen = 1000
             break
         end
     end
     if not found then
-        table.insert(pendingZones, {
-            id = zoneId,
-            label = zoneReady1.data.label,
+        table.insert(pendingComputers, {
+            id = compId,
+            label = compReady1.data.label,
             lastSeen = 1000
         })
     end
 
-    assert_eq(1, #pendingZones, "Should have 1 zone after first broadcast")
+    assert_eq(1, #pendingComputers, "Should have 1 computer after first broadcast")
 
-    -- Second broadcast (same zone)
+    -- Second broadcast (same computer)
     found = false
-    for _, z in ipairs(pendingZones) do
-        if z.id == zoneId then
+    for _, c in ipairs(pendingComputers) do
+        if c.id == compId then
             found = true
-            z.lastSeen = 2000  -- Update timestamp
+            c.lastSeen = 2000  -- Update timestamp
             break
         end
     end
     if not found then
-        table.insert(pendingZones, {
-            id = zoneId,
-            label = zoneReady2.data.label,
+        table.insert(pendingComputers, {
+            id = compId,
+            label = compReady2.data.label,
             lastSeen = 2000
         })
     end
 
-    -- Still only one zone (updated, not duplicated)
-    assert_eq(1, #pendingZones, "Should still have 1 zone after second broadcast")
-    assert_eq(2000, pendingZones[1].lastSeen, "lastSeen should be updated")
+    -- Still only one computer (updated, not duplicated)
+    assert_eq(1, #pendingComputers, "Should still have 1 computer after second broadcast")
+    assert_eq(2000, pendingComputers[1].lastSeen, "lastSeen should be updated")
 end)
 
 -- =============================================================================
@@ -339,29 +339,29 @@ end)
 -- =============================================================================
 
 test("os.getComputerID returns unique IDs for different computers", function()
-    -- Setup zone with ID 10
-    Mocks.setupZone({id = 10})
+    -- Setup computer with ID 10
+    Mocks.setupComputer({id = 10})
     local id1 = os.getComputerID()
-    assert_eq(10, id1, "Zone should have ID 10")
+    assert_eq(10, id1, "Computer should have ID 10")
 
-    -- Setup different zone with ID 11
-    Mocks.setupZone({id = 11})
+    -- Setup different computer with ID 11
+    Mocks.setupComputer({id = 11})
     local id2 = os.getComputerID()
-    assert_eq(11, id2, "Zone should have ID 11")
+    assert_eq(11, id2, "Computer should have ID 11")
 
     -- IDs are different
     assert_true(id1 ~= id2, "Computer IDs should be unique")
 end)
 
 test("PAIR_READY message contains os.getComputerID (not clonable)", function()
-    Mocks.setupZone({id = 42})
+    Mocks.setupComputer({id = 42})
 
     local Protocol = mpm("net/Protocol")
 
     local computerId = os.getComputerID()
-    local ready = Protocol.createPairReady(nil, "Zone 42", computerId)
+    local ready = Protocol.createPairReady(nil, "Computer 42", computerId)
 
-    -- The computerId in PAIR_READY is what App.lua uses to identify zones
+    -- The computerId in PAIR_READY is what App.lua uses to identify computers
     assert_eq(42, ready.data.computerId)
 
     -- This ID comes from CC:Tweaked's os.getComputerID() which is:
@@ -374,14 +374,14 @@ end)
 -- TESTS: Re-pairing scenario
 -- =============================================================================
 
-test("Re-pairing: Zone that left swarm can re-enter pairing mode", function()
-    Mocks.setupZone({id = 10})
+test("Re-pairing: Computer that left swarm can re-enter pairing mode", function()
+    Mocks.setupComputer({id = 10})
 
     local Config = mpm("shelfos/core/Config")
     local Paths = mpm("shelfos/core/Paths")
 
-    -- Zone was previously paired
-    local pairedConfig = Config.create("zone_10", "Zone 10")
+    -- Computer was previously paired
+    local pairedConfig = Config.create("computer_10", "Computer 10")
     pairedConfig.network = { enabled = true, secret = "old_swarm_secret" }
     Config.save(pairedConfig)
 
@@ -402,7 +402,7 @@ test("Re-pairing: Zone that left swarm can re-enter pairing mode", function()
     local loaded2 = Config2.load()
     assert_false(Config2.isInSwarm(loaded2), "Should NOT be in swarm after leaving")
 
-    -- Zone can now show [L] and broadcast PAIR_READY again
+    -- Computer can now show [L] and broadcast PAIR_READY again
     local shouldEnterPairingMode = not (loaded2.network and loaded2.network.secret)
     assert_true(shouldEnterPairingMode, "Should be able to enter pairing mode again")
 end)
@@ -412,7 +412,7 @@ end)
 -- =============================================================================
 
 test("Crypto.clearSecret removes secret from _G", function()
-    Mocks.setupZone({id = 10})
+    Mocks.setupComputer({id = 10})
 
     local Crypto = mpm("net/Crypto")
 

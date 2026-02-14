@@ -1,5 +1,5 @@
--- AddZone.lua
--- Zone pairing flow for shelfos-swarm pocket computer
+-- AddComputer.lua
+-- Computer pairing flow for shelfos-swarm pocket computer
 -- Multi-phase wizard: scanning -> selection -> code entry -> pairing result
 -- Uses TermUI for styled rendering, ScreenManager for navigation
 
@@ -10,13 +10,13 @@ local ModemUtils = mpm('utils/ModemUtils')
 local Keys = mpm('utils/Keys')
 local Core = mpm('ui/Core')
 
-local AddZone = {}
+local AddComputer = {}
 
 -- Internal state
 local state = {
     phase = "scanning",  -- "scanning", "selecting", "code_entry", "pairing", "success", "error"
-    pendingZones = {},
-    selectedZone = nil,
+    pendingComputers = {},
+    selectedComputer = nil,
     spinnerFrame = 0,
     errorMsg = nil,
     successMsg = nil,
@@ -26,10 +26,10 @@ local state = {
 local PAIR_PROTOCOL = "shelfos_pair"
 local SCAN_TIMEOUT_MS = 60000
 
-function AddZone.onEnter(ctx, args)
+function AddComputer.onEnter(ctx, args)
     state.phase = "scanning"
-    state.pendingZones = {}
-    state.selectedZone = nil
+    state.pendingComputers = {}
+    state.selectedComputer = nil
     state.spinnerFrame = 0
     state.errorMsg = nil
     state.successMsg = nil
@@ -43,29 +43,29 @@ function AddZone.onEnter(ctx, args)
     end
 end
 
-function AddZone.draw(ctx)
+function AddComputer.draw(ctx)
     TermUI.clear()
-    TermUI.drawTitleBar("Add Zone")
+    TermUI.drawTitleBar("Add Computer")
 
     if state.phase == "scanning" then
-        AddZone.drawScanning(ctx)
+        AddComputer.drawScanning(ctx)
     elseif state.phase == "selecting" then
-        AddZone.drawSelecting(ctx)
+        AddComputer.drawSelecting(ctx)
     elseif state.phase == "code_entry" then
-        AddZone.drawCodeEntry(ctx)
+        AddComputer.drawCodeEntry(ctx)
     elseif state.phase == "pairing" then
-        AddZone.drawPairing(ctx)
+        AddComputer.drawPairing(ctx)
     elseif state.phase == "success" then
-        AddZone.drawSuccess(ctx)
+        AddComputer.drawSuccess(ctx)
     elseif state.phase == "error" then
-        AddZone.drawError(ctx)
+        AddComputer.drawError(ctx)
     end
 end
 
-function AddZone.drawScanning(ctx)
+function AddComputer.drawScanning(ctx)
     local y = 3
 
-    TermUI.drawText(2, y, "On the zone computer:", colors.lightGray)
+    TermUI.drawText(2, y, "On the target computer:", colors.lightGray)
     y = y + 1
     TermUI.drawText(2, y, "1. Run: mpm run shelfos", colors.white)
     y = y + 1
@@ -78,50 +78,50 @@ function AddZone.drawScanning(ctx)
     TermUI.drawSpinner(y, "Scanning...", state.spinnerFrame)
     y = y + 2
 
-    -- Zone count
-    local zoneCount = #state.pendingZones
-    if zoneCount > 0 then
+    -- Computer count
+    local computerCount = #state.pendingComputers
+    if computerCount > 0 then
         local countColor = colors.lime
-        TermUI.drawText(2, y, "Found: " .. zoneCount .. " zone(s)", countColor)
+        TermUI.drawText(2, y, "Found: " .. computerCount .. " computer(s)", countColor)
         y = y + 1
 
-        -- Show zone names
-        for i, z in ipairs(state.pendingZones) do
+        -- Show computer names
+        for i, c in ipairs(state.pendingComputers) do
             if y < ctx.height - 2 then
-                TermUI.drawText(4, y, z.label, colors.lightGray)
+                TermUI.drawText(4, y, c.label, colors.lightGray)
                 y = y + 1
             end
         end
 
         y = y + 1
-        TermUI.drawText(2, y, "Press [S] to select a zone", colors.yellow)
+        TermUI.drawText(2, y, "Press [S] to select", colors.yellow)
     else
-        TermUI.drawText(2, y, "Found: 0 zones", colors.lightGray)
+        TermUI.drawText(2, y, "Found: 0 computers", colors.lightGray)
     end
 
     TermUI.drawStatusBar({{ key = "Q", label = "Cancel" }})
 end
 
-function AddZone.drawSelecting(ctx)
+function AddComputer.drawSelecting(ctx)
     local y = 3
 
-    TermUI.drawText(2, y, "Select a zone to pair:", colors.lightGray)
+    TermUI.drawText(2, y, "Select a computer to pair:", colors.lightGray)
     y = y + 2
 
-    for i, z in ipairs(state.pendingZones) do
+    for i, c in ipairs(state.pendingComputers) do
         if i <= 9 and y < ctx.height - 3 then
             -- Number key
             term.setCursorPos(2, y)
             term.setTextColor(colors.yellow)
             term.write("[" .. i .. "]")
             term.setTextColor(colors.lime)
-            term.write(" " .. Core.truncate(z.label, ctx.width - 8))
+            term.write(" " .. Core.truncate(c.label, ctx.width - 8))
             y = y + 1
 
             -- Details
             term.setCursorPos(6, y)
             term.setTextColor(colors.lightGray)
-            term.write("ID: " .. z.senderId)
+            term.write("ID: " .. c.senderId)
             y = y + 1
         end
     end
@@ -131,21 +131,21 @@ function AddZone.drawSelecting(ctx)
     TermUI.drawStatusBar({{ key = "B", label = "Back" }})
 end
 
-function AddZone.drawCodeEntry(ctx)
-    local zone = state.selectedZone
+function AddComputer.drawCodeEntry(ctx)
+    local computer = state.selectedComputer
     local y = 3
 
-    TermUI.drawText(2, y, "Pair Zone", colors.white)
+    TermUI.drawText(2, y, "Pair Computer", colors.white)
     y = y + 2
 
-    TermUI.drawInfoLine(y, "Zone", zone.label, colors.lime)
+    TermUI.drawInfoLine(y, "Computer", computer.label, colors.lime)
     y = y + 1
-    TermUI.drawInfoLine(y, "Computer", "#" .. zone.senderId, colors.lightGray)
+    TermUI.drawInfoLine(y, "ID", "#" .. computer.senderId, colors.lightGray)
     y = y + 2
 
     TermUI.drawText(2, y, "Enter the CODE shown on", colors.lightGray)
     y = y + 1
-    TermUI.drawText(2, y, "the zone's screen:", colors.lightGray)
+    TermUI.drawText(2, y, "the computer's screen:", colors.lightGray)
     y = y + 1
     TermUI.drawText(2, y, "(format: XXXX-XXXX)", colors.gray)
     y = y + 2
@@ -163,31 +163,31 @@ function AddZone.drawCodeEntry(ctx)
     if #enteredCode < 4 then
         state.errorMsg = "Code too short - cancelled"
         state.phase = "error"
-        AddZone.draw(ctx)
+        AddComputer.draw(ctx)
         return
     end
 
     -- Transition to pairing phase
     state.phase = "pairing"
-    AddZone.draw(ctx)
+    AddComputer.draw(ctx)
 
     -- Issue credentials
-    local creds, err = ctx.app.authority:issueCredentials(zone.id, zone.label)
+    local creds, err = ctx.app.authority:issueCredentials(computer.id, computer.label)
     if not creds then
         state.errorMsg = "Failed: " .. (err or "Unknown error")
         state.phase = "error"
-        AddZone.draw(ctx)
+        AddComputer.draw(ctx)
         return
     end
 
     state.pairingCreds = creds
 
     -- Create and send PAIR_DELIVER
-    local deliverMsg = Protocol.createPairDeliver(creds.swarmSecret, creds.zoneId)
+    local deliverMsg = Protocol.createPairDeliver(creds.swarmSecret, creds.computerId)
     deliverMsg.data.credentials = creds
 
     local signedEnvelope = Crypto.wrapWith(deliverMsg, enteredCode)
-    rednet.send(zone.senderId, signedEnvelope, PAIR_PROTOCOL)
+    rednet.send(computer.senderId, signedEnvelope, PAIR_PROTOCOL)
 
     -- Wait for PAIR_COMPLETE
     local deadline = os.epoch("utc") + 5000
@@ -195,12 +195,12 @@ function AddZone.drawCodeEntry(ctx)
         local timer = os.startTimer(0.5)
         local event, p1, p2, p3 = os.pullEvent()
 
-        if event == "rednet_message" and p1 == zone.senderId then
+        if event == "rednet_message" and p1 == computer.senderId then
             if p3 == PAIR_PROTOCOL and type(p2) == "table" then
                 if p2.type == Protocol.MessageType.PAIR_COMPLETE then
-                    state.successMsg = zone.label .. " joined swarm"
+                    state.successMsg = computer.label .. " joined swarm"
                     state.phase = "success"
-                    AddZone.draw(ctx)
+                    AddComputer.draw(ctx)
                     return
                 end
             end
@@ -209,21 +209,21 @@ function AddZone.drawCodeEntry(ctx)
 
     -- Timeout: wrong code
     state.errorMsg = "No response - check code was correct"
-    ctx.app.authority:removeZone(zone.id)
+    ctx.app.authority:removeComputer(computer.id)
     state.phase = "error"
-    AddZone.draw(ctx)
+    AddComputer.draw(ctx)
 end
 
-function AddZone.drawPairing(ctx)
+function AddComputer.drawPairing(ctx)
     local y = math.floor(ctx.height / 2) - 1
     TermUI.drawSpinner(y, "Issuing credentials...", state.spinnerFrame)
     TermUI.drawText(2, y + 1, "Waiting for confirmation...", colors.lightGray)
 end
 
-function AddZone.drawSuccess(ctx)
+function AddComputer.drawSuccess(ctx)
     local y = 4
 
-    TermUI.drawText(2, y, "Zone Paired!", colors.lime)
+    TermUI.drawText(2, y, "Computer Paired!", colors.lime)
     y = y + 2
 
     if state.successMsg then
@@ -239,7 +239,7 @@ function AddZone.drawSuccess(ctx)
     TermUI.drawStatusBar("Press any key to continue...")
 end
 
-function AddZone.drawError(ctx)
+function AddComputer.drawError(ctx)
     local y = math.floor(ctx.height / 2) - 1
 
     TermUI.drawText(2, y, "Error", colors.red)
@@ -249,11 +249,11 @@ function AddZone.drawError(ctx)
     TermUI.drawStatusBar("Press any key to go back...")
 end
 
-function AddZone.handleEvent(ctx, event, p1, p2, p3)
+function AddComputer.handleEvent(ctx, event, p1, p2, p3)
     if state.phase == "scanning" then
-        return AddZone.handleScanning(ctx, event, p1, p2, p3)
+        return AddComputer.handleScanning(ctx, event, p1, p2, p3)
     elseif state.phase == "selecting" then
-        return AddZone.handleSelecting(ctx, event, p1, p2, p3)
+        return AddComputer.handleSelecting(ctx, event, p1, p2, p3)
     elseif state.phase == "code_entry" then
         -- read() handles events internally during drawCodeEntry
         return nil
@@ -269,16 +269,16 @@ function AddZone.handleEvent(ctx, event, p1, p2, p3)
     return nil
 end
 
-function AddZone.handleScanning(ctx, event, p1, p2, p3)
+function AddComputer.handleScanning(ctx, event, p1, p2, p3)
     if event == "key" then
         local keyName = keys.getName(p1)
         if keyName then
             keyName = keyName:lower()
             if keyName == "q" then
                 return "pop"
-            elseif keyName == "s" and #state.pendingZones > 0 then
+            elseif keyName == "s" and #state.pendingComputers > 0 then
                 state.phase = "selecting"
-                AddZone.draw(ctx)
+                AddComputer.draw(ctx)
                 return nil
             end
         end
@@ -286,36 +286,36 @@ function AddZone.handleScanning(ctx, event, p1, p2, p3)
     elseif event == "timer" then
         -- Update spinner
         state.spinnerFrame = state.spinnerFrame + 1
-        AddZone.draw(ctx)
+        AddComputer.draw(ctx)
 
     elseif event == "rednet_message" and p3 == PAIR_PROTOCOL then
         local senderId = p1
         local msg = p2
 
         if type(msg) == "table" and msg.type == Protocol.MessageType.PAIR_READY then
-            local zoneId = msg.data.computerId or ("zone_" .. senderId)
-            local zoneLabel = msg.data.label or ("Zone " .. senderId)
+            local computerId = msg.data.computerId or ("computer_" .. senderId)
+            local computerLabel = msg.data.label or ("Computer " .. senderId)
 
             -- Check if already in list
             local found = false
-            for _, z in ipairs(state.pendingZones) do
-                if z.id == zoneId then
+            for _, c in ipairs(state.pendingComputers) do
+                if c.id == computerId then
                     found = true
-                    z.lastSeen = os.epoch("utc")
+                    c.lastSeen = os.epoch("utc")
                     break
                 end
             end
 
             if not found then
-                table.insert(state.pendingZones, {
-                    id = zoneId,
+                table.insert(state.pendingComputers, {
+                    id = computerId,
                     senderId = senderId,
-                    label = zoneLabel,
+                    label = computerLabel,
                     lastSeen = os.epoch("utc")
                 })
             end
 
-            AddZone.draw(ctx)
+            AddComputer.draw(ctx)
         end
     end
 
@@ -325,7 +325,7 @@ function AddZone.handleScanning(ctx, event, p1, p2, p3)
     return nil
 end
 
-function AddZone.handleSelecting(ctx, event, p1, p2, p3)
+function AddComputer.handleSelecting(ctx, event, p1, p2, p3)
     if event == "key" then
         local keyName = keys.getName(p1)
         if not keyName then return nil end
@@ -333,45 +333,45 @@ function AddZone.handleSelecting(ctx, event, p1, p2, p3)
 
         if keyName == "b" or keyName == "backspace" then
             state.phase = "scanning"
-            AddZone.draw(ctx)
+            AddComputer.draw(ctx)
             return nil
         end
 
         -- Number selection
         local num = Keys.getNumber(keyName)
-        if num and num >= 1 and num <= #state.pendingZones then
-            state.selectedZone = state.pendingZones[num]
+        if num and num >= 1 and num <= #state.pendingComputers then
+            state.selectedComputer = state.pendingComputers[num]
             state.phase = "code_entry"
-            AddZone.draw(ctx)
+            AddComputer.draw(ctx)
             return nil
         end
 
     elseif event == "rednet_message" and p3 == PAIR_PROTOCOL then
-        -- Continue collecting zones while selecting
+        -- Continue collecting computers while selecting
         local senderId = p1
         local msg = p2
 
         if type(msg) == "table" and msg.type == Protocol.MessageType.PAIR_READY then
-            local zoneId = msg.data.computerId or ("zone_" .. senderId)
-            local zoneLabel = msg.data.label or ("Zone " .. senderId)
+            local computerId = msg.data.computerId or ("computer_" .. senderId)
+            local computerLabel = msg.data.label or ("Computer " .. senderId)
 
             local found = false
-            for _, z in ipairs(state.pendingZones) do
-                if z.id == zoneId then
+            for _, c in ipairs(state.pendingComputers) do
+                if c.id == computerId then
                     found = true
-                    z.lastSeen = os.epoch("utc")
+                    c.lastSeen = os.epoch("utc")
                     break
                 end
             end
 
             if not found then
-                table.insert(state.pendingZones, {
-                    id = zoneId,
+                table.insert(state.pendingComputers, {
+                    id = computerId,
                     senderId = senderId,
-                    label = zoneLabel,
+                    label = computerLabel,
                     lastSeen = os.epoch("utc")
                 })
-                AddZone.draw(ctx)
+                AddComputer.draw(ctx)
             end
         end
     end
@@ -379,4 +379,4 @@ function AddZone.handleSelecting(ctx, event, p1, p2, p3)
     return nil
 end
 
-return AddZone
+return AddComputer

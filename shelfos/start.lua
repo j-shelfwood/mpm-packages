@@ -40,7 +40,7 @@ if mode == "pocket" then
     print("Use: mpm run shelfos-swarm")
     print("")
     print("The pocket computer is the swarm controller.")
-    print("Zone computers use: mpm run shelfos")
+    print("Computers use: mpm run shelfos")
     return
 elseif mode == "headless" then
     -- Peripheral host mode

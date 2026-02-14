@@ -44,7 +44,7 @@ end
 -- =============================================================================
 
 test("AEInterface.exists() detects ME Bridge", function()
-    Mocks.setupZone({id = 10, meBridge = true})
+    Mocks.setupComputer({id = 10, meBridge = true})
 
     local AEInterface = mpm("peripherals/AEInterface")
     local exists, bridge = AEInterface.exists()
@@ -54,7 +54,7 @@ test("AEInterface.exists() detects ME Bridge", function()
 end)
 
 test("AEInterface.exists() returns false when no bridge", function()
-    Mocks.setupZone({id = 10, meBridge = false})
+    Mocks.setupComputer({id = 10, meBridge = false})
 
     local AEInterface = mpm("peripherals/AEInterface")
     local exists = AEInterface.exists()
@@ -63,7 +63,7 @@ test("AEInterface.exists() returns false when no bridge", function()
 end)
 
 test("AEInterface.new() creates working adapter", function()
-    Mocks.setupZone({id = 10, meBridge = true})
+    Mocks.setupComputer({id = 10, meBridge = true})
 
     local AEInterface = mpm("peripherals/AEInterface")
     local ae = AEInterface.new()
@@ -72,7 +72,7 @@ test("AEInterface.new() creates working adapter", function()
 end)
 
 test("AEInterface.items() returns normalized item list", function()
-    Mocks.setupZone({id = 10, meBridge = true})
+    Mocks.setupComputer({id = 10, meBridge = true})
 
     local AEInterface = mpm("peripherals/AEInterface")
     local ae = AEInterface.new()
@@ -95,7 +95,7 @@ test("AEInterface.items() returns normalized item list", function()
 end)
 
 test("AEInterface.fluids() returns fluid list", function()
-    Mocks.setupZone({id = 10, meBridge = true})
+    Mocks.setupComputer({id = 10, meBridge = true})
 
     local AEInterface = mpm("peripherals/AEInterface")
     local ae = AEInterface.new()
@@ -116,7 +116,7 @@ test("AEInterface.fluids() returns fluid list", function()
 end)
 
 test("AEInterface.storageStatus() returns capacity info", function()
-    Mocks.setupZone({id = 10, meBridge = true})
+    Mocks.setupComputer({id = 10, meBridge = true})
 
     local AEInterface = mpm("peripherals/AEInterface")
     local ae = AEInterface.new()
@@ -131,7 +131,7 @@ test("AEInterface.storageStatus() returns capacity info", function()
 end)
 
 test("AEInterface.energy() returns energy stats", function()
-    Mocks.setupZone({id = 10, meBridge = true})
+    Mocks.setupComputer({id = 10, meBridge = true})
 
     local AEInterface = mpm("peripherals/AEInterface")
     local ae = AEInterface.new()
@@ -148,7 +148,7 @@ end)
 -- =============================================================================
 
 test("Monitor mock supports basic operations", function()
-    local env = Mocks.setupZone({id = 10, monitors = 1})
+    local env = Mocks.setupComputer({id = 10, monitors = 1})
     local mon = env.monitors["monitor_0"]
 
     -- Test size
@@ -169,7 +169,7 @@ test("Monitor mock supports basic operations", function()
 end)
 
 test("Monitor mock clear() resets buffer", function()
-    local env = Mocks.setupZone({id = 10, monitors = 1})
+    local env = Mocks.setupComputer({id = 10, monitors = 1})
     local mon = env.monitors["monitor_0"]
 
     mon:setCursorPos(1, 1)
@@ -185,7 +185,7 @@ test("Monitor mock clear() resets buffer", function()
 end)
 
 test("Monitor mock findText() locates content", function()
-    local env = Mocks.setupZone({id = 10, monitors = 1})
+    local env = Mocks.setupComputer({id = 10, monitors = 1})
     local mon = env.monitors["monitor_0"]
 
     mon:setCursorPos(5, 3)
@@ -201,7 +201,7 @@ end)
 -- =============================================================================
 
 test("Text.formatNumber formats large numbers", function()
-    Mocks.setupZone({id = 10})
+    Mocks.setupComputer({id = 10})
 
     local Text = mpm("utils/Text")
 
@@ -217,7 +217,7 @@ test("Text.formatNumber formats large numbers", function()
 end)
 
 test("Text.prettifyName converts registry names", function()
-    Mocks.setupZone({id = 10})
+    Mocks.setupComputer({id = 10})
 
     local Text = mpm("utils/Text")
 
@@ -235,7 +235,7 @@ end)
 -- =============================================================================
 
 test("StorageGraph view can mount with ME Bridge", function()
-    Mocks.setupZone({id = 10, meBridge = true})
+    Mocks.setupComputer({id = 10, meBridge = true})
 
     -- Load view module
     local StorageGraph = dofile(root .. "/views/StorageGraph.lua")
@@ -246,7 +246,7 @@ test("StorageGraph view can mount with ME Bridge", function()
 end)
 
 test("StorageGraph view mount fails without ME Bridge", function()
-    Mocks.setupZone({id = 10, meBridge = false})
+    Mocks.setupComputer({id = 10, meBridge = false})
 
     local StorageGraph = dofile(root .. "/views/StorageGraph.lua")
 
@@ -255,7 +255,7 @@ test("StorageGraph view mount fails without ME Bridge", function()
 end)
 
 test("ItemBrowser view can mount with ME Bridge", function()
-    Mocks.setupZone({id = 10, meBridge = true})
+    Mocks.setupComputer({id = 10, meBridge = true})
 
     local ItemBrowser = dofile(root .. "/views/ItemBrowser.lua")
 
@@ -264,7 +264,7 @@ test("ItemBrowser view can mount with ME Bridge", function()
 end)
 
 test("Clock view always mounts (no peripheral required)", function()
-    Mocks.setupZone({id = 10, meBridge = false})
+    Mocks.setupComputer({id = 10, meBridge = false})
 
     local Clock = dofile(root .. "/views/Clock.lua")
 
@@ -273,7 +273,7 @@ test("Clock view always mounts (no peripheral required)", function()
 end)
 
 test("EnergyGraph view mount depends on ME Bridge", function()
-    Mocks.setupZone({id = 10, meBridge = true})
+    Mocks.setupComputer({id = 10, meBridge = true})
 
     local EnergyGraph = dofile(root .. "/views/EnergyGraph.lua")
 
@@ -286,7 +286,7 @@ end)
 -- =============================================================================
 
 test("BaseView.custom creates view with correct structure", function()
-    Mocks.setupZone({id = 10})
+    Mocks.setupComputer({id = 10})
 
     local BaseView = mpm("views/BaseView")
 

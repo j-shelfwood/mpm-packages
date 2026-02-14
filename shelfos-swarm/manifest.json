@@ -11,8 +11,10 @@
     "ui/ScreenManager.lua",
     "screens/MainMenu.lua",
     "screens/CreateSwarm.lua",
-    "screens/AddZone.lua",
-    "screens/ViewZones.lua",
-    "screens/DeleteSwarm.lua"
+    "screens/AddComputer.lua",
+    "screens/ViewComputers.lua",
+    "screens/DeleteSwarm.lua",
+    "screens/RebootSwarm.lua",
+    "screens/ViewPeripherals.lua"
   ]
 }

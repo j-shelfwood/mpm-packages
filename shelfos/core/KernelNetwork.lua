@@ -7,11 +7,12 @@ local KernelNetwork = {}
 -- Initialize networking (if modem available and paired with swarm)
 -- @param kernel Kernel instance
 -- @param config Current config
--- @param zone Zone instance
+-- @param identity Identity instance
 -- @return channel, discovery, peripheralHost, peripheralClient (or nils)
-function KernelNetwork.initialize(kernel, config, zone)
+function KernelNetwork.initialize(kernel, config, identity)
     local Channel = mpm('net/Channel')
     local Crypto = mpm('net/Crypto')
+    local Protocol = mpm('net/Protocol')
 
     -- Only init if secret is configured (paired with pocket)
     if not config.network or not config.network.secret then
@@ -37,18 +38,18 @@ function KernelNetwork.initialize(kernel, config, zone)
     print("[ShelfOS] Network: " .. modemType .. " modem")
 
     -- Register with native CC:Tweaked service discovery
-    -- Note: rednet.host() requires string hostname, zone:getId() may be number
-    rednet.host("shelfos", tostring(zone:getId()))
+    -- Note: rednet.host() requires string hostname, identity:getId() may be number
+    rednet.host("shelfos", tostring(identity:getId()))
 
-    -- Set up zone discovery (for rich metadata exchange)
+    -- Set up computer discovery (for rich metadata exchange)
     local Discovery = mpm('net/Discovery')
     local discovery = Discovery.new(channel)
-    discovery:setIdentity(zone:getId(), zone:getName())
+    discovery:setIdentity(identity:getId(), identity:getName())
     discovery:start()
 
     -- Set up peripheral host to share local peripherals
     local PeripheralHost = mpm('net/PeripheralHost')
-    local peripheralHost = PeripheralHost.new(channel, zone:getId(), zone:getName())
+    local peripheralHost = PeripheralHost.new(channel, identity:getId(), identity:getName())
     local hostCount = peripheralHost:start()
     if hostCount > 0 then
         print("[ShelfOS] Sharing " .. hostCount .. " local peripheral(s)")
@@ -63,6 +64,12 @@ function KernelNetwork.initialize(kernel, config, zone)
 
     -- Make client available globally via RemotePeripheral
     RemotePeripheral.setClient(peripheralClient)
+
+    -- Register REBOOT handler - reboots this computer on command from pocket
+    channel:on(Protocol.MessageType.REBOOT, function(senderId, msg)
+        print("[ShelfOS] Reboot command received from #" .. senderId)
+        os.reboot()
+    end)
 
     -- Discover remote peripherals (non-blocking, short timeout)
     local count = peripheralClient:discover(2)
@@ -85,7 +92,7 @@ function KernelNetwork.loop(kernel, runningRef)
         if kernel.channel then
             kernel.channel:poll(0.5)
 
-            -- Periodic zone announce
+            -- Periodic computer announce
             if kernel.discovery and kernel.discovery:shouldAnnounce() then
                 local monitorInfo = {}
                 for _, m in ipairs(kernel.monitors) do

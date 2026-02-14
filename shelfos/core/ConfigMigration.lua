@@ -43,13 +43,13 @@ function ConfigMigration.migrateFromDisplays(DEFAULT_CONFIG)
     -- Handle both formats: {displays={...}, settings={...}} or just [{monitor=..., view=...}]
     local displays = oldConfig.displays or oldConfig
 
-    -- Generate zone identity
-    local zoneId = "zone_" .. os.getComputerID() .. "_" .. (os.epoch("utc") % 100000)
-    local zoneName = os.getComputerLabel() or ("Zone " .. os.getComputerID())
+    -- Generate computer identity
+    local computerId = "computer_" .. os.getComputerID() .. "_" .. (os.epoch("utc") % 100000)
+    local computerName = os.getComputerLabel() or ("Computer " .. os.getComputerID())
 
     local newConfig = deepCopy(DEFAULT_CONFIG)
-    newConfig.zone.id = zoneId
-    newConfig.zone.name = zoneName
+    newConfig.computer.id = computerId
+    newConfig.computer.name = computerName
 
     -- Migrate monitors
     if type(displays) == "table" then

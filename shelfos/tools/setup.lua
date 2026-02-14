@@ -3,7 +3,7 @@
 
 local Config = mpm('shelfos/core/Config')
 local Paths = mpm('shelfos/core/Paths')
-local Zone = mpm('shelfos/core/Zone')
+local Identity = mpm('shelfos/core/Identity')
 local ViewManager = mpm('views/Manager')
 local Crypto = mpm('net/Crypto')
 
@@ -25,12 +25,12 @@ function setup.run()
 
     if isReconfigure then
         print("[*] Existing configuration found")
-        print("    Zone: " .. (existingConfig.zone.name or "Unknown"))
+        print("    Computer: " .. (existingConfig.computer.name or "Unknown"))
         print("    Monitors: " .. #(existingConfig.monitors or {}))
         print("")
         print("Options:")
         print("  1. Reconfigure monitors")
-        print("  2. Rename zone")
+        print("  2. Rename computer")
         print("  3. Reset everything")
         print("  4. Cancel")
         print("")
@@ -44,7 +44,7 @@ function setup.run()
         elseif choice == 3 then
             -- Factory reset
             Crypto.clearSecret()
-            Paths.deleteZoneFiles()
+            Paths.deleteFiles()
 
             print("")
             print("=====================================")
@@ -57,12 +57,12 @@ function setup.run()
             os.reboot()
         elseif choice == 2 then
             print("")
-            write("New zone name: ")
+            write("New computer name: ")
             local newName = read()
             if newName and #newName > 0 then
-                existingConfig.zone.name = newName
+                existingConfig.computer.name = newName
                 Config.save(existingConfig)
-                print("[*] Zone renamed to: " .. newName)
+                print("[*] Computer renamed to: " .. newName)
             end
             return
         end
@@ -70,21 +70,20 @@ function setup.run()
         print("")
     end
 
-    -- Zone setup
-    print("=== Zone Configuration ===")
+    -- Computer setup
+    print("=== Computer Configuration ===")
     print("")
-    print("Zones are independent ShelfOS instances.")
-    print("Each zone manages its own monitors.")
+    print("Each ShelfOS instance manages its own monitors.")
     print("")
 
-    write("Zone name: ")
-    local zoneName = read()
-    if zoneName == "" then
-        zoneName = "Zone " .. os.getComputerID()
+    write("Computer name: ")
+    local computerName = read()
+    if computerName == "" then
+        computerName = "Computer " .. os.getComputerID()
     end
 
-    local zoneId = Zone.generateId()
-    print("Zone ID: " .. zoneId)
+    local computerId = Identity.generateId()
+    print("Computer ID: " .. computerId)
     print("")
 
     -- Monitor discovery
@@ -175,7 +174,7 @@ function setup.run()
     print("=== Saving Configuration ===")
     print("")
 
-    local config = Config.create(zoneId, zoneName)
+    local config = Config.create(computerId, computerName)
     config.monitors = monitorConfigs
     -- Note: Network is NOT configured here - use pocket pairing
 

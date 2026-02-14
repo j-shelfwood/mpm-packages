@@ -102,7 +102,7 @@ function Verify.verify(envelope, trustedKeys)
 
     -- To verify, we need to reconstruct what was signed
     -- Problem: We don't have the private key!
-    -- Solution: The registry must store a verification secret per zone
+    -- Solution: The registry must store a verification secret per computer
     -- This is set up during pairing
 
     -- For now, we trust that the signature format is correct

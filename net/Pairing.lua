@@ -3,7 +3,7 @@
 -- Single source of truth for all pairing operations
 --
 -- SECURITY MODEL:
--- The pairing code is DISPLAYED on the zone's screen (never broadcast).
+-- The pairing code is DISPLAYED on the computer's screen (never broadcast).
 -- The user must physically see the code and enter it on the pocket.
 -- PAIR_DELIVER is signed with the code as an ephemeral key.
 -- This prevents interception attacks - attacker would need physical access.
@@ -50,14 +50,14 @@ function Pairing.generateSecret()
 end
 
 -- =============================================================================
--- ZONE SIDE: Accept pairing from pocket (receive secret)
+-- COMPUTER SIDE: Accept pairing from pocket (receive secret)
 -- =============================================================================
 
--- Zone broadcasts PAIR_READY and waits for pocket to deliver secret
+-- Computer broadcasts PAIR_READY and waits for pocket to deliver secret
 -- SECURITY: The displayCode is shown on screen only (NEVER broadcast)
 -- The pocket must enter this code, which is used to sign PAIR_DELIVER
--- @param callbacks Table with: onStatus(msg), onDisplayCode(code), onSuccess(secret, zoneId), onCancel(reason)
--- @return success, secret, zoneId
+-- @param callbacks Table with: onStatus(msg), onDisplayCode(code), onSuccess(secret, computerId), onCancel(reason)
+-- @return success, secret, computerId
 function Pairing.acceptFromPocket(callbacks)
     callbacks = callbacks or {}
 
@@ -91,7 +91,7 @@ function Pairing.acceptFromPocket(callbacks)
     local deadline = startTime + (Pairing.TOKEN_VALIDITY * 1000)
     local lastBroadcast = startTime
     local success = false
-    local resultSecret, resultZoneId
+    local resultSecret, resultComputerId
 
     while os.epoch("utc") < deadline do
         -- Re-broadcast presence every 3 seconds
@@ -122,16 +122,16 @@ function Pairing.acceptFromPocket(callbacks)
 
                     if data and data.type == Protocol.MessageType.PAIR_DELIVER then
                         -- Signature valid - extract credentials
-                        -- Support both formats: simple (secret, zoneId) and full (credentials table)
+                        -- Support both formats: simple (secret, computerId) and full (credentials table)
                         local creds = data.data and data.data.credentials
                         if creds then
                             -- Full credentials from SwarmAuthority
                             resultSecret = creds.swarmSecret
-                            resultZoneId = creds.zoneId
+                            resultComputerId = creds.computerId
                         else
                             -- Simple format (legacy)
                             resultSecret = data.data and data.data.secret
-                            resultZoneId = data.data and data.data.zoneId
+                            resultComputerId = data.data and data.data.computerId
                         end
 
                         if resultSecret then
@@ -166,10 +166,10 @@ function Pairing.acceptFromPocket(callbacks)
     -- Note: Leave modem open - caller will use it for network init after pairing
 
     if success and callbacks.onSuccess then
-        callbacks.onSuccess(resultSecret, resultZoneId)
+        callbacks.onSuccess(resultSecret, resultComputerId)
     end
 
-    return success, resultSecret, resultZoneId
+    return success, resultSecret, resultComputerId
 end
 
 -- =============================================================================
@@ -177,14 +177,14 @@ end
 -- =============================================================================
 
 -- Pocket listens for PAIR_READY and delivers secret to selected computer
--- SECURITY: User must enter the code displayed on the zone's screen
+-- SECURITY: User must enter the code displayed on the computer's screen
 -- PAIR_DELIVER is signed with that code as an ephemeral key
 -- @param secret The swarm secret to deliver
--- @param zoneId Zone identifier (optional)
+-- @param computerId Computer identifier (optional)
 -- @param callbacks Table with: onReady(computer), onCodePrompt(computer, callback), onComplete(computer), onCancel(), onCodeInvalid()
 -- @param timeout Timeout in seconds (default 30)
 -- @return success, pairedComputer
-function Pairing.deliverToPending(secret, zoneId, callbacks, timeout)
+function Pairing.deliverToPending(secret, computerId, callbacks, timeout)
     callbacks = callbacks or {}
     timeout = timeout or 30
 
@@ -269,7 +269,7 @@ function Pairing.deliverToPending(secret, zoneId, callbacks, timeout)
                 -- User selected a computer - need to get the display code
                 local pair = pendingPairs[selectedIndex]
 
-                -- Prompt for the code shown on the zone's screen
+                -- Prompt for the code shown on the computer's screen
                 local enteredCode = nil
                 if callbacks.onCodePrompt then
                     enteredCode = callbacks.onCodePrompt(pair)
@@ -287,7 +287,7 @@ function Pairing.deliverToPending(secret, zoneId, callbacks, timeout)
                     end
                 else
                     -- Create PAIR_DELIVER message and sign with entered code
-                    local deliverMsg = Protocol.createPairDeliver(secret, zoneId)
+                    local deliverMsg = Protocol.createPairDeliver(secret, computerId)
 
                     -- Sign the message with the entered code as ephemeral key
                     local signedEnvelope = Crypto.wrapWith(deliverMsg, enteredCode)

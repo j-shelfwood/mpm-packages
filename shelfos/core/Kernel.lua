@@ -9,7 +9,7 @@
 
 local Config = mpm('shelfos/core/Config')
 local Monitor = mpm('shelfos/core/Monitor')
-local Zone = mpm('shelfos/core/Zone')
+local Identity = mpm('shelfos/core/Identity')
 local Terminal = mpm('shelfos/core/Terminal')
 local KernelNetwork = mpm('shelfos/core/KernelNetwork')
 local KernelMenu = mpm('shelfos/core/KernelMenu')
@@ -22,7 +22,7 @@ Kernel.__index = Kernel
 function Kernel.new()
     local self = setmetatable({}, Kernel)
     self.config = nil
-    self.zone = nil
+    self.identity = nil
     self.monitors = {}
     self.running = false
     self.channel = nil
@@ -66,9 +66,9 @@ function Kernel:boot()
         -- Note: "Not in swarm" message is printed by KernelNetwork.initialize()
     end
 
-    -- Initialize zone identity
-    self.zone = Zone.new(self.config.zone)
-    print("[ShelfOS] Zone: " .. self.zone:getName())
+    -- Initialize computer identity
+    self.identity = Identity.new(self.config.computer)
+    print("[ShelfOS] Computer: " .. self.identity:getName())
 
     -- Initialize networking FIRST (so RemotePeripheral is available for view mounting)
     self:initializeNetwork()
@@ -123,7 +123,7 @@ end
 -- Initialize networking (delegates to KernelNetwork module)
 function Kernel:initializeNetwork()
     self.channel, self.discovery, self.peripheralHost, self.peripheralClient =
-        KernelNetwork.initialize(self, self.config, self.zone)
+        KernelNetwork.initialize(self, self.config, self.identity)
 end
 
 -- Main run loop

@@ -1,5 +1,5 @@
 -- End-to-End Pairing Integration Test
--- Simulates BOTH pocket and zone computers with a virtual network
+-- Simulates BOTH pocket and swarm computers with a virtual network
 -- Messages actually flow between simulated computers
 
 local root = _G.TEST_ROOT or "."
@@ -257,17 +257,17 @@ end
 -- TESTS
 -- =============================================================================
 
-test("E2E: Full pairing flow - zone and pocket exchange credentials", function()
+test("E2E: Full pairing flow - computer and pocket exchange credentials", function()
     -- Create virtual network
     local network = VirtualNetwork.new()
 
-    -- Create zone computer (ID: 10)
-    local zoneId = 10
-    local zoneEnv = createComputerEnv(network, zoneId, "Zone Computer", {
+    -- Create target computer (ID: 10)
+    local targetId = 10
+    local targetEnv = createComputerEnv(network, targetId, "Target Computer", {
         modemName = "top",
         startTime = 1000000
     })
-    network:register(zoneId)
+    network:register(targetId)
 
     -- Create pocket computer (ID: 1)
     local pocketId = 1
@@ -279,31 +279,31 @@ test("E2E: Full pairing flow - zone and pocket exchange credentials", function()
 
     -- Test secret and credentials
     local testSecret = "test_swarm_secret_xyz123"
-    local testZoneId = "zone_" .. zoneId .. "_assigned"
+    local testComputerId = "computer_" .. targetId .. "_assigned"
 
     -- Variables to capture results
-    local zoneResult = {}
+    local targetResult = {}
     local pocketResult = {}
     local capturedDisplayCode = nil
 
-    -- STEP 0: Pocket opens modem first (listening for zones)
+    -- STEP 0: Pocket opens modem first (listening for computers)
     withEnv(pocketEnv, function()
         rednet.open("back")
     end)
 
-    -- STEP 1: Zone starts pairing and captures display code
-    withEnv(zoneEnv, function()
-        -- Generate display code (this is what zone shows on screen)
+    -- STEP 1: Computer starts pairing and captures display code
+    withEnv(targetEnv, function()
+        -- Generate display code (this is what computer shows on screen)
         capturedDisplayCode = Pairing.generateCode()
-        zoneEnv.displayCode = capturedDisplayCode
+        targetEnv.displayCode = capturedDisplayCode
 
         -- Open modem and broadcast PAIR_READY
         rednet.open("top")
-        local ready = Protocol.createPairReady(nil, "Zone Computer", zoneId)
+        local ready = Protocol.createPairReady(nil, "Target Computer", targetId)
         rednet.broadcast(ready, Pairing.PROTOCOL)
     end)
 
-    assert_not_nil(capturedDisplayCode, "Zone should generate display code")
+    assert_not_nil(capturedDisplayCode, "Computer should generate display code")
     assert_eq(9, #capturedDisplayCode, "Display code should be XXXX-XXXX format")
 
     -- STEP 2: Pocket receives PAIR_READY
@@ -318,60 +318,60 @@ test("E2E: Full pairing flow - zone and pocket exchange credentials", function()
 
     assert_not_nil(receivedReady, "Pocket should receive PAIR_READY")
     assert_eq(Protocol.MessageType.PAIR_READY, receivedReady.msg.type)
-    assert_eq(zoneId, receivedReady.sender)
-    assert_eq("Zone Computer", receivedReady.msg.data.label)
+    assert_eq(targetId, receivedReady.sender)
+    assert_eq("Target Computer", receivedReady.msg.data.label)
 
     -- STEP 3: Pocket sends signed PAIR_DELIVER using display code
     withEnv(pocketEnv, function()
-        local deliver = Protocol.createPairDeliver(testSecret, testZoneId)
+        local deliver = Protocol.createPairDeliver(testSecret, testComputerId)
         deliver.data.credentials = {
             swarmSecret = testSecret,
-            zoneId = testZoneId,
+            computerId = testComputerId,
             swarmFingerprint = "TEST-FP-001"
         }
 
         -- Sign with display code (simulating user entering the code they see)
         local signedEnvelope = Crypto.wrapWith(deliver, capturedDisplayCode)
-        rednet.send(zoneId, signedEnvelope, Pairing.PROTOCOL)
+        rednet.send(targetId, signedEnvelope, Pairing.PROTOCOL)
 
         pocketResult.sent = true
     end)
 
     assert_true(pocketResult.sent, "Pocket should send PAIR_DELIVER")
 
-    -- STEP 4: Zone receives and verifies PAIR_DELIVER
-    withEnv(zoneEnv, function()
-        local sender, envelope, protocol = network:receive(zoneId, Pairing.PROTOCOL)
+    -- STEP 4: Computer receives and verifies PAIR_DELIVER
+    withEnv(targetEnv, function()
+        local sender, envelope, protocol = network:receive(targetId, Pairing.PROTOCOL)
 
         if sender and envelope then
-            zoneResult.receivedEnvelope = true
+            targetResult.receivedEnvelope = true
 
             -- Verify signature with display code
             local unwrapped, err = Crypto.unwrapWith(envelope, capturedDisplayCode)
             if unwrapped then
-                zoneResult.verified = true
-                zoneResult.messageType = unwrapped.type
-                zoneResult.secret = unwrapped.data.secret or
+                targetResult.verified = true
+                targetResult.messageType = unwrapped.type
+                targetResult.secret = unwrapped.data.secret or
                                    (unwrapped.data.credentials and unwrapped.data.credentials.swarmSecret)
-                zoneResult.zoneId = unwrapped.data.zoneId or
-                                   (unwrapped.data.credentials and unwrapped.data.credentials.zoneId)
+                targetResult.computerId = unwrapped.data.computerId or
+                                   (unwrapped.data.credentials and unwrapped.data.credentials.computerId)
 
                 -- Send PAIR_COMPLETE
-                local complete = Protocol.createPairComplete("Zone Computer")
+                local complete = Protocol.createPairComplete("Target Computer")
                 rednet.send(pocketId, complete, Pairing.PROTOCOL)
-                zoneResult.sentComplete = true
+                targetResult.sentComplete = true
             else
-                zoneResult.verifyError = err
+                targetResult.verifyError = err
             end
         end
     end)
 
-    assert_true(zoneResult.receivedEnvelope, "Zone should receive envelope")
-    assert_true(zoneResult.verified, "Zone should verify signature: " .. tostring(zoneResult.verifyError))
-    assert_eq(Protocol.MessageType.PAIR_DELIVER, zoneResult.messageType)
-    assert_eq(testSecret, zoneResult.secret, "Zone should extract secret")
-    assert_eq(testZoneId, zoneResult.zoneId, "Zone should extract zoneId")
-    assert_true(zoneResult.sentComplete, "Zone should send PAIR_COMPLETE")
+    assert_true(targetResult.receivedEnvelope, "Computer should receive envelope")
+    assert_true(targetResult.verified, "Computer should verify signature: " .. tostring(targetResult.verifyError))
+    assert_eq(Protocol.MessageType.PAIR_DELIVER, targetResult.messageType)
+    assert_eq(testSecret, targetResult.secret, "Computer should extract secret")
+    assert_eq(testComputerId, targetResult.computerId, "Computer should extract computerId")
+    assert_true(targetResult.sentComplete, "Computer should send PAIR_COMPLETE")
 
     -- STEP 5: Pocket receives PAIR_COMPLETE
     withEnv(pocketEnv, function()
@@ -389,16 +389,16 @@ end)
 test("E2E: Wrong display code fails verification", function()
     local network = VirtualNetwork.new()
 
-    local zoneId = 20
+    local targetId = 20
     local pocketId = 2
 
-    network:register(zoneId)
+    network:register(targetId)
     network:register(pocketId)
 
-    local zoneEnv = createComputerEnv(network, zoneId, "Zone", {modemName = "top"})
+    local targetEnv = createComputerEnv(network, targetId, "Computer", {modemName = "top"})
     local pocketEnv = createComputerEnv(network, pocketId, "Pocket", {modemName = "back"})
 
-    -- Zone's actual display code
+    -- Computer's actual display code
     local realCode = "REAL-CODE"
 
     -- Attacker/typo: wrong code entered on pocket
@@ -407,16 +407,16 @@ test("E2E: Wrong display code fails verification", function()
     -- Pocket sends with wrong code
     withEnv(pocketEnv, function()
         rednet.open("back")
-        local deliver = Protocol.createPairDeliver("stolen_secret", "zone_20")
+        local deliver = Protocol.createPairDeliver("stolen_secret", "computer_20")
         local signedEnvelope = Crypto.wrapWith(deliver, wrongCode)
-        rednet.send(zoneId, signedEnvelope, Pairing.PROTOCOL)
+        rednet.send(targetId, signedEnvelope, Pairing.PROTOCOL)
     end)
 
-    -- Zone tries to verify with real code
+    -- Computer tries to verify with real code
     local verifyResult = nil
-    withEnv(zoneEnv, function()
+    withEnv(targetEnv, function()
         rednet.open("top")
-        local sender, envelope, protocol = network:receive(zoneId, Pairing.PROTOCOL)
+        local sender, envelope, protocol = network:receive(targetId, Pairing.PROTOCOL)
 
         if envelope then
             local unwrapped, err = Crypto.unwrapWith(envelope, realCode)
@@ -427,64 +427,64 @@ test("E2E: Wrong display code fails verification", function()
         end
     end)
 
-    assert_not_nil(verifyResult, "Zone should receive message")
+    assert_not_nil(verifyResult, "Computer should receive message")
     assert_true(not verifyResult.success, "Verification should FAIL with wrong code")
 end)
 
-test("E2E: Multiple zones can pair with same pocket", function()
+test("E2E: Multiple computers can pair with same pocket", function()
     local network = VirtualNetwork.new()
 
     local pocketId = 1
-    local zone1Id = 10
-    local zone2Id = 11
+    local comp1Id = 10
+    local comp2Id = 11
 
     network:register(pocketId)
-    network:register(zone1Id)
-    network:register(zone2Id)
+    network:register(comp1Id)
+    network:register(comp2Id)
 
     local pocketEnv = createComputerEnv(network, pocketId, "Pocket", {modemName = "back"})
-    local zone1Env = createComputerEnv(network, zone1Id, "Zone 1", {modemName = "top"})
-    local zone2Env = createComputerEnv(network, zone2Id, "Zone 2", {modemName = "top"})
+    local comp1Env = createComputerEnv(network, comp1Id, "Computer 1", {modemName = "top"})
+    local comp2Env = createComputerEnv(network, comp2Id, "Computer 2", {modemName = "top"})
 
-    local zone1Code = "ZN1A-CODE"
-    local zone2Code = "ZN2B-CODE"
+    local comp1Code = "ZN1A-CODE"
+    local comp2Code = "ZN2B-CODE"
 
     local swarmSecret = "shared_swarm_secret"
 
-    -- Pair zone 1
+    -- Pair computer 1
     withEnv(pocketEnv, function()
         rednet.open("back")
-        local deliver = Protocol.createPairDeliver(swarmSecret, "zone_10")
-        local signed = Crypto.wrapWith(deliver, zone1Code)
-        rednet.send(zone1Id, signed, Pairing.PROTOCOL)
+        local deliver = Protocol.createPairDeliver(swarmSecret, "computer_10")
+        local signed = Crypto.wrapWith(deliver, comp1Code)
+        rednet.send(comp1Id, signed, Pairing.PROTOCOL)
     end)
 
-    local zone1Result = nil
-    withEnv(zone1Env, function()
+    local comp1Result = nil
+    withEnv(comp1Env, function()
         rednet.open("top")
-        local _, envelope = network:receive(zone1Id, Pairing.PROTOCOL)
-        local unwrapped = Crypto.unwrapWith(envelope, zone1Code)
-        zone1Result = unwrapped and unwrapped.data.secret
+        local _, envelope = network:receive(comp1Id, Pairing.PROTOCOL)
+        local unwrapped = Crypto.unwrapWith(envelope, comp1Code)
+        comp1Result = unwrapped and unwrapped.data.secret
     end)
 
-    assert_eq(swarmSecret, zone1Result, "Zone 1 should receive secret")
+    assert_eq(swarmSecret, comp1Result, "Computer 1 should receive secret")
 
-    -- Pair zone 2 (different code)
+    -- Pair computer 2 (different code)
     withEnv(pocketEnv, function()
-        local deliver = Protocol.createPairDeliver(swarmSecret, "zone_11")
-        local signed = Crypto.wrapWith(deliver, zone2Code)
-        rednet.send(zone2Id, signed, Pairing.PROTOCOL)
+        local deliver = Protocol.createPairDeliver(swarmSecret, "computer_11")
+        local signed = Crypto.wrapWith(deliver, comp2Code)
+        rednet.send(comp2Id, signed, Pairing.PROTOCOL)
     end)
 
-    local zone2Result = nil
-    withEnv(zone2Env, function()
+    local comp2Result = nil
+    withEnv(comp2Env, function()
         rednet.open("top")
-        local _, envelope = network:receive(zone2Id, Pairing.PROTOCOL)
-        local unwrapped = Crypto.unwrapWith(envelope, zone2Code)
-        zone2Result = unwrapped and unwrapped.data.secret
+        local _, envelope = network:receive(comp2Id, Pairing.PROTOCOL)
+        local unwrapped = Crypto.unwrapWith(envelope, comp2Code)
+        comp2Result = unwrapped and unwrapped.data.secret
     end)
 
-    assert_eq(swarmSecret, zone2Result, "Zone 2 should receive same swarm secret")
+    assert_eq(swarmSecret, comp2Result, "Computer 2 should receive same swarm secret")
 end)
 
 test("E2E: Broadcast reaches all open modems", function()
@@ -522,20 +522,20 @@ test("E2E: Credential extraction matches SwarmAuthority format", function()
     local network = VirtualNetwork.new()
 
     local pocketId = 1
-    local zoneId = 10
+    local targetId = 10
 
     network:register(pocketId)
-    network:register(zoneId)
+    network:register(targetId)
 
     local pocketEnv = createComputerEnv(network, pocketId, "Pocket", {modemName = "back"})
-    local zoneEnv = createComputerEnv(network, zoneId, "Zone", {modemName = "top"})
+    local targetEnv = createComputerEnv(network, targetId, "Computer", {modemName = "top"})
 
     local displayCode = "TEST-1234"
 
     -- Full credentials as SwarmAuthority would issue them
     local fullCredentials = {
-        zoneId = "zone_10_abc123",
-        zoneSecret = "zone_specific_secret",
+        computerId = "computer_10_abc123",
+        computerSecret = "computer_specific_secret",
         swarmId = "swarm_main_xyz",
         swarmSecret = "shared_swarm_secret_456",
         swarmFingerprint = "ABCD-EFGH-IJKL"
@@ -544,17 +544,17 @@ test("E2E: Credential extraction matches SwarmAuthority format", function()
     -- Pocket sends full credentials
     withEnv(pocketEnv, function()
         rednet.open("back")
-        local deliver = Protocol.createPairDeliver(fullCredentials.swarmSecret, fullCredentials.zoneId)
+        local deliver = Protocol.createPairDeliver(fullCredentials.swarmSecret, fullCredentials.computerId)
         deliver.data.credentials = fullCredentials
         local signed = Crypto.wrapWith(deliver, displayCode)
-        rednet.send(zoneId, signed, Pairing.PROTOCOL)
+        rednet.send(targetId, signed, Pairing.PROTOCOL)
     end)
 
-    -- Zone extracts credentials (matching Pairing.lua logic)
+    -- Computer extracts credentials (matching Pairing.lua logic)
     local extractedCreds = nil
-    withEnv(zoneEnv, function()
+    withEnv(targetEnv, function()
         rednet.open("top")
-        local _, envelope = network:receive(zoneId, Pairing.PROTOCOL)
+        local _, envelope = network:receive(targetId, Pairing.PROTOCOL)
         local unwrapped = Crypto.unwrapWith(envelope, displayCode)
 
         if unwrapped and unwrapped.data then
@@ -563,13 +563,13 @@ test("E2E: Credential extraction matches SwarmAuthority format", function()
             if creds then
                 extractedCreds = {
                     swarmSecret = creds.swarmSecret,
-                    zoneId = creds.zoneId,
+                    computerId = creds.computerId,
                     fingerprint = creds.swarmFingerprint
                 }
             else
                 extractedCreds = {
                     swarmSecret = unwrapped.data.secret,
-                    zoneId = unwrapped.data.zoneId
+                    computerId = unwrapped.data.computerId
                 }
             end
         end
@@ -577,6 +577,6 @@ test("E2E: Credential extraction matches SwarmAuthority format", function()
 
     assert_not_nil(extractedCreds, "Should extract credentials")
     assert_eq(fullCredentials.swarmSecret, extractedCreds.swarmSecret)
-    assert_eq(fullCredentials.zoneId, extractedCreds.zoneId)
+    assert_eq(fullCredentials.computerId, extractedCreds.computerId)
     assert_eq(fullCredentials.swarmFingerprint, extractedCreds.fingerprint)
 end)
