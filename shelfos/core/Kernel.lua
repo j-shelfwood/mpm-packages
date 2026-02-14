@@ -1,17 +1,18 @@
 -- Kernel.lua
 -- Main event loop and system orchestration
 -- Menu handling uses Controller abstraction for unified terminal/monitor support
+--
+-- Split modules:
+--   KernelNetwork.lua  - Network initialization and loop
+--   KernelPairing.lua  - Pocket pairing flow
+--   KernelMenu.lua     - Terminal menu key handlers
 
 local Config = mpm('shelfos/core/Config')
-local Paths = mpm('shelfos/core/Paths')
 local Monitor = mpm('shelfos/core/Monitor')
 local Zone = mpm('shelfos/core/Zone')
 local Terminal = mpm('shelfos/core/Terminal')
-local Controller = mpm('ui/Controller')
-local Menu = mpm('shelfos/input/Menu')
-local ViewManager = mpm('views/Manager')
-local EventUtils = mpm('utils/EventUtils')
-local PairingScreen = mpm('shelfos/ui/PairingScreen')
+local KernelNetwork = mpm('shelfos/core/KernelNetwork')
+local KernelMenu = mpm('shelfos/core/KernelMenu')
 -- Note: TimerDispatch no longer needed - parallel API gives each coroutine its own event queue
 
 local Kernel = {}
@@ -25,6 +26,9 @@ function Kernel.new()
     self.monitors = {}
     self.running = false
     self.channel = nil
+    self.discovery = nil
+    self.peripheralHost = nil
+    self.peripheralClient = nil
 
     return self
 end
@@ -82,20 +86,9 @@ function Kernel:boot()
     end
 
     -- Draw menu bar
-    self:drawMenu()
+    KernelMenu.draw()
 
     return true
-end
-
--- Draw the menu bar
-function Kernel:drawMenu()
-    Terminal.drawMenu({
-        { key = "m", label = "Monitors" },
-        { key = "s", label = "Status" },
-        { key = "l", label = "Link" },
-        { key = "r", label = "Reset" },
-        { key = "q", label = "Quit" }
-    })
 end
 
 -- Initialize all configured monitors
@@ -130,65 +123,10 @@ function Kernel:persistViewChange(peripheralName, viewName, viewConfig)
     end
 end
 
--- Initialize networking (if modem available and paired with swarm)
+-- Initialize networking (delegates to KernelNetwork module)
 function Kernel:initializeNetwork()
-    local Channel = mpm('net/Channel')
-    local Crypto = mpm('net/Crypto')
-
-    -- Only init if secret is configured (paired with pocket)
-    if not self.config.network or not self.config.network.secret then
-        -- CRITICAL: Clear any stale secret from previous session
-        -- _G persists across program restarts in CC:Tweaked
-        Crypto.clearSecret()
-        print("[ShelfOS] Network: not in swarm")
-        print("          Press L -> Accept from pocket to join")
-        return
-    end
-
-    Crypto.setSecret(self.config.network.secret)
-
-    self.channel = Channel.new()
-    local ok, modemType = self.channel:open(true)
-
-    if ok then
-        print("[ShelfOS] Network: " .. modemType .. " modem")
-
-        -- Register with native CC:Tweaked service discovery
-        rednet.host("shelfos", self.zone:getId())
-
-        -- Set up zone discovery (for rich metadata exchange)
-        local Discovery = mpm('net/Discovery')
-        self.discovery = Discovery.new(self.channel)
-        self.discovery:setIdentity(self.zone:getId(), self.zone:getName())
-        self.discovery:start()
-
-        -- Set up peripheral host to share local peripherals
-        local PeripheralHost = mpm('net/PeripheralHost')
-        self.peripheralHost = PeripheralHost.new(self.channel, self.zone:getId(), self.zone:getName())
-        local hostCount = self.peripheralHost:start()
-        if hostCount > 0 then
-            print("[ShelfOS] Sharing " .. hostCount .. " local peripheral(s)")
-        end
-
-        -- Set up peripheral client for remote peripheral access
-        local PeripheralClient = mpm('net/PeripheralClient')
-        local RemotePeripheral = mpm('net/RemotePeripheral')
-
-        self.peripheralClient = PeripheralClient.new(self.channel)
-        self.peripheralClient:registerHandlers()
-
-        -- Make client available globally via RemotePeripheral
-        RemotePeripheral.setClient(self.peripheralClient)
-
-        -- Discover remote peripherals (non-blocking, short timeout)
-        local count = self.peripheralClient:discover(2)
-        if count > 0 then
-            print("[ShelfOS] Found " .. count .. " remote peripheral(s)")
-        end
-    else
-        print("[ShelfOS] Network: no modem found")
-        self.channel = nil
-    end
+    self.channel, self.discovery, self.peripheralHost, self.peripheralClient =
+        KernelNetwork.initialize(self, self.config, self.zone)
 end
 
 -- Main run loop
@@ -228,7 +166,7 @@ function Kernel:run()
     -- Network loop if channel exists
     if self.channel then
         table.insert(tasks, function()
-            self:networkLoop(runningRef)
+            KernelNetwork.loop(self, runningRef)
         end)
     end
 
@@ -247,7 +185,7 @@ function Kernel:keyboardLoop(runningRef)
         if event == "key" then
             -- Handle menu keys - may block for dialogs
             -- Other monitors continue rendering (they have own event queues)
-            self:handleMenuKey(p1, runningRef)
+            KernelMenu.handleKey(self, p1, runningRef)
 
         elseif event == "peripheral" or event == "peripheral_detach" then
             -- Rescan shared peripherals when hardware changes
@@ -271,316 +209,14 @@ function Kernel:getMonitorByPeripheral(peripheralName)
     return nil
 end
 
--- Handle menu key press
-function Kernel:handleMenuKey(key, runningRef)
-    local action = Menu.handleKey(key)
-
-    if action == "quit" then
-        runningRef.value = false
-        return
-
-    elseif action == "status" then
-        Terminal.showDialog(function()
-            Menu.showStatus(self.config)
-        end)
-        Terminal.clearLog()
-        self:drawMenu()
-
-    elseif action == "reset" then
-        local confirmed = Terminal.showDialog(function()
-            return Menu.showReset()
-        end)
-
-        if confirmed then
-            -- FACTORY RESET: Delete everything and force reboot
-            -- Must reboot immediately to prevent in-memory config from being saved
-
-            -- 1. Clear monitors visually
-            for _, monitor in ipairs(self.monitors) do
-                monitor:clear()
-            end
-
-            -- 2. Close network
-            if self.channel then
-                rednet.unhost("shelfos")
-                self.channel:close()
-            end
-
-            -- 3. Clear crypto state
-            local Crypto = mpm('net/Crypto')
-            Crypto.clearSecret()
-
-            -- 4. Delete ALL config files
-            Paths.deleteZoneFiles()
-
-            -- 5. Restore terminal and show message
-            term.redirect(term.native())
-            term.clear()
-            term.setCursorPos(1, 1)
-            print("=====================================")
-            print("   FACTORY RESET")
-            print("=====================================")
-            print("")
-            print("Configuration deleted.")
-            print("Rebooting in 2 seconds...")
-
-            -- 6. HARD REBOOT - prevents any save-on-exit from running
-            sleep(2)
-            os.reboot()
-            -- Code never reaches here
-        else
-            Terminal.clearLog()
-            self:drawMenu()
-        end
-
-    elseif action == "link" then
-        local result, code = Terminal.showDialog(function()
-            return Menu.showLink(self.config)
-        end)
-
-        Terminal.clearLog()
-
-        if result == "link_pocket_accept" then
-            self:acceptPocketPairing()
-            self:drawMenu()
-        elseif result == "link_disconnect" then
-            -- LEAVE SWARM: Clear credentials and reboot for clean state
-
-            -- 1. Clear monitors
-            for _, monitor in ipairs(self.monitors) do
-                monitor:clear()
-            end
-
-            -- 2. Close network
-            if self.channel then
-                rednet.unhost("shelfos")
-                self.channel:close()
-            end
-
-            -- 3. Clear crypto state
-            local Crypto = mpm('net/Crypto')
-            Crypto.clearSecret()
-
-            -- 4. Update and save config (keep monitors, clear network)
-            self.config.network.enabled = false
-            self.config.network.secret = nil
-            Config.save(self.config)
-
-            -- 5. Restore terminal and show message
-            term.redirect(term.native())
-            term.clear()
-            term.setCursorPos(1, 1)
-            print("=====================================")
-            print("   LEFT SWARM")
-            print("=====================================")
-            print("")
-            print("Network credentials cleared.")
-            print("Rebooting in 2 seconds...")
-
-            -- 6. REBOOT for clean state
-            sleep(2)
-            os.reboot()
-        else
-            self:drawMenu()
-        end
-
-    elseif action == "monitors" then
-        local availableViews = ViewManager.getMountableViews()
-
-        local result, monitorIndex, newView = Terminal.showDialog(function()
-            return Menu.showMonitors(self.monitors, availableViews)
-        end)
-
-        Terminal.clearLog()
-
-        if result == "change_view" and monitorIndex and newView then
-            local monitor = self.monitors[monitorIndex]
-            if monitor then
-                monitor:loadView(newView)
-                self:persistViewChange(monitor:getPeripheralName(), newView)
-                print("[ShelfOS] " .. monitor:getName() .. " -> " .. newView)
-            end
-        end
-
-        self:drawMenu()
-    end
-end
-
--- NOTE: createNetwork() and legacy pairing functions removed
--- Zones must pair with pocket computer to join swarm (pocket-as-queen architecture)
--- See: mpm-packages/docs/SWARM_ARCHITECTURE.md
-
--- Accept pairing from a pocket computer
--- This is how zones join the swarm - pocket delivers the secret
--- SECURITY: A code is displayed on screen (never broadcast)
--- The pocket user must enter this code to complete pairing
-function Kernel:acceptPocketPairing()
-    local Pairing = mpm('net/Pairing')
-
-    local modem = peripheral.find("modem")
-    if not modem then
-        print("")
-        print("[!] No modem found")
-        EventUtils.sleep(2)
-        return
-    end
-
-    local modemType = modem.isWireless() and "wireless" or "wired"
-    local computerLabel = os.getComputerLabel() or ("Computer #" .. os.getComputerID())
-
-    -- Find all connected monitors
-    local monitorNames = {}
-    for _, name in ipairs(peripheral.getNames()) do
-        if peripheral.hasType(name, "monitor") then
-            table.insert(monitorNames, name)
-        end
-    end
-
-    -- Close existing channel temporarily
-    if self.channel then
-        rednet.unhost("shelfos")
-        self.channel:close()
-        self.channel = nil
-    end
-
-    -- PAUSE all monitor rendering so pairing code stays visible
+-- Get a monitor by peripheral name (alias)
+function Kernel:getMonitor(peripheralName)
     for _, monitor in ipairs(self.monitors) do
-        monitor:setPairingMode(true)
-    end
-
-    -- Use Pairing module with callbacks
-    local displayCode = nil
-
-    -- Reference to self for cleanup in callbacks
-    local kernelRef = self
-
-    local callbacks = {
-        onDisplayCode = function(code)
-            displayCode = code
-
-            -- Display code on ALL monitors (large as possible)
-            for _, name in ipairs(monitorNames) do
-                local mon = peripheral.wrap(name)
-                if mon then
-                    PairingScreen.drawCode(mon, code, computerLabel)
-                end
-            end
-
-            -- Also draw on terminal
-            print("")
-            print("=====================================")
-            print("   Waiting for Pocket Pairing")
-            print("=====================================")
-            print("")
-            print("  Computer: " .. computerLabel)
-            print("  Modem: " .. modemType)
-            print("")
-            print("  +-----------------------+")
-            print("  |  PAIRING CODE:        |")
-            print("  |                       |")
-            print("  |      " .. code .. "      |")
-            print("  |                       |")
-            print("  +-----------------------+")
-            print("")
-            if #monitorNames > 0 then
-                print("Code shown on " .. #monitorNames .. " monitor(s)")
-            end
-            print("")
-            print("On your pocket computer:")
-            print("  1. Run: mpm run shelfos-swarm")
-            print("  2. Press [A] -> Add Zone")
-            print("  3. Select this zone, enter code")
-            print("")
-            print("Press [Q] to cancel")
-        end,
-        onStatus = function(msg)
-            -- Update status line (redraw bottom area)
-            local _, h = term.getSize()
-            term.setCursorPos(1, h - 1)
-            term.clearLine()
-            term.write("[*] " .. msg)
-        end,
-        onSuccess = function(secret, zoneId)
-            -- RESUME monitor rendering
-            for _, monitor in ipairs(kernelRef.monitors) do
-                monitor:setPairingMode(false)
-            end
-
-            -- Clear monitor displays
-            PairingScreen.clearAll(monitorNames)
-
-            print("")
-            print("")
-            print("[*] Pairing successful!")
-            print("[*] Initializing network...")
-        end,
-        onCancel = function(reason)
-            -- RESUME monitor rendering
-            for _, monitor in ipairs(kernelRef.monitors) do
-                monitor:setPairingMode(false)
-            end
-
-            -- Clear monitor displays
-            PairingScreen.clearAll(monitorNames)
-
-            print("")
-            print("")
-            print("[*] " .. (reason or "Cancelled"))
-        end
-    }
-
-    local success, secret, zoneId = Pairing.acceptFromPocket(callbacks)
-
-    if success then
-        -- Save credentials
-        Config.setNetworkSecret(self.config, secret)
-        if zoneId then
-            self.config.zone = self.config.zone or {}
-            self.config.zone.id = zoneId
-        end
-        Config.save(self.config)
-
-        -- Initialize network immediately (no restart required)
-        self:initializeNetwork()
-        print("[*] Connected to swarm!")
-    end
-
-    EventUtils.sleep(2)
-end
-
--- Network event loop
-function Kernel:networkLoop(runningRef)
-    local lastHostAnnounce = 0
-    local hostAnnounceInterval = 10000  -- 10 seconds
-
-    while runningRef.value do
-        if self.channel then
-            self.channel:poll(0.5)
-
-            -- Periodic zone announce
-            if self.discovery and self.discovery:shouldAnnounce() then
-                local monitorInfo = {}
-                for _, m in ipairs(self.monitors) do
-                    table.insert(monitorInfo, {
-                        name = m:getName(),
-                        view = m:getViewName()
-                    })
-                end
-                self.discovery:announce(monitorInfo)
-            end
-
-            -- Periodic peripheral host announce
-            if self.peripheralHost then
-                local now = os.epoch("utc")
-                if now - lastHostAnnounce > hostAnnounceInterval then
-                    self.peripheralHost:announce()
-                    lastHostAnnounce = now
-                end
-            end
-        else
-            EventUtils.sleep(1)
+        if monitor.peripheralName == peripheralName then
+            return monitor
         end
     end
+    return nil
 end
 
 -- Shutdown the system
@@ -596,11 +232,7 @@ function Kernel:shutdown()
     Config.save(self.config)
 
     -- Close network
-    if self.channel then
-        -- Unregister from native service discovery
-        rednet.unhost("shelfos")
-        self.channel:close()
-    end
+    KernelNetwork.close(self.channel)
 
     -- Clear monitors
     for _, monitor in ipairs(self.monitors) do
@@ -608,16 +240,6 @@ function Kernel:shutdown()
     end
 
     print("[ShelfOS] Goodbye!")
-end
-
--- Get a monitor by peripheral name
-function Kernel:getMonitor(peripheralName)
-    for _, monitor in ipairs(self.monitors) do
-        if monitor.peripheralName == peripheralName then
-            return monitor
-        end
-    end
-    return nil
 end
 
 -- Reload configuration

@@ -5,6 +5,7 @@
   "files": [
     "Core.lua",
     "Controller.lua",
+    "ListSelector.lua",
     "TouchZones.lua",
     "Overlay.lua",
     "Button.lua",

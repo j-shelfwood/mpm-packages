@@ -4,6 +4,9 @@
 --
 -- Views define WHAT to show, framework handles HOW to render
 --
+-- Split modules:
+--   BaseViewRenderers.lua - Rendering helpers (header, footer, grid, list)
+--
 -- ============================================================================
 -- RENDERING ARCHITECTURE (see docs/RENDERING_ARCHITECTURE.md)
 -- ============================================================================
@@ -19,10 +22,7 @@
 --   - DO yield in getData() for large data processing
 -- ============================================================================
 
-local Text = mpm('utils/Text')
-local MonitorHelpers = mpm('utils/MonitorHelpers')
-local GridDisplay = mpm('utils/GridDisplay')
-local Yield = mpm('utils/Yield')
+local Renderers = mpm('views/BaseViewRenderers')
 
 local BaseView = {}
 
@@ -62,222 +62,6 @@ local function validateDefinition(def)
     return true
 end
 
--- Default empty state renderer
-local function defaultRenderEmpty(self, message)
-    message = message or "No data"
-    MonitorHelpers.writeCentered(
-        self.monitor,
-        math.floor(self.height / 2),
-        message,
-        colors.gray
-    )
-end
-
--- Default error state renderer
-local function defaultRenderError(self, message)
-    MonitorHelpers.writeCentered(
-        self.monitor,
-        math.floor(self.height / 2),
-        message or "Error",
-        colors.red
-    )
-end
-
--- Render header at top of screen
--- Header row is touchable to open view selector (indicated by [*])
-local function renderHeader(self, header)
-    if not header then return 1 end
-
-    -- Reserve space for [*] indicator (3 chars)
-    local indicatorWidth = 3
-    local contentWidth = self.width - indicatorWidth
-
-    self.monitor.setCursorPos(1, 1)
-
-    if type(header) == "string" then
-        self.monitor.setTextColor(colors.white)
-        self.monitor.write(Text.truncateMiddle(header, contentWidth))
-    elseif type(header) == "table" then
-        -- Primary text
-        self.monitor.setTextColor(header.color or colors.white)
-        local text = header.text or ""
-        self.monitor.write(text)
-
-        -- Secondary text (count, etc.)
-        if header.secondary then
-            self.monitor.setTextColor(header.secondaryColor or colors.gray)
-            local remaining = contentWidth - #text
-            if remaining > 0 then
-                self.monitor.write(Text.truncateMiddle(header.secondary, remaining))
-            end
-        end
-    end
-
-    -- Draw [*] indicator at end of header row to show it's touchable
-    self.monitor.setCursorPos(self.width - 2, 1)
-    self.monitor.setTextColor(colors.gray)
-    self.monitor.write("[*]")
-
-    return 2  -- Content starts at row 2
-end
-
--- Render footer at bottom of screen
-local function renderFooter(self, footer)
-    if not footer then return end
-
-    self.monitor.setCursorPos(1, self.height)
-
-    if type(footer) == "string" then
-        self.monitor.setTextColor(colors.gray)
-        self.monitor.write(Text.truncateMiddle(footer, self.width))
-    elseif type(footer) == "table" then
-        self.monitor.setTextColor(footer.color or colors.gray)
-        self.monitor.write(Text.truncateMiddle(footer.text or "", self.width))
-    end
-end
-
--- Render grid layout
-local function renderGrid(self, data, formatItem, startY, def)
-    if not self._gridDisplay then
-        self._gridDisplay = GridDisplay.new(self.monitor)
-    end
-
-    -- Limit items for performance
-    local maxItems = def.maxItems or 50
-    local displayData = {}
-    for i = 1, math.min(#data, maxItems) do
-        displayData[i] = data[i]
-    end
-
-    -- Display with skipClear since we already cleared
-    self._gridDisplay:display(displayData, function(item)
-        return formatItem(self, item)
-    end, { skipClear = true, startY = startY })
-end
-
--- Render list layout
-local function renderList(self, data, formatItem, startY, def)
-    local maxRows = self.height - startY
-    local maxItems = def.maxItems or maxRows
-
-    for i = 1, math.min(#data, maxItems, maxRows) do
-        local item = data[i]
-        local formatted = formatItem(self, item)
-        local y = startY + i - 1
-
-        if y > self.height - 1 then break end  -- Leave room for footer
-
-        -- Render each line of the item
-        if formatted.lines then
-            local line = formatted.lines[1] or ""
-            local color = formatted.colors and formatted.colors[1] or colors.white
-
-            self.monitor.setCursorPos(1, y)
-            self.monitor.setTextColor(color)
-            self.monitor.write(Text.truncateMiddle(line, self.width))
-        end
-    end
-
-    -- Show overflow indicator
-    if #data > maxItems then
-        self.monitor.setCursorPos(1, self.height - 1)
-        self.monitor.setTextColor(colors.gray)
-        self.monitor.write("+" .. (#data - maxItems) .. " more...")
-    end
-end
-
--- Render interactive list layout with touch zones
--- Stores touch zones in self._touchZones for handleTouch
-local function renderInteractiveList(self, data, formatItem, startY, def)
-    local footerHeight = def.footer and 1 or 0
-    local pageIndicatorHeight = 1
-    local availableRows = self.height - startY - footerHeight - pageIndicatorHeight
-
-    -- Initialize pagination state if needed
-    if not self._scrollOffset then
-        self._scrollOffset = 0
-    end
-    if not self._pageSize then
-        self._pageSize = math.max(1, availableRows)
-    end
-
-    -- Store data reference for touch handling
-    self._data = data
-    self._touchZones = {}
-
-    -- Calculate pagination
-    local totalItems = #data
-    local totalPages = math.max(1, math.ceil(totalItems / self._pageSize))
-    local currentPage = math.floor(self._scrollOffset / self._pageSize) + 1
-
-    -- Render visible items
-    local visibleCount = math.min(self._pageSize, totalItems - self._scrollOffset)
-
-    for i = 1, visibleCount do
-        local itemIndex = i + self._scrollOffset
-        local item = data[itemIndex]
-
-        if item then
-            local y = startY + i - 1
-            local formatted = formatItem(self, item)
-
-            -- Store touch zone for this item
-            self._touchZones[y] = {
-                item = item,
-                index = itemIndex,
-                action = formatted.touchAction or "select",
-                data = formatted.touchData or item
-            }
-
-            -- Render item
-            if formatted.lines then
-                local line = formatted.lines[1] or ""
-                local color = formatted.colors and formatted.colors[1] or colors.white
-
-                self.monitor.setCursorPos(1, y)
-                self.monitor.setTextColor(color)
-                self.monitor.write(Text.truncateMiddle(line, self.width - 1))
-
-                -- Second line if space permits
-                if formatted.lines[2] and i < visibleCount then
-                    -- Compact: show on same line right-aligned
-                    local line2 = formatted.lines[2]
-                    local color2 = formatted.colors and formatted.colors[2] or colors.gray
-                    local x = self.width - #line2
-                    if x > #line + 2 then
-                        self.monitor.setCursorPos(x, y)
-                        self.monitor.setTextColor(color2)
-                        self.monitor.write(line2)
-                    end
-                end
-            end
-        end
-    end
-
-    -- Scroll indicators
-    self.monitor.setTextColor(colors.gray)
-    if self._scrollOffset > 0 then
-        self.monitor.setCursorPos(self.width, startY)
-        self.monitor.write("^")
-        self._touchZones["scroll_up"] = { y = startY, x = self.width }
-    end
-
-    local lastVisibleY = startY + visibleCount - 1
-    if self._scrollOffset + self._pageSize < totalItems then
-        self.monitor.setCursorPos(self.width, lastVisibleY)
-        self.monitor.write("v")
-        self._touchZones["scroll_down"] = { y = lastVisibleY, x = self.width }
-    end
-
-    -- Page indicator
-    local pageY = self.height - footerHeight
-    local pageText = "Page " .. currentPage .. "/" .. totalPages
-    local pageX = math.floor((self.width - #pageText) / 2)
-    self.monitor.setTextColor(colors.gray)
-    self.monitor.setCursorPos(pageX, pageY)
-    self.monitor.write(pageText)
-    self._touchZones["page_indicator"] = { y = pageY }
-end
 
 -- Create a view from a definition
 function BaseView.create(definition)
@@ -299,7 +83,7 @@ function BaseView.create(definition)
                 definition.renderEmpty(self, data)
             else
                 local emptyMsg = definition.emptyMessage or "No data"
-                defaultRenderEmpty(self, emptyMsg)
+                Renderers.renderEmpty(self, emptyMsg)
             end
             return
         end
@@ -318,7 +102,7 @@ function BaseView.create(definition)
                 definition.renderEmpty(self, data)
             else
                 local emptyMsg = definition.emptyMessage or "No data"
-                defaultRenderEmpty(self, emptyMsg)
+                Renderers.renderEmpty(self, emptyMsg)
             end
             return
         end
@@ -327,27 +111,27 @@ function BaseView.create(definition)
         local startY = 1
         if definition.header then
             local header = definition.header(self, data)
-            startY = renderHeader(self, header)
+            startY = Renderers.renderHeader(self, header)
         end
 
         -- Render content based on view type
         if viewType == BaseView.Type.GRID then
-            renderGrid(self, data, definition.formatItem, startY, definition)
+            Renderers.renderGrid(self, data, definition.formatItem, startY, definition)
             -- Re-render header after grid (grid may have repositioned things)
             if definition.header then
                 local header = definition.header(self, data)
-                renderHeader(self, header)
+                Renderers.renderHeader(self, header)
             end
         elseif viewType == BaseView.Type.LIST then
-            renderList(self, data, definition.formatItem, startY, definition)
+            Renderers.renderList(self, data, definition.formatItem, startY, definition)
         elseif viewType == BaseView.Type.INTERACTIVE then
-            renderInteractiveList(self, data, definition.formatItem, startY, definition)
+            Renderers.renderInteractiveList(self, data, definition.formatItem, startY, definition)
         end
 
         -- Render footer
         if definition.footer then
             local footer = definition.footer(self, data)
-            renderFooter(self, footer)
+            Renderers.renderFooter(self, footer)
         end
 
         -- Reset text color
@@ -395,50 +179,7 @@ function BaseView.create(definition)
         -- Handle touch event (for interactive views)
         -- @return true if touch was handled, false otherwise
         handleTouch = viewType == BaseView.Type.INTERACTIVE and function(self, x, y)
-            if not self._touchZones then return false end
-
-            -- Check scroll up
-            local scrollUp = self._touchZones["scroll_up"]
-            if scrollUp and y == scrollUp.y and x == self.width then
-                self._scrollOffset = math.max(0, self._scrollOffset - 1)
-                return true
-            end
-
-            -- Check scroll down
-            local scrollDown = self._touchZones["scroll_down"]
-            if scrollDown and y == scrollDown.y and x == self.width then
-                local maxOffset = math.max(0, #(self._data or {}) - (self._pageSize or 1))
-                self._scrollOffset = math.min(maxOffset, self._scrollOffset + 1)
-                return true
-            end
-
-            -- Check page indicator (left = prev, right = next)
-            local pageInd = self._touchZones["page_indicator"]
-            if pageInd and y == pageInd.y then
-                local pageSize = self._pageSize or 1
-                local totalItems = #(self._data or {})
-                if x < self.width / 2 then
-                    -- Previous page
-                    self._scrollOffset = math.max(0, self._scrollOffset - pageSize)
-                else
-                    -- Next page
-                    local maxOffset = math.max(0, totalItems - pageSize)
-                    self._scrollOffset = math.min(maxOffset, self._scrollOffset + pageSize)
-                end
-                return true
-            end
-
-            -- Check item touch zones
-            local zone = self._touchZones[y]
-            if zone and zone.item then
-                -- Call view's onItemTouch handler (blocking overlay pattern)
-                if definition.onItemTouch then
-                    definition.onItemTouch(self, zone.item, zone.action)
-                    return true
-                end
-            end
-
-            return false
+            return Renderers.handleInteractiveTouch(self, x, y, definition.onItemTouch)
         end or nil,
 
         -- Get current scroll state (for persistence)
@@ -486,7 +227,7 @@ function BaseView.create(definition)
             if definition.renderError then
                 definition.renderError(self, errorMsg)
             else
-                defaultRenderError(self, errorMsg)
+                Renderers.renderError(self, errorMsg)
             end
         end,
 
@@ -504,7 +245,7 @@ function BaseView.create(definition)
                 if definition.renderError then
                     definition.renderError(self, errorMsg)
                 else
-                    defaultRenderError(self, errorMsg)
+                    Renderers.renderError(self, errorMsg)
                 end
                 return
             end

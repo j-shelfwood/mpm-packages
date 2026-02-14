@@ -16,23 +16,27 @@ local Rednet = require(root .. ".rednet")
 local Modem = require(root .. ".modem")
 local MEBridge = require(root .. ".me_bridge")
 local Monitor = require(root .. ".monitor")
+local Fs = require(root .. ".fs")
 
 Mocks.Peripheral = Peripheral
 Mocks.Rednet = Rednet
 Mocks.Modem = Modem
 Mocks.MEBridge = MEBridge
 Mocks.Monitor = Monitor
+Mocks.Fs = Fs
 
 -- Quick setup for common test scenarios
 function Mocks.reset()
     Peripheral.reset()
     Rednet.reset()
+    Fs.reset()
 end
 
 -- Install all mocks into global namespace
 function Mocks.install()
     Peripheral.install()
     Rednet.install()
+    Fs.install()
 end
 
 -- Setup pocket computer with ender modem

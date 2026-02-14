@@ -6,6 +6,9 @@
     "start.lua",
     "App.lua",
     "core/SwarmAuthority.lua",
-    "core/Paths.lua"
+    "core/Paths.lua",
+    "screens/AddZone.lua",
+    "screens/ViewZones.lua",
+    "screens/DeleteSwarm.lua"
   ]
 }

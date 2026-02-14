@@ -13,6 +13,11 @@
 -- When used with ShelfOS, the "monitor" parameter is actually a window buffer
 -- created by Monitor.lua, not a raw peripheral.
 -- ============================================================================
+--
+-- Split module:
+--   GridDisplayRenderer.lua - Cell rendering logic
+
+local GridDisplayRenderer = mpm('utils/GridDisplayRenderer')
 
 local GridDisplay = {}
 GridDisplay.__index = GridDisplay
@@ -302,86 +307,24 @@ function GridDisplay:display(data, format_callback, options)
         self.monitor.clear()
     end
 
-    local maxItems = self.rows * self.columns
-    local content_area = self.cell_width - (self.cell_padding * 2)
-    content_area = math.max(1, content_area)
+    -- Delegate cell rendering to GridDisplayRenderer
+    local layout = {
+        rows = self.rows,
+        columns = self.columns,
+        cell_width = self.cell_width,
+        cell_height = self.cell_height,
+        spacing_x = self.spacing_x,
+        spacing_y = self.spacing_y,
+        start_x = self.start_x,
+        start_y = self.start_y
+    }
 
-    -- Get background color for blit
-    local bgColor = self.monitor.getBackgroundColor()
-    local bgHex = colors.toBlit(bgColor)
+    local renderOptions = {
+        center_text = center_text,
+        cell_padding = self.cell_padding
+    }
 
-    for i, item in ipairs(data) do
-        if i > maxItems then
-            break
-        end
-
-        -- Calculate grid position (1-indexed)
-        local column = ((i - 1) % self.columns) + 1
-        local row = math.floor((i - 1) / self.columns) + 1
-
-        -- Calculate pixel position
-        local cell_x = self.start_x + (column - 1) * (self.cell_width + self.spacing_x)
-        local cell_y = self.start_y + (row - 1) * (self.cell_height + self.spacing_y)
-
-        -- Get formatted content
-        local ok, formatted = pcall(format_callback, item)
-        if not ok or not formatted then
-            formatted = {lines = {"Error"}, colors = {colors.red}}
-        end
-
-        formatted.lines = formatted.lines or {}
-        formatted.colors = formatted.colors or {}
-
-        -- Render each line using blit for efficiency
-        for line_idx, line_content in ipairs(formatted.lines) do
-            if line_idx > self.cell_height then
-                break
-            end
-
-            local y_pos = cell_y + line_idx - 1
-            local x_pos = cell_x + self.cell_padding
-
-            -- Truncate content
-            local content = self:truncateText(line_content, content_area)
-
-            local lineAlign = formatted.aligns and formatted.aligns[line_idx] or formatted.align
-            if lineAlign == "right" and #content < content_area then
-                x_pos = x_pos + (content_area - #content)
-            elseif lineAlign == "center" or (not lineAlign and center_text) then
-                if #content < content_area then
-                    local leftPad = math.floor((content_area - #content) / 2)
-                    x_pos = x_pos + leftPad
-                end
-            end
-
-            -- Ensure valid cursor position
-            x_pos = math.max(1, x_pos)
-            y_pos = math.max(1, y_pos)
-
-            -- Build blit strings
-            local fgStr, bgStr
-            local lineColor = formatted.colors[line_idx]
-
-            if type(lineColor) == "table" then
-                -- Per-character colors: lineColor is array of color constants
-                fgStr = ""
-                for j = 1, #content do
-                    local charColor = lineColor[j] or colors.white
-                    fgStr = fgStr .. colors.toBlit(charColor)
-                end
-            else
-                -- Single color for entire line
-                local fgHex = colors.toBlit(lineColor or colors.white)
-                fgStr = string.rep(fgHex, #content)
-            end
-
-            bgStr = string.rep(bgHex, #content)
-
-            -- Render with blit (single call vs setTextColor + write)
-            self.monitor.setCursorPos(x_pos, y_pos)
-            self.monitor.blit(content, fgStr, bgStr)
-        end
-    end
+    GridDisplayRenderer.renderCells(self.monitor, data, format_callback, layout, renderOptions)
 end
 
 -- Display a simple message centered on the monitor

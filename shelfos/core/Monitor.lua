@@ -39,10 +39,10 @@
 
 local ViewManager = mpm('views/Manager')
 local ConfigUI = mpm('shelfos/core/ConfigUI')
+local MonitorConfigMenu = mpm('shelfos/core/MonitorConfigMenu')
 local Theme = mpm('utils/Theme')
 local Core = mpm('ui/Core')
 local Button = mpm('ui/Button')
-local List = mpm('ui/List')
 
 local Monitor = {}
 Monitor.__index = Monitor
@@ -256,26 +256,7 @@ function Monitor:isSettingsButtonTouch(x, y)
     return self.settingsButton:contains(x, y)
 end
 
--- Draw the configuration menu using ui/List
--- Uses raw peripheral for interactive menus (not buffered)
-function Monitor:drawConfigMenu()
-    -- Use ui/List for view selection
-    local List = mpm('ui/List')
-
-    -- Config menus use peripheral directly (interactive, needs immediate feedback)
-    local selected = List.new(self.peripheral, self.availableViews, {
-        title = "Select View",
-        selected = self.viewName,
-        cancelText = "Cancel",
-        formatFn = function(viewName)
-            return viewName
-        end
-    }):show()
-
-    return selected
-end
-
--- Open config menu
+-- Open config menu (uses MonitorConfigMenu for UI)
 function Monitor:openConfigMenu()
     self.inConfigMenu = true
     self.showingSettings = false
@@ -291,39 +272,15 @@ function Monitor:openConfigMenu()
         self.settingsTimer = nil
     end
 
-    -- Show view selector
-    local selectedView = self:drawConfigMenu()
+    -- Show view selection + optional config flow
+    local selectedView, newConfig = MonitorConfigMenu.openConfigFlow(self)
 
-    if selectedView and selectedView ~= "cancel" then
-        -- Check if view has configSchema
-        local View = ViewManager.load(selectedView)
-
-        if View and View.configSchema and #View.configSchema > 0 then
-            -- Show config menu for this view
-            local newConfig = ConfigUI.drawConfigMenu(
-                self.peripheral,
-                selectedView,
-                View.configSchema,
-                self.viewConfig
-            )
-
-            if newConfig then
-                -- User saved config
-                self.viewConfig = newConfig
-                if self.onViewChange then
-                    self.onViewChange(self.peripheralName, selectedView, newConfig)
-                end
-                self:loadView(selectedView)
-            end
-            -- If cancelled, just close menu (don't change view)
-        else
-            -- No config needed - just load view
-            self.viewConfig = {}
-            if self.onViewChange then
-                self.onViewChange(self.peripheralName, selectedView, {})
-            end
-            self:loadView(selectedView)
+    if selectedView then
+        self.viewConfig = newConfig or {}
+        if self.onViewChange then
+            self.onViewChange(self.peripheralName, selectedView, self.viewConfig)
         end
+        self:loadView(selectedView)
     end
 
     self:closeConfigMenu()

@@ -10,12 +10,38 @@ local message_queue = {}
 local broadcast_log = {}
 local send_log = {}
 
+-- Failure simulation state
+local fail_mode = nil  -- nil, "open_fail", "send_fail", "broadcast_fail"
+local fail_count = 0   -- Number of times to fail (0 = infinite)
+local current_fails = 0
+
 function Rednet.reset()
     open_modems = {}
     hosts = {}
     message_queue = {}
     broadcast_log = {}
     send_log = {}
+    fail_mode = nil
+    fail_count = 0
+    current_fails = 0
+end
+
+-- Set failure mode for testing error handling
+-- @param mode "open_fail", "send_fail", "broadcast_fail", or nil to disable
+-- @param count Number of times to fail (0 = fail forever)
+function Rednet.setFailMode(mode, count)
+    fail_mode = mode
+    fail_count = count or 0
+    current_fails = 0
+end
+
+-- Check if should fail based on current mode
+local function shouldFail(operation)
+    if not fail_mode then return false end
+    if fail_mode ~= operation then return false end
+    if fail_count > 0 and current_fails >= fail_count then return false end
+    current_fails = current_fails + 1
+    return true
 end
 
 -- Get the peripheral mock module
@@ -25,6 +51,10 @@ end
 
 -- CC:Tweaked rednet API
 function Rednet.open(modem_name)
+    if shouldFail("open_fail") then
+        error("Simulated modem open failure", 2)
+    end
+
     local p = get_peripheral()
     if not p then
         error("peripheral API not available")
@@ -66,6 +96,10 @@ function Rednet.send(recipient, message, protocol)
         error("No open modem", 2)
     end
 
+    if shouldFail("send_fail") then
+        error("Simulated send failure", 2)
+    end
+
     table.insert(send_log, {
         recipient = recipient,
         message = message,
@@ -79,6 +113,10 @@ end
 function Rednet.broadcast(message, protocol)
     if not Rednet.isOpen() then
         error("No open modem", 2)
+    end
+
+    if shouldFail("broadcast_fail") then
+        error("Simulated broadcast failure", 2)
     end
 
     table.insert(broadcast_log, {
@@ -182,7 +220,8 @@ function Rednet.install()
         _queueMessage = Rednet.queueMessage,
         _getBroadcastLog = Rednet.getBroadcastLog,
         _getSendLog = Rednet.getSendLog,
-        _clearLogs = Rednet.clearLogs
+        _clearLogs = Rednet.clearLogs,
+        _setFailMode = Rednet.setFailMode
     }
 end
 
