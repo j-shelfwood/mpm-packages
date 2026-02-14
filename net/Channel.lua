@@ -56,6 +56,17 @@ function Channel:open(preferWireless)
     end
 
     self.modemName = peripheral.getName(self.modem)
+
+    -- CRITICAL: Close ALL other modems to prevent duplicate message reception
+    -- If multiple modems are open, broadcasts are received on each, causing
+    -- duplicate nonce errors when the same envelope is unwrapped twice
+    for _, m in ipairs(modems) do
+        local name = peripheral.getName(m)
+        if name ~= self.modemName and rednet.isOpen(name) then
+            rednet.close(name)
+        end
+    end
+
     rednet.open(self.modemName)
     self.opened = true
 
