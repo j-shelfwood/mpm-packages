@@ -92,7 +92,12 @@ function App:init()
     end
 
     -- Initialize networking
-    self:initNetwork()
+    local netOk, netErr = self:initNetwork()
+    if netOk then
+        print("[+] Network ready")
+    else
+        print("[!] Network: " .. (netErr or "failed"))
+    end
 
     return true
 end
@@ -141,7 +146,11 @@ function App:createSwarm()
     os.pullEvent("key")
 
     -- Initialize networking
-    self:initNetwork()
+    local netOk, netErr = self:initNetwork()
+    if not netOk then
+        print("[!] Network warning: " .. (netErr or "unknown"))
+        sleep(2)
+    end
 
     return true
 end
@@ -150,11 +159,24 @@ end
 function App:initNetwork()
     local modem = peripheral.find("modem")
     if not modem then
-        return false
+        return false, "No modem found"
     end
 
     local modemName = peripheral.getName(modem)
-    rednet.open(modemName)
+    if not modemName then
+        return false, "Could not get modem name"
+    end
+
+    -- Try to open modem with error handling
+    local ok, err = pcall(function()
+        if not rednet.isOpen(modemName) then
+            rednet.open(modemName)
+        end
+    end)
+
+    if not ok then
+        return false, "Failed to open modem: " .. tostring(err)
+    end
 
     -- Register with service discovery
     local info = self.authority:getInfo()
@@ -228,13 +250,36 @@ function App:addZone()
     local modem = peripheral.find("modem")
     if not modem then
         print("[!] No modem found")
-        sleep(2)
+        print("")
+        print("Attach an ender modem to continue.")
+        print("Press any key to return...")
+        os.pullEvent("key")
         return
     end
 
     local modemName = peripheral.getName(modem)
-    if not rednet.isOpen(modemName) then
-        rednet.open(modemName)
+    if not modemName then
+        print("[!] Could not identify modem")
+        print("")
+        print("Press any key to return...")
+        os.pullEvent("key")
+        return
+    end
+
+    -- Open modem with error handling
+    local ok, err = pcall(function()
+        if not rednet.isOpen(modemName) then
+            rednet.open(modemName)
+        end
+    end)
+
+    if not ok then
+        print("[!] Failed to open modem")
+        print("    " .. tostring(err))
+        print("")
+        print("Press any key to return...")
+        os.pullEvent("key")
+        return
     end
 
     local modemType = modem.isWireless() and "wireless/ender" or "wired"

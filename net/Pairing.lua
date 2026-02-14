@@ -78,14 +78,22 @@ function Pairing.acceptFromPocket(callbacks)
         callbacks.onDisplayCode(displayCode)
     end
 
-    -- Open modem
+    -- Open modem with error handling
     local wasOpen = rednet.isOpen(modemName)
     if not wasOpen then
-        rednet.open(modemName)
+        local ok, err = pcall(function()
+            rednet.open(modemName)
+        end)
+        if not ok then
+            if callbacks.onStatus then
+                callbacks.onStatus("Modem error: " .. tostring(err))
+            end
+            return false, nil, nil, nil, "Failed to open modem: " .. tostring(err)
+        end
     end
 
     if callbacks.onStatus then
-        callbacks.onStatus("Broadcasting on " .. modemType .. " modem...")
+        callbacks.onStatus("Broadcasting on " .. modemType .. " (" .. modemName .. ")...")
     end
 
     -- Broadcast PAIR_READY - NOTE: NO code/token in message (security)
