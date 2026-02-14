@@ -354,42 +354,9 @@ function Kernel:handleMenuKey(key, runningRef)
     end
 end
 
--- Create a new network
-function Kernel:createNetwork()
-    local Crypto = mpm('net/Crypto')
-
-    -- Check for modem
-    local modem = peripheral.find("modem")
-    if not modem then
-        print("")
-        print("[!] No modem found")
-        print("    Attach a wireless or ender modem")
-        EventUtils.sleep(2)
-        return
-    end
-
-    -- Generate secret
-    local secret = Crypto.generateSecret()
-    Config.setNetworkSecret(self.config, secret)
-
-    -- Generate pairing code if not exists
-    if not self.config.network.pairingCode then
-        self.config.network.pairingCode = Config.generatePairingCode()
-    end
-
-    Config.save(self.config)
-
-    print("")
-    print("=================================")
-    print("  PAIRING CODE: " .. self.config.network.pairingCode)
-    print("=================================")
-    print("")
-    print("Other zones can join with this code")
-    print("via L -> Join with pairing code")
-    print("")
-    print("Press any key to continue...")
-    os.pullEvent("key")
-end
+-- NOTE: createNetwork() was removed - zones cannot create their own secrets
+-- Zones must pair with pocket computer to join swarm (pocket-as-queen architecture)
+-- See: mpm-packages/docs/SWARM_ARCHITECTURE.md
 
 -- Host a pairing session (blocking - waits for clients)
 -- Requires already being in swarm (has secret)
