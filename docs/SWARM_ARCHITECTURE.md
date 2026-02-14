@@ -397,29 +397,78 @@ If the pocket computer is lost/destroyed:
 - [ ] Pocket can join existing swarm
 - [ ] Crypto errors don't spam when unpaired
 
+## Remote Peripheral RPC
+
+ShelfOS enables peripheral sharing across ender modems via custom RPC, since
+CC:Tweaked's native `modem.callRemote()` only works on wired networks.
+
+### RPC Message Flow
+
+```
+Zone A (client)                     Zone B (host)
+    │                                   │
+    │  PERIPH_DISCOVER ────────────────>│
+    │                                   │  Enumerate local peripherals
+    │  <──────────────── PERIPH_LIST ───│  {name, type, methods}
+    │                                   │
+    │  Store in remotePeripherals       │
+    │                                   │
+    │  PERIPH_CALL ────────────────────>│  {peripheral, method, args}
+    │  (with requestId)                 │
+    │                                   │  peripheral.call(name, method, ...)
+    │  <──────────────── PERIPH_RESULT ─│  {results} (with matching requestId)
+```
+
+### Request/Response Correlation
+
+All request messages use `Protocol.createRequest()` which auto-generates a unique
+`requestId` for response matching:
+
+```lua
+-- Protocol.lua
+function Protocol.generateRequestId()
+    return string.format("%d_%d_%d", os.getComputerID(), os.epoch("utc"), math.random(1000, 9999))
+end
+
+function Protocol.createRequest(msgType, data)
+    return Protocol.createMessage(msgType, data, Protocol.generateRequestId())
+end
+```
+
+Request message types that auto-generate requestId:
+- `PERIPH_DISCOVER`
+- `PERIPH_CALL`
+
 ## Known Limitations
 
 1. **Single secret per swarm** - All zones share one secret
 2. **No automatic re-keying** - Secret doesn't rotate
 3. **Manual pairing required** - No auto-discovery of new zones
-4. **Pocket UI basic** - Print-based, not graphical
+4. **RPC timeout** - Remote peripheral calls timeout after 5 seconds
 
 ## File Quick Reference
 
 ```
 net/
-├── Pairing.lua      # All pairing logic
-├── Crypto.lua       # HMAC, nonces, secrets
-├── Channel.lua      # Rednet + auto-crypto
-├── Protocol.lua     # Message types
-└── Discovery.lua    # Zone announcements
+├── Pairing.lua         # All pairing logic
+├── Crypto.lua          # HMAC, nonces, secrets
+├── Channel.lua         # Rednet + auto-crypto
+├── Protocol.lua        # Message types + requestId generation
+├── Discovery.lua       # Zone announcements
+├── PeripheralClient.lua  # Remote peripheral consumer
+├── PeripheralHost.lua    # Remote peripheral provider
+├── RemoteProxy.lua       # Proxy objects for remote peripherals
+└── RemotePeripheral.lua  # Global accessor for remote peripherals
 
 shelfos/
 ├── core/
-│   ├── Config.lua   # isInSwarm(), setNetworkSecret()
-│   └── Kernel.lua   # acceptPocketPairing(), hostPairing()
+│   ├── Config.lua      # isInSwarm(), setNetworkSecret()
+│   └── Kernel.lua      # acceptPocketPairing(), hostPairing()
 ├── pocket/
-│   └── App.lua      # createSwarm(), addComputerToSwarm(), joinSwarm()
+│   ├── App.lua         # Main pocket app + setup flow
+│   └── screens/
+│       ├── SwarmStatus.lua   # Main swarm overview (default view)
+│       └── AddComputer.lua   # Pairing flow for new computers
 └── tools/
     ├── pair_accept.lua  # Bootstrap tool
     └── link.lua         # CLI pairing

@@ -17,6 +17,7 @@
     "pocket/App.lua",
     "pocket/Notifications.lua",
     "pocket/screens/AddComputer.lua",
+    "pocket/screens/SwarmStatus.lua",
     "tools/setup.lua",
     "tools/migrate.lua",
     "tools/link.lua",

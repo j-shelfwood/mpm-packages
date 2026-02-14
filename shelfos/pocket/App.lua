@@ -13,6 +13,7 @@ local Pairing = mpm('net/Pairing')
 local Notifications = mpm('shelfos/pocket/Notifications')
 local EventUtils = mpm('utils/EventUtils')
 local AddComputerScreen = mpm('shelfos/pocket/screens/AddComputer')
+local SwarmStatusScreen = mpm('shelfos/pocket/screens/SwarmStatus')
 
 local App = {}
 App.__index = App
@@ -551,6 +552,52 @@ function App:processNetworkMessage(senderId, envelope, msgProtocol)
     end
 end
 
+-- Show setup menu (when not in swarm)
+function App:showSetupMenu()
+    term.clear()
+    term.setCursorPos(1, 1)
+
+    print("=== ShelfOS Pocket ===")
+    print("")
+    print("Not connected to swarm")
+    print("")
+    print("1. Join Swarm")
+    print("2. Create Swarm")
+    print("3. Exit")
+    print("")
+    write("Select: ")
+end
+
+-- Run setup flow (when not in swarm)
+-- @return true if joined/created swarm, false if exited
+function App:runSetupFlow()
+    while true do
+        self:showSetupMenu()
+
+        local event, p1 = os.pullEvent()
+
+        if event == "char" then
+            if p1 == "1" then
+                self:joinSwarm()
+                -- Check if we now have a secret
+                if self:loadSecret() then
+                    self:initNetwork(self.secret)
+                    return true
+                end
+            elseif p1 == "2" then
+                self:createSwarm()
+                -- Check if we now have a secret
+                if self:loadSecret() then
+                    self:initNetwork(self.secret)
+                    return true
+                end
+            elseif p1 == "3" then
+                return false
+            end
+        end
+    end
+end
+
 -- Main run loop
 function App:run()
     if not self:init() then
@@ -562,42 +609,40 @@ function App:run()
     print("Press any key...")
     EventUtils.pullEvent("key")
 
+    -- If not in swarm, run setup flow first
+    if not self.hasSecret then
+        if not self:runSetupFlow() then
+            -- User chose to exit
+            term.clear()
+            term.setCursorPos(1, 1)
+            print("Goodbye!")
+            return
+        end
+    end
+
+    -- Main loop - SwarmStatus is the default view
     while self.running do
-        self:showMainMenu()
+        -- Run SwarmStatus as the main view
+        local action = SwarmStatusScreen.run(self.discovery, nil, nil)
 
-        -- Wait for input (capture all event params for rednet handling)
-        local event, p1, p2, p3 = os.pullEvent()
+        if action == "quit" then
+            self.running = false
 
-        if event == "char" then
-            if self.hasSecret then
-                -- Full menu when in swarm
-                if p1 == "1" then
-                    self:discoverZones()
-                elseif p1 == "2" then
-                    self:addComputerToSwarm()
-                elseif p1 == "3" then
-                    self:viewNotifications()
-                elseif p1 == "4" then
-                    self:leaveSwarm()
-                elseif p1 == "5" then
-                    self.running = false
-                end
-            else
-                -- Limited menu when not paired
-                if p1 == "1" then
-                    self:joinSwarm()
-                elseif p1 == "2" then
-                    self:createSwarm()
-                elseif p1 == "3" then
+        elseif action == "add" then
+            self:addComputerToSwarm()
+
+        elseif action == "notifications" then
+            self:viewNotifications()
+
+        elseif action == "leave" then
+            self:leaveSwarm()
+            -- If we left the swarm, go back to setup
+            if not self:loadSecret() then
+                if not self:runSetupFlow() then
                     self.running = false
                 end
             end
-        elseif event == "rednet_message" and self.channel then
-            -- Process network message inline (p1=senderId, p2=message, p3=protocol)
-            self:processNetworkMessage(p1, p2, p3)
         end
-        -- NOTE: Removed self.channel:poll(0) - it was eating char events!
-        -- Network messages are now handled inline via rednet_message event
     end
 
     -- Cleanup

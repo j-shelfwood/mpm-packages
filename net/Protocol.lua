@@ -67,6 +67,12 @@ Protocol.AlertLevel = {
     CRITICAL = "critical"
 }
 
+-- Generate a unique request ID for request/response correlation
+-- @return Unique request ID string
+function Protocol.generateRequestId()
+    return string.format("%d_%d_%d", os.getComputerID(), os.epoch("utc"), math.random(1000, 9999))
+end
+
 -- Create a message
 -- @param msgType Message type from Protocol.MessageType
 -- @param data Message payload
@@ -79,6 +85,14 @@ function Protocol.createMessage(msgType, data, requestId)
         requestId = requestId or nil,
         timestamp = os.epoch("utc")
     }
+end
+
+-- Create a request message (auto-generates requestId)
+-- @param msgType Message type from Protocol.MessageType
+-- @param data Message payload
+-- @return Message table with requestId
+function Protocol.createRequest(msgType, data)
+    return Protocol.createMessage(msgType, data, Protocol.generateRequestId())
 end
 
 -- Create a response to a request
@@ -226,7 +240,7 @@ end
 
 -- Create peripheral discovery request
 function Protocol.createPeriphDiscover()
-    return Protocol.createMessage(Protocol.MessageType.PERIPH_DISCOVER, {})
+    return Protocol.createRequest(Protocol.MessageType.PERIPH_DISCOVER, {})
 end
 
 -- Create peripheral list response
@@ -253,7 +267,7 @@ end
 -- @param methodName Method to call
 -- @param args Arguments table
 function Protocol.createPeriphCall(peripheralName, methodName, args)
-    return Protocol.createMessage(Protocol.MessageType.PERIPH_CALL, {
+    return Protocol.createRequest(Protocol.MessageType.PERIPH_CALL, {
         peripheral = peripheralName,
         method = methodName,
         args = args or {}
