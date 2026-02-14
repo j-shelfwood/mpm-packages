@@ -3,6 +3,7 @@
 -- Menu handling uses Controller abstraction for unified terminal/monitor support
 
 local Config = mpm('shelfos/core/Config')
+local Paths = mpm('shelfos/core/Paths')
 local Monitor = mpm('shelfos/core/Monitor')
 local Zone = mpm('shelfos/core/Zone')
 local Terminal = mpm('shelfos/core/Terminal')
@@ -310,7 +311,7 @@ function Kernel:handleMenuKey(key, runningRef)
             Crypto.clearSecret()
 
             -- 4. Delete ALL config files
-            fs.delete(Config.getPath())  -- /shelfos.config
+            Paths.deleteZoneFiles()
 
             -- 5. Restore terminal and show message
             term.redirect(term.native())
