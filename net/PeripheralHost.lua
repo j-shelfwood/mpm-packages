@@ -17,6 +17,51 @@ local EXCLUDED_TYPES = {
     "pocket"
 }
 
+-- Methods that return large lists of resources from ME Bridge
+-- Their results contain bulky fields (tags, components, fingerprint, etc.)
+-- that are not needed by remote consumers and cause RPC timeouts
+local STRIP_METHODS = {
+    getItems = true,
+    getFluids = true,
+    getChemicals = true,
+    getCraftableItems = true,
+    getCraftableFluids = true,
+    getCraftableChemicals = true,
+}
+
+-- Fields to keep from ME Bridge resource lists
+-- Everything else (tags, components, fingerprint, maxStackSize, fluidType) is stripped
+local KEEP_FIELDS = {
+    name = true,
+    displayName = true,
+    count = true,
+    amount = true,
+    isCraftable = true,
+}
+
+-- Strip bulky fields from a resource list to reduce serialization size
+-- @param items Array of resource tables from ME Bridge
+-- @return Stripped array with only essential fields
+local function stripResourceList(items)
+    if type(items) ~= "table" then return items end
+
+    local stripped = {}
+    for i, item in ipairs(items) do
+        if type(item) == "table" then
+            local slim = {}
+            for key, value in pairs(item) do
+                if KEEP_FIELDS[key] then
+                    slim[key] = value
+                end
+            end
+            stripped[i] = slim
+        else
+            stripped[i] = item
+        end
+    end
+    return stripped
+end
+
 -- Create a new peripheral host
 -- @param channel Channel instance for network communication
 -- @param computerId Computer identifier
@@ -168,6 +213,13 @@ function PeripheralHost:handleCall(senderId, msg)
     local success = table.remove(results, 1)
 
     if success then
+        -- Strip bulky fields from large resource lists to prevent RPC timeouts
+        -- ME Bridge getItems/getFluids/etc return tags, components, fingerprint per item
+        -- which inflates serialization size 10-100x beyond what consumers need
+        if STRIP_METHODS[methodName] and results[1] and type(results[1]) == "table" then
+            results[1] = stripResourceList(results[1])
+        end
+
         local response = Protocol.createPeriphResult(msg, results)
         self.channel:send(senderId, response)
     else

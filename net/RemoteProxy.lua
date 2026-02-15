@@ -12,6 +12,23 @@ local MAX_CONSECUTIVE_FAILURES = 3   -- Disconnect after this many consecutive f
 local RECONNECT_COOLDOWN_MS = 10000  -- Wait 10 seconds before auto-reconnect attempt
 local RECONNECT_TIMEOUT = 3          -- Seconds for reconnect discovery
 
+-- Default RPC timeout in seconds
+local DEFAULT_TIMEOUT = 10
+
+-- Methods that return large payloads and need extended timeouts
+-- Even with host-side stripping, serialization of hundreds of items takes time
+local HEAVY_METHOD_TIMEOUT = {
+    getItems = 15,
+    getFluids = 15,
+    getChemicals = 15,
+    getCraftableItems = 15,
+    getCraftableFluids = 15,
+    getCraftableChemicals = 15,
+    getPatterns = 15,
+    getCells = 10,
+    getDrives = 10,
+}
+
 -- Create a proxy for a remote peripheral
 -- @param client PeripheralClient instance
 -- @param hostId Computer ID of the host
@@ -81,8 +98,11 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
             -- Pack arguments
             local args = {...}
 
+            -- Use extended timeout for methods that return large payloads
+            local timeout = HEAVY_METHOD_TIMEOUT[methodName] or DEFAULT_TIMEOUT
+
             -- Call via client
-            local results, err = client:call(hostId, name, methodName, args)
+            local results, err = client:call(hostId, name, methodName, args, timeout)
 
             if err then
                 proxy._failureCount = proxy._failureCount + 1
