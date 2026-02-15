@@ -76,6 +76,28 @@ local function install_cc_stubs()
         epoch = epoch + 11
         return epoch
     end
+
+    -- Event API stubs needed by Yield.yield() and tests that use event-based code
+    -- Implements a simple synchronous event queue so Yield.yield() works in tests
+    local _eventQueue = {}
+
+    os.queueEvent = os.queueEvent or function(...)
+        table.insert(_eventQueue, {...})
+    end
+
+    os.pullEventRaw = os.pullEventRaw or function(filter)
+        -- Return first matching event from queue, or a dummy event
+        for i, event in ipairs(_eventQueue) do
+            if not filter or event[1] == filter then
+                table.remove(_eventQueue, i)
+                return table.unpack(event)
+            end
+        end
+        -- If no matching event, return a no-op event to prevent infinite loops
+        return "test_noop"
+    end
+
+    os.clock = os.clock or function() return 0 end
 end
 
 function M.setup_package_paths(root)

@@ -50,12 +50,36 @@ function Peripheral.getMethods(name)
     local p = attached[name]
     if not p then return nil end
 
+    local seen = {}
     local methods = {}
+
+    -- Scan instance fields
     for k, v in pairs(p) do
         if type(v) == "function" and not k:match("^_") then
-            table.insert(methods, k)
+            if not seen[k] then
+                seen[k] = true
+                table.insert(methods, k)
+            end
         end
     end
+
+    -- Also scan metatable __index (for class-based objects like MEBridge)
+    -- CC:Tweaked's real getMethods also finds metatable methods
+    local mt = getmetatable(p)
+    if mt then
+        local index = rawget(mt, "__index")
+        if type(index) == "table" then
+            for k, v in pairs(index) do
+                if type(v) == "function" and not k:match("^_") then
+                    if not seen[k] then
+                        seen[k] = true
+                        table.insert(methods, k)
+                    end
+                end
+            end
+        end
+    end
+
     table.sort(methods)
     return methods
 end

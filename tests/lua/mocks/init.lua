@@ -120,6 +120,14 @@ end
 -- Backward compatibility alias
 Mocks.setupZone = Mocks.setupComputer
 
+-- Setup a computer without local ME Bridge (for remote peripheral testing)
+-- Returns computer with modem and monitors but no me_bridge attached
+function Mocks.setupRemoteComputer(config)
+    config = config or {}
+    config.meBridge = false  -- No local ME Bridge
+    return Mocks.setupComputer(config)
+end
+
 -- Setup headless computer (no monitors, just peripherals)
 function Mocks.setupHeadless(config)
     config = config or {}
