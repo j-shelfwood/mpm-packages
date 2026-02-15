@@ -51,8 +51,9 @@ local ACTIVITY_STRATEGIES = {
     {
         method = "getProductionRate",
         detect = function(p)
-            local rate = p.getProductionRate()
-            return rate > 0, { rate = rate }
+            local ok, rate = pcall(p.getProductionRate)
+            if not ok then return false, {} end
+            return (rate or 0) > 0, { rate = rate }
         end
     },
 
@@ -60,19 +61,23 @@ local ACTIVITY_STRATEGIES = {
     {
         method = "isFormed",
         detect = function(p)
-            local formed = p.isFormed()
+            local formedOk, formed = pcall(p.isFormed)
+            if not formedOk then return false, {} end
             if not formed then return false, { formed = false } end
 
             -- Check type-specific activity
             if p.getBoilRate then
-                local rate = p.getBoilRate()
-                return rate > 0, { formed = true, rate = rate }
+                local rateOk, rate = pcall(p.getBoilRate)
+                if not rateOk then return false, { formed = true } end
+                return (rate or 0) > 0, { formed = true, rate = rate }
             elseif p.getStatus then
-                local status = p.getStatus()
+                local statusOk, status = pcall(p.getStatus)
+                if not statusOk then return false, { formed = true } end
                 return status == true, { formed = true, status = status }
             elseif p.isIgnited then
-                local ignited = p.isIgnited()
-                return ignited, { formed = true, ignited = ignited }
+                local ignitedOk, ignited = pcall(p.isIgnited)
+                if not ignitedOk then return false, { formed = true } end
+                return ignited and true or false, { formed = true, ignited = ignited }
             end
 
             return formed, { formed = true }
@@ -217,12 +222,17 @@ end
 -- Returns: { [peripheralType] = { machines = {peripheral...}, classification = {...} } }
 function MachineActivity.discoverAll()
     local result = {}
-    local names = Peripherals.getNames()
+    local names = {}
+    local ok, fetched = pcall(Peripherals.getNames)
+    if ok and type(fetched) == "table" then
+        names = fetched
+    end
 
     for idx, name in ipairs(names) do
-        local pType = Peripherals.getType(name)
-        if pType then
-            local p = Peripherals.wrap(name)
+        local pTypeOk, pType = pcall(Peripherals.getType, name)
+        if pTypeOk and pType then
+            local pOk, p = pcall(Peripherals.wrap, name)
+            if not pOk then p = nil end
             local supported, _ = MachineActivity.supportsActivity(p)
 
             if supported then

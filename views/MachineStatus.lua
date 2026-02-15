@@ -7,31 +7,11 @@ local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Yield = mpm('utils/Yield')
 local Peripherals = mpm('utils/Peripherals')
+local Activity = mpm('peripherals/MachineActivity')
 
 -- Get available machine types from connected peripherals
 local function getMachineTypes()
-    local types = {}
-    local seen = {}
-    local names = Peripherals.getNames()
-
-    for _, name in ipairs(names) do
-        local pType = Peripherals.getType(name)
-        if pType and not seen[pType] then
-            local p = Peripherals.wrap(name)
-            if p and type(p.isBusy) == "function" then
-                seen[pType] = true
-                local _, _, shortName = string.find(pType, ":(.+)")
-                local label = shortName or pType
-                label = label:gsub("_", " "):gsub("^%l", string.upper)
-                table.insert(types, {
-                    value = pType,
-                    label = label
-                })
-            end
-        end
-    end
-
-    return types
+    return Activity.getMachineTypes("all")
 end
 
 return BaseView.custom({
@@ -85,8 +65,7 @@ return BaseView.custom({
             local _, _, shortName = string.find(fullName, machineType .. "_(.+)")
             shortName = shortName or fullName
 
-            local busyOk, isBusy = pcall(machine.isBusy)
-            if not busyOk then isBusy = false end
+            local isBusy = Activity.getActivity(machine)
 
             table.insert(machineData, {
                 name = shortName,
