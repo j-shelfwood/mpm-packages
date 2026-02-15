@@ -229,7 +229,7 @@ return BaseView.custom({
             type = "select",
             label = "Machine Type",
             options = function(config)
-                return Activity.getMachineTypes(config.mod_filter or "all")
+                return Activity.getMachineTypes((config and config.mod_filter) or "all")
             end,
             dependsOn = "mod_filter",
             showWhen = function(config)
