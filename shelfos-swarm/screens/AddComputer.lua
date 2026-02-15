@@ -174,10 +174,25 @@ function AddComputer.drawCodeEntry(ctx)
     -- Issue credentials
     local creds, err = ctx.app.authority:issueCredentials(computer.id, computer.label)
     if not creds then
-        state.errorMsg = "Failed: " .. (err or "Unknown error")
-        state.phase = "error"
-        AddComputer.draw(ctx)
-        return
+        if err == "Computer already exists" then
+            local existing = ctx.app.authority:getComputer(computer.id)
+            local identity = ctx.app.authority.identity
+            if existing and identity and identity.secret then
+                creds = {
+                    computerId = existing.id or computer.id,
+                    computerSecret = existing.secret,
+                    swarmId = identity.id,
+                    swarmSecret = identity.secret,
+                    swarmFingerprint = identity.fingerprint
+                }
+            end
+        end
+        if not creds then
+            state.errorMsg = "Failed: " .. (err or "Unknown error")
+            state.phase = "error"
+            AddComputer.draw(ctx)
+            return
+        end
     end
 
     state.pairingCreds = creds
