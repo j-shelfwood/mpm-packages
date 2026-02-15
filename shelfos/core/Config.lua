@@ -251,6 +251,7 @@ end
 -- Discover monitors, deduplicating when the same physical monitor
 -- appears under both a side name (direct attachment) and a network name
 -- (via wired modem). Prefers side names since monitor_touch events use them.
+-- @return monitors (deduplicated list), aliases (table: skipped_name → canonical_name)
 function Config.discoverMonitors()
     local allNames = peripheral.getNames()
     local monitorNames = {}
@@ -273,9 +274,11 @@ function Config.discoverMonitors()
         end
     end
 
+    local aliases = {}  -- skipped network name → canonical side name
+
     -- No side monitors = no possible duplicates
     if #sideMonitors == 0 then
-        return monitorNames
+        return monitorNames, aliases
     end
 
     -- Detect duplicates: set cursor position via side name, read via network name.
@@ -302,6 +305,7 @@ function Config.discoverMonitors()
                             cx, cy = netP.getCursorPos()
                             if cx == 17 and cy == 11 then
                                 skip[netName] = true
+                                aliases[netName] = sideName
                             end
                         end
                     end
@@ -321,7 +325,85 @@ function Config.discoverMonitors()
         end
     end
 
-    return result
+    return result, aliases
+end
+
+-- Reconcile existing config against actual hardware.
+-- Fixes duplicate entries, remaps aliased names, adds new monitors.
+-- Called on every boot after Config.load() to self-heal config issues.
+-- @param config Existing configuration table
+-- @return changed (boolean), summary (string)
+function Config.reconcile(config)
+    local ViewManager = mpm('views/Manager')
+    local monitors, aliases = Config.discoverMonitors()
+    local changed = false
+    local actions = {}
+
+    -- Build set of canonical monitor names
+    local canonicalSet = {}
+    for _, name in ipairs(monitors) do
+        canonicalSet[name] = true
+    end
+
+    -- Phase 1: Remap aliased entries (network name → side name)
+    -- e.g., config has "monitor_5" but canonical name is "right"
+    for _, entry in ipairs(config.monitors) do
+        local canonical = aliases[entry.peripheral]
+        if canonical then
+            table.insert(actions, "Remapped " .. entry.peripheral .. " -> " .. canonical)
+            entry.peripheral = canonical
+            entry.label = canonical
+            changed = true
+        end
+    end
+
+    -- Phase 2: Deduplicate config entries pointing to same peripheral
+    -- After remapping, two entries might now have the same peripheral name
+    local seen = {}
+    local deduped = {}
+    for _, entry in ipairs(config.monitors) do
+        if not seen[entry.peripheral] then
+            seen[entry.peripheral] = true
+            table.insert(deduped, entry)
+        else
+            table.insert(actions, "Removed duplicate entry for " .. entry.peripheral)
+            changed = true
+        end
+    end
+    config.monitors = deduped
+
+    -- Phase 3: Add newly-discovered monitors not in config
+    local configuredSet = {}
+    for _, entry in ipairs(config.monitors) do
+        configuredSet[entry.peripheral] = true
+    end
+
+    local newMonitors = {}
+    for _, name in ipairs(monitors) do
+        if not configuredSet[name] then
+            table.insert(newMonitors, name)
+        end
+    end
+
+    if #newMonitors > 0 then
+        local suggestions = ViewManager.suggestViewsForMonitors(#newMonitors)
+        for i, monitorName in ipairs(newMonitors) do
+            local suggestion = suggestions[i] or { view = "Clock", reason = "Default" }
+            table.insert(config.monitors, {
+                peripheral = monitorName,
+                label = monitorName,
+                view = suggestion.view,
+                viewConfig = ViewManager.getDefaultConfig(suggestion.view)
+            })
+            table.insert(actions, "Added new monitor " .. monitorName .. " -> " .. suggestion.view)
+            changed = true
+        end
+    end
+
+    -- Build summary string
+    local summary = #actions > 0 and table.concat(actions, ", ") or nil
+
+    return changed, summary
 end
 
 -- Auto-create configuration by discovering monitors and assigning views

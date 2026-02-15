@@ -64,6 +64,14 @@ function Kernel:boot()
         Config.save(self.config)
         print("[ShelfOS] Auto-configured " .. self.discoveredCount .. " monitor(s)")
         -- Note: "Not in swarm" message is printed by KernelNetwork.initialize()
+    else
+        -- Reconcile existing config against actual hardware
+        -- Fixes duplicate entries, remaps aliased names, adds new monitors
+        local reconciled, summary = Config.reconcile(self.config)
+        if reconciled then
+            Config.save(self.config)
+            print("[ShelfOS] Config healed: " .. summary)
+        end
     end
 
     -- Initialize computer identity
