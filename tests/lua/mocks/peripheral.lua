@@ -110,15 +110,29 @@ function Peripheral.wrap(name)
     return wrapper
 end
 
+-- CC:Tweaked peripheral.find() returns ALL matching wrapped peripherals as
+-- multiple return values: wrapper1, wrapper2, ...
+-- NOT (wrapper, name) - that was a bug in the original mock.
 function Peripheral.find(type_name, filter_fn)
-    for name, obj in pairs(attached) do
+    local results = {}
+    -- Sort names for deterministic order
+    local sortedNames = {}
+    for name in pairs(attached) do
+        table.insert(sortedNames, name)
+    end
+    table.sort(sortedNames)
+
+    for _, name in ipairs(sortedNames) do
         if names_to_types[name] == type_name then
+            local obj = attached[name]
             if not filter_fn or filter_fn(name, obj) then
-                return Peripheral.wrap(name), name
+                table.insert(results, Peripheral.wrap(name))
             end
         end
     end
-    return nil
+
+    if #results == 0 then return nil end
+    return table.unpack(results)
 end
 
 -- Install into global _G.peripheral

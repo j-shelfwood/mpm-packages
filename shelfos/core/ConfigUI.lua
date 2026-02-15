@@ -7,6 +7,7 @@
 --   ConfigUIInputs.lua - Number stepper and boolean toggle dialogs
 
 local AEInterface = mpm('peripherals/AEInterface')
+local Peripherals = mpm('utils/Peripherals')
 local Text = mpm('utils/Text')
 local Core = mpm('ui/Core')
 local List = mpm('ui/List')
@@ -53,16 +54,16 @@ local function getAE2Fluids()
     return fluids
 end
 
--- Get peripherals filtered by type
+-- Get peripherals filtered by type (uses Peripherals module for network transparency)
 local function getPeripherals(filterType)
-    local names = peripheral.getNames()
+    local names = Peripherals.getNames()
     local result = {}
 
     for _, name in ipairs(names) do
-        if not filterType or peripheral.hasType(name, filterType) then
+        if not filterType or Peripherals.hasType(name, filterType) then
             table.insert(result, {
                 name = name,
-                type = peripheral.getType(name)
+                type = Peripherals.getType(name)
             })
         end
     end
@@ -109,7 +110,7 @@ function ConfigUI.drawConfigMenu(monitor, viewName, schema, currentConfig)
         end
     end
 
-    local monitorName = peripheral.getName(monitor)
+    local monitorName = Peripherals.getName(monitor)
 
     while true do
         Core.clear(monitor)

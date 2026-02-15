@@ -3,6 +3,7 @@
 
 local BaseView = mpm('views/BaseView')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
+local Text = mpm('utils/Text')
 local Yield = mpm('utils/Yield')
 local Peripherals = mpm('utils/Peripherals')
 
@@ -38,7 +39,7 @@ local MULTIBLOCK_TYPES = {
             local steamPct = p.getSteamFilledPercentage and p.getSteamFilledPercentage() or 0
             return {
                 active = production > 0,
-                primary = formatEnergy(production) .. "/t",
+                primary = Text.formatEnergy(production, "J") .. "/t",
                 secondary = string.format("Flow: %.0f mB/t", flowRate),
                 bars = {
                     { label = "Steam", pct = steamPct, color = colors.lightGray }
@@ -83,7 +84,7 @@ local MULTIBLOCK_TYPES = {
             local tritPct = p.getTritiumFilledPercentage and p.getTritiumFilledPercentage() or 0
             return {
                 active = ignited,
-                primary = ignited and formatEnergy(production) .. "/t" or "COLD",
+                primary = ignited and Text.formatEnergy(production, "J") .. "/t" or "COLD",
                 secondary = string.format("Plasma: %.0fK", plasmaTemp),
                 bars = {
                     { label = "D-T", pct = dtFuelPct, color = colors.purple },
@@ -104,7 +105,7 @@ local MULTIBLOCK_TYPES = {
             return {
                 active = lastInput > 0 or lastOutput > 0,
                 primary = string.format("%.1f%%", energyPct * 100),
-                secondary = string.format("I:%s O:%s", formatEnergy(lastInput), formatEnergy(lastOutput)),
+                secondary = string.format("I:%s O:%s", Text.formatEnergy(lastInput, "J"), Text.formatEnergy(lastOutput, "J")),
                 bars = {
                     { label = "Energy", pct = energyPct, color = colors.red }
                 }
@@ -149,19 +150,6 @@ local MULTIBLOCK_TYPES = {
         end
     }
 }
-
--- Format energy values
-function formatEnergy(joules)
-    if joules >= 1000000000 then
-        return string.format("%.1fGJ", joules / 1000000000)
-    elseif joules >= 1000000 then
-        return string.format("%.1fMJ", joules / 1000000)
-    elseif joules >= 1000 then
-        return string.format("%.1fkJ", joules / 1000)
-    else
-        return string.format("%.0fJ", joules)
-    end
-end
 
 -- Discover multiblocks
 local function findMultiblocks()

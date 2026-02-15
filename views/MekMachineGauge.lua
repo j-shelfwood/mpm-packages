@@ -3,22 +3,10 @@
 
 local BaseView = mpm('views/BaseView')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
+local Text = mpm('utils/Text')
 local Yield = mpm('utils/Yield')
 local Activity = mpm('peripherals/MachineActivity')
 local Peripherals = mpm('utils/Peripherals')
-
--- Format energy values
-local function formatEnergy(joules)
-    if joules >= 1000000000 then
-        return string.format("%.2fGJ", joules / 1000000000)
-    elseif joules >= 1000000 then
-        return string.format("%.2fMJ", joules / 1000000)
-    elseif joules >= 1000 then
-        return string.format("%.1fkJ", joules / 1000)
-    else
-        return string.format("%.0fJ", joules)
-    end
-end
 
 -- Get all Mekanism machines as options
 local function getMachineOptions()
@@ -244,7 +232,7 @@ return BaseView.custom({
 
             self.monitor.setTextColor(colors.lightGray)
             self.monitor.setCursorPos(1, y)
-            self.monitor.write(formatEnergy(data.energy.current) .. " / " .. formatEnergy(data.energy.max))
+            self.monitor.write(Text.formatEnergy(data.energy.current, "J") .. " / " .. Text.formatEnergy(data.energy.max, "J"))
             y = y + 2
         end
 
@@ -270,7 +258,7 @@ return BaseView.custom({
         if data.production and data.production.rate > 0 then
             self.monitor.setTextColor(colors.yellow)
             self.monitor.setCursorPos(1, y)
-            self.monitor.write("Output: " .. formatEnergy(data.production.rate) .. "/t")
+            self.monitor.write("Output: " .. Text.formatEnergy(data.production.rate, "J") .. "/t")
             y = y + 1
 
             if data.production.max > 0 then

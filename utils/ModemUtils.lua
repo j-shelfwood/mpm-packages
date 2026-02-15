@@ -84,6 +84,7 @@ end
 
 -- Open a modem with ender preference
 -- Closes other modems to prevent duplicate message reception
+-- Skips open if modem is already open; wraps open in pcall for resilience
 -- @param preferEnder Prefer ender/wireless over wired (default: true)
 -- @return success, modemName, modemType
 function ModemUtils.open(preferEnder)
@@ -102,7 +103,14 @@ function ModemUtils.open(preferEnder)
         end
     end
 
-    rednet.open(name)
+    -- Skip if already open; wrap in pcall for resilience
+    if not rednet.isOpen(name) then
+        local ok, err = pcall(rednet.open, name)
+        if not ok then
+            return false, nil, nil
+        end
+    end
+
     return true, name, mtype
 end
 

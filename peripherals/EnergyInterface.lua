@@ -3,6 +3,7 @@
 -- Uses CC:Tweaked's generic peripheral system (energy_storage type)
 
 local Yield = mpm('utils/Yield')
+local Text = mpm('utils/Text')
 local Peripherals = mpm('utils/Peripherals')
 
 local EnergyInterface = {}
@@ -241,20 +242,9 @@ function EnergyInterface.getModFilterOptions()
     return options
 end
 
--- Format energy value for display
+-- Format energy value for display (delegates to Text.formatEnergy)
 function EnergyInterface.formatEnergy(value, unit)
-    unit = unit or "FE"
-    if value >= 1e12 then
-        return string.format("%.2fT%s", value / 1e12, unit)
-    elseif value >= 1e9 then
-        return string.format("%.2fG%s", value / 1e9, unit)
-    elseif value >= 1e6 then
-        return string.format("%.2fM%s", value / 1e6, unit)
-    elseif value >= 1e3 then
-        return string.format("%.1fk%s", value / 1e3, unit)
-    else
-        return string.format("%.0f%s", value, unit)
-    end
+    return Text.formatEnergy(value, unit)
 end
 
 return EnergyInterface

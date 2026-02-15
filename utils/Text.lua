@@ -145,6 +145,27 @@ function Text.simpleBlit(text, fg, bg, totalWidth)
     return text, fgStr, bgStr
 end
 
+-- Format energy value with unit suffixes (T/G/M/k)
+-- @param value Energy value (Joules, FE, etc.)
+-- @param unit Unit suffix (default: "FE"). Pass "J" for Mekanism Joules.
+-- @return Formatted string like "1.50GJ", "250kFE"
+function Text.formatEnergy(value, unit)
+    unit = unit or "FE"
+    if not value then return "0" .. unit end
+    local abs = math.abs(value)
+    if abs >= 1e12 then
+        return string.format("%.2fT%s", value / 1e12, unit)
+    elseif abs >= 1e9 then
+        return string.format("%.2fG%s", value / 1e9, unit)
+    elseif abs >= 1e6 then
+        return string.format("%.2fM%s", value / 1e6, unit)
+    elseif abs >= 1e3 then
+        return string.format("%.1fk%s", value / 1e3, unit)
+    else
+        return string.format("%.0f%s", value, unit)
+    end
+end
+
 -- Alias for backwards compatibility
 Text.prettifyItemIdentifier = Text.prettifyName
 
