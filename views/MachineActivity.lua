@@ -1,6 +1,7 @@
 -- MachineActivity.lua
 -- Unified machine activity display for MI, Mekanism, and other mods
 -- Shows categorized grid of machines with activity status
+-- Green = active/busy, Gray = idle/off
 
 local BaseView = mpm('views/BaseView')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
@@ -8,12 +9,68 @@ local Yield = mpm('utils/Yield')
 local Activity = mpm('peripherals/MachineActivity')
 
 -- Display modes
-local MODE_ALL = "all"           -- All machines grouped by category
-local MODE_CATEGORY = "category" -- Single category
-local MODE_TYPE = "type"         -- Single machine type
+local MODE_ALL = "all"
+local MODE_TYPE = "type"
+
+-- Adaptive cell size based on monitor dimensions
+local function getCellSize(width, height)
+    local area = width * height
+    if area >= 600 then return 3  -- Large monitor (e.g., 4x3 at 0.5 scale)
+    elseif area >= 200 then return 2  -- Medium monitor
+    else return 2 end  -- Small monitor, keep minimum 2
+end
+
+-- Draw a single machine cell (colored square with label)
+local function drawCell(monitor, x, y, size, isActive, label)
+    local bgColor = isActive and colors.green or colors.gray
+    monitor.setBackgroundColor(bgColor)
+
+    for i = 0, size - 1 do
+        monitor.setCursorPos(x, y + i)
+        monitor.write(string.rep(" ", size))
+    end
+
+    if label and size >= 2 then
+        monitor.setTextColor(isActive and colors.black or colors.lightGray)
+        local displayLabel = label:sub(1, size)
+        local labelX = x + math.max(0, math.floor((size - #displayLabel) / 2))
+        local labelY = y + math.floor((size - 1) / 2)
+        monitor.setCursorPos(labelX, labelY)
+        monitor.write(displayLabel)
+    end
+end
+
+-- Draw an activity ratio bar at the bottom
+local function drawStatusBar(monitor, y, width, active, total)
+    local ratio = total > 0 and (active / total) or 0
+    local filledWidth = math.floor(width * ratio)
+    local emptyWidth = width - filledWidth
+
+    monitor.setCursorPos(1, y)
+
+    if filledWidth > 0 then
+        monitor.setBackgroundColor(colors.green)
+        monitor.write(string.rep(" ", filledWidth))
+    end
+
+    if emptyWidth > 0 then
+        monitor.setBackgroundColor(colors.gray)
+        monitor.write(string.rep(" ", emptyWidth))
+    end
+
+    -- Overlay text
+    local statusText = string.format(" %d/%d active ", active, total)
+    local textX = math.max(1, math.floor((width - #statusText) / 2) + 1)
+    monitor.setCursorPos(textX, y)
+    monitor.setBackgroundColor(ratio > 0.5 and colors.green or colors.gray)
+    monitor.setTextColor(colors.black)
+    monitor.write(statusText)
+
+    monitor.setBackgroundColor(colors.black)
+end
 
 return BaseView.custom({
-    sleepTime = 0.5,  -- Fast updates for activity monitoring
+    sleepTime = 1,
 
     configSchema = {
         {
@@ -29,8 +86,8 @@ return BaseView.custom({
             label = "Display Mode",
             options = function()
                 return {
-                    { value = MODE_ALL, label = "All (Categorized Grid)" },
-                    { value = MODE_TYPE, label = "Single Machine Type" }
+                    { value = MODE_ALL, label = "All (Categorized)" },
+                    { value = MODE_TYPE, label = "Single Type" }
                 }
             end,
             default = MODE_ALL
@@ -50,7 +107,6 @@ return BaseView.custom({
     },
 
     mount = function()
-        -- Check if any machines with activity support exist
         local discovered = Activity.discoverAll()
         return next(discovered) ~= nil
     end,
@@ -63,7 +119,7 @@ return BaseView.custom({
 
     getData = function(self)
         if self.displayMode == MODE_TYPE and self.machineType then
-            -- Single type mode
+            -- Single type: discover and poll activity in one pass
             local discovered = Activity.discoverAll()
             local typeData = discovered[self.machineType]
 
@@ -75,7 +131,7 @@ return BaseView.custom({
             for idx, machine in ipairs(typeData.machines) do
                 local isActive, activityData = Activity.getActivity(machine.peripheral)
                 table.insert(machines, {
-                    name = machine.name:match("_(%d+)$") or tostring(idx),
+                    label = machine.name:match("_(%d+)$") or tostring(idx),
                     isActive = isActive,
                     data = activityData
                 })
@@ -89,59 +145,86 @@ return BaseView.custom({
                 classification = typeData.classification
             }
         else
-            -- All mode - grouped by category
-            local groups = Activity.groupByCategory(self.modFilter)
+            -- All mode: use raw grouping (no activity polling), then poll once
+            local groups = Activity.groupByCategoryRaw(self.modFilter)
 
-            -- Process each group to get current activity
-            local processedGroups = {}
-            local totalIdx = 0
+            local sections = {}
+            local totalActive = 0
+            local totalMachines = 0
+            local pollIdx = 0
 
-            for catName, catData in pairs(groups) do
-                local processedTypes = {}
+            -- Sort categories for consistent display
+            local sortedCatNames = {}
+            for catName in pairs(groups) do
+                table.insert(sortedCatNames, catName)
+            end
+            table.sort(sortedCatNames, function(a, b)
+                return (groups[a].label or a) < (groups[b].label or b)
+            end)
+
+            for _, catName in ipairs(sortedCatNames) do
+                local catData = groups[catName]
+
+                -- Sort types within category
+                local sortedTypeNames = {}
+                for pType in pairs(catData.types) do
+                    table.insert(sortedTypeNames, pType)
+                end
+                table.sort(sortedTypeNames, function(a, b)
+                    return (catData.types[a].shortName or a) < (catData.types[b].shortName or b)
+                end)
+
                 local catActive = 0
                 local catTotal = 0
+                local typeEntries = {}
 
-                for pType, typeInfo in pairs(catData.types) do
-                    local typeActive = 0
+                for _, pType in ipairs(sortedTypeNames) do
+                    local typeInfo = catData.types[pType]
                     local machines = {}
+                    local typeActive = 0
 
                     for _, machine in ipairs(typeInfo.machines) do
-                        totalIdx = totalIdx + 1
+                        pollIdx = pollIdx + 1
                         local isActive, activityData = Activity.getActivity(machine.peripheral)
                         if isActive then
                             typeActive = typeActive + 1
-                            catActive = catActive + 1
                         end
-                        catTotal = catTotal + 1
-
                         table.insert(machines, {
-                            name = machine.name:match("_(%d+)$") or "?",
+                            label = machine.name:match("_(%d+)$") or "?",
                             isActive = isActive,
                             data = activityData
                         })
-                        Yield.check(totalIdx, 10)
+                        Yield.check(pollIdx, 8)
                     end
 
-                    processedTypes[pType] = {
-                        shortName = Activity.getShortName(pType),
+                    catActive = catActive + typeActive
+                    catTotal = catTotal + #machines
+
+                    table.insert(typeEntries, {
+                        shortName = typeInfo.shortName,
                         machines = machines,
                         active = typeActive,
                         total = #machines
-                    }
+                    })
                 end
 
-                processedGroups[catName] = {
+                totalActive = totalActive + catActive
+                totalMachines = totalMachines + catTotal
+
+                table.insert(sections, {
                     label = catData.label,
                     color = catData.color,
-                    types = processedTypes,
+                    types = typeEntries,
                     active = catActive,
                     total = catTotal
-                }
+                })
             end
 
             return {
                 mode = MODE_ALL,
-                groups = processedGroups
+                sections = sections,
+                totalActive = totalActive,
+                totalMachines = totalMachines
             }
         end
     end,
@@ -164,12 +247,14 @@ return BaseView.custom({
 
         -- Title
         local title = data.typeName or "Machines"
-        MonitorHelpers.writeCentered(self.monitor, 1, title, data.classification and data.classification.color or colors.white)
+        local titleColor = data.classification and data.classification.color or colors.white
+        MonitorHelpers.writeCentered(self.monitor, 1, title, titleColor)
 
-        -- Calculate grid
-        local cellSize = 3
-        local cols = math.floor((self.width - 1) / (cellSize + 1))
-        if cols < 1 then cols = 1 end
+        -- Adaptive cell size
+        local cellSize = getCellSize(self.width, self.height)
+        local cellGap = 1
+        local cellStep = cellSize + cellGap
+        local cols = math.max(1, math.floor((self.width + cellGap) / cellStep))
 
         local startY = 3
         local activeCount = 0
@@ -177,128 +262,111 @@ return BaseView.custom({
         for idx, machine in ipairs(machines) do
             local col = (idx - 1) % cols
             local row = math.floor((idx - 1) / cols)
-            local x = col * (cellSize + 1) + 2
-            local y = startY + row * (cellSize + 1)
+            local x = col * cellStep + 1
+            local y = startY + row * cellStep
 
-            if y + cellSize > self.height - 1 then break end
+            -- Stop if we'd render past the status bar
+            if y + cellSize > self.height then break end
 
-            -- Draw cell
-            local bgColor = machine.isActive and colors.green or colors.gray
-            self.monitor.setBackgroundColor(bgColor)
-
-            for i = 0, cellSize - 1 do
-                self.monitor.setCursorPos(x, y + i)
-                self.monitor.write(string.rep(" ", cellSize))
-            end
-
-            -- Draw label
-            self.monitor.setTextColor(colors.black)
-            local label = tostring(machine.name):sub(1, cellSize)
-            local labelX = x + math.floor((cellSize - #label) / 2)
-            self.monitor.setCursorPos(labelX, y + math.floor(cellSize / 2))
-            self.monitor.write(label)
-
+            drawCell(self.monitor, x, y, cellSize, machine.isActive, machine.label)
             if machine.isActive then activeCount = activeCount + 1 end
         end
 
         -- Status bar
-        self.monitor.setBackgroundColor(colors.black)
-        self.monitor.setTextColor(colors.gray)
-        self.monitor.setCursorPos(1, self.height)
-        self.monitor.write(string.format("%d/%d active", activeCount, #machines))
+        drawStatusBar(self.monitor, self.height, self.width, activeCount, #machines)
+        self.monitor.setTextColor(colors.white)
     end,
 
     renderCategorized = function(self, data)
-        local groups = data.groups
+        local sections = data.sections
 
-        if not groups or not next(groups) then
+        if not sections or #sections == 0 then
             MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "No machines found", colors.orange)
             return
         end
 
-        -- Title
-        local filterLabel = self.modFilter == "all" and "All Machines" or
-                           (self.modFilter == "mekanism" and "Mekanism" or "Modern Industrialization")
-        MonitorHelpers.writeCentered(self.monitor, 1, filterLabel, colors.white)
+        -- Title row
+        local filterLabel = self.modFilter == "all" and "Machines" or
+                           (self.modFilter == "mekanism" and "Mekanism" or "MI")
+        self.monitor.setBackgroundColor(colors.black)
+        self.monitor.setTextColor(colors.white)
+        self.monitor.setCursorPos(1, 1)
+        self.monitor.write(filterLabel)
 
-        -- Sort categories for consistent display
-        local sortedCats = {}
-        for catName, catData in pairs(groups) do
-            table.insert(sortedCats, { name = catName, data = catData })
-        end
-        table.sort(sortedCats, function(a, b) return a.data.label < b.data.label end)
+        -- Active count on right side of title
+        local countStr = string.format("%d/%d", data.totalActive, data.totalMachines)
+        self.monitor.setTextColor(data.totalActive > 0 and colors.lime or colors.gray)
+        self.monitor.setCursorPos(math.max(1, self.width - #countStr + 1), 1)
+        self.monitor.write(countStr)
 
-        -- Calculate layout
-        local y = 3
-        local cellSize = 2
+        -- Adaptive cell size
+        local cellSize = getCellSize(self.width, self.height)
         local cellGap = 1
-        local sectionGap = 1
+        local cellStep = cellSize + cellGap
 
-        local totalActive = 0
-        local totalMachines = 0
+        -- Render sections
+        local y = 3
+        local overflow = false
 
-        for _, cat in ipairs(sortedCats) do
-            local catData = cat.data
-
-            if y >= self.height - 2 then break end
+        for _, section in ipairs(sections) do
+            if overflow then break end
 
             -- Category header
             self.monitor.setBackgroundColor(colors.black)
-            self.monitor.setTextColor(catData.color or colors.white)
+            self.monitor.setTextColor(section.color or colors.white)
             self.monitor.setCursorPos(1, y)
-            local headerText = string.format("%s (%d/%d)", catData.label, catData.active, catData.total)
+            local headerText = string.format("%s (%d/%d)", section.label, section.active, section.total)
             self.monitor.write(headerText:sub(1, self.width))
             y = y + 1
 
-            totalActive = totalActive + catData.active
-            totalMachines = totalMachines + catData.total
+            -- Types within category
+            for _, typeEntry in ipairs(section.types) do
+                if overflow then break end
 
-            -- Sort types within category
-            local sortedTypes = {}
-            for pType, typeInfo in pairs(catData.types) do
-                table.insert(sortedTypes, { type = pType, info = typeInfo })
-            end
-            table.sort(sortedTypes, function(a, b) return a.info.shortName < b.info.shortName end)
-
-            -- Draw machines for each type
-            local x = 1
-            for _, typeEntry in ipairs(sortedTypes) do
-                local typeInfo = typeEntry.info
-
-                for _, machine in ipairs(typeInfo.machines) do
-                    -- Check if we need to wrap
-                    if x + cellSize > self.width then
-                        x = 1
-                        y = y + cellSize + cellGap
-                    end
-
-                    if y + cellSize > self.height - 1 then break end
-
-                    -- Draw cell
-                    local bgColor = machine.isActive and colors.green or colors.gray
-                    self.monitor.setBackgroundColor(bgColor)
-
-                    for i = 0, cellSize - 1 do
-                        self.monitor.setCursorPos(x, y + i)
-                        self.monitor.write(string.rep(" ", cellSize))
-                    end
-
-                    x = x + cellSize + cellGap
+                -- Type label row (if more than one type in category or enough space)
+                if #section.types > 1 and y < self.height then
+                    self.monitor.setBackgroundColor(colors.black)
+                    self.monitor.setTextColor(colors.lightGray)
+                    self.monitor.setCursorPos(2, y)
+                    local typeLabel = string.format("%s %d/%d", typeEntry.shortName, typeEntry.active, typeEntry.total)
+                    self.monitor.write(typeLabel:sub(1, self.width - 2))
+                    y = y + 1
                 end
 
-                if y + cellSize > self.height - 1 then break end
+                -- Machine cells for this type
+                local x = 1
+                for _, machine in ipairs(typeEntry.machines) do
+                    -- Wrap to next row if needed
+                    if x + cellSize - 1 > self.width then
+                        x = 1
+                        y = y + cellStep
+                    end
+
+                    -- Stop rendering if we'd overlap status bar
+                    if y + cellSize > self.height then
+                        overflow = true
+                        break
+                    end
+
+                    drawCell(self.monitor, x, y, cellSize, machine.isActive, machine.label)
+                    x = x + cellStep
+                end
+
+                -- Move to next line after cells
+                if not overflow and x > 1 then
+                    y = y + cellStep
+                end
             end
 
-            -- Move to next section
-            if x > 1 then y = y + cellSize + cellGap end
-            y = y + sectionGap
+            -- Gap between categories
+            if not overflow then
+                y = y + 1
+            end
         end
 
-        -- Bottom status
-        self.monitor.setBackgroundColor(colors.black)
-        self.monitor.setTextColor(colors.gray)
-        self.monitor.setCursorPos(1, self.height)
-        self.monitor.write(string.format("Total: %d/%d active", totalActive, totalMachines))
+        -- Status bar at bottom
+        drawStatusBar(self.monitor, self.height, self.width, data.totalActive, data.totalMachines)
+        self.monitor.setTextColor(colors.white)
     end,
 
     renderEmpty = function(self)

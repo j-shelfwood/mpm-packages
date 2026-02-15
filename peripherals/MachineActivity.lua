@@ -271,36 +271,60 @@ function MachineActivity.getModFilters()
     }
 end
 
--- Group machines by category for dashboard display
--- Returns: { [category] = { label, color, types = { [pType] = {machines, active, total} } } }
-function MachineActivity.groupByCategory(modFilter)
+-- Group machines by category (structure only, no activity polling)
+-- Returns: { [category] = { label, color, types = { [pType] = {shortName, machines} } } }
+-- Use this when the caller will poll activity itself to avoid double polling.
+function MachineActivity.groupByCategoryRaw(modFilter)
     local discovered = MachineActivity.discover(modFilter or "all")
     local groups = {}
 
     for pType, data in pairs(discovered) do
-        local cat = data.classification.category
+        local cls = data.classification
+        local cat = cls.category
 
         if not groups[cat] then
+            -- Use Mekanism category label if available, otherwise classification label
+            local catLabel = cls.label
+            local catColor = cls.color
+            if cls.mod == "mekanism" and MEKANISM_CATEGORIES[cat] then
+                catLabel = MEKANISM_CATEGORIES[cat].label
+                catColor = MEKANISM_CATEGORIES[cat].color
+            end
+
             groups[cat] = {
-                label = data.classification.label,
-                color = data.classification.color,
-                mod = data.classification.mod,
+                label = catLabel,
+                color = catColor,
+                mod = cls.mod,
                 types = {}
             }
         end
 
-        -- Count active machines
-        local activeCount = 0
-        for _, machine in ipairs(data.machines) do
-            local isActive, _ = MachineActivity.getActivity(machine.peripheral)
-            if isActive then activeCount = activeCount + 1 end
-        end
-
         groups[cat].types[pType] = {
-            machines = data.machines,
-            active = activeCount,
-            total = #data.machines
+            shortName = MachineActivity.getShortName(pType),
+            machines = data.machines
         }
+    end
+
+    return groups
+end
+
+-- Group machines by category for dashboard display (with activity polling)
+-- Returns: { [category] = { label, color, types = { [pType] = {machines, active, total} } } }
+-- NOTE: This polls activity for every machine. For views that render activity themselves,
+-- prefer groupByCategoryRaw() to avoid double polling.
+function MachineActivity.groupByCategory(modFilter)
+    local groups = MachineActivity.groupByCategoryRaw(modFilter)
+
+    for _, catData in pairs(groups) do
+        for pType, typeInfo in pairs(catData.types) do
+            local activeCount = 0
+            for _, machine in ipairs(typeInfo.machines) do
+                local isActive, _ = MachineActivity.getActivity(machine.peripheral)
+                if isActive then activeCount = activeCount + 1 end
+            end
+            typeInfo.active = activeCount
+            typeInfo.total = #typeInfo.machines
+        end
     end
 
     return groups
