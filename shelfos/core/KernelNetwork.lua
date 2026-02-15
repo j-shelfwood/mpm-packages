@@ -85,10 +85,12 @@ end
 -- @param runningRef Shared running flag table { value = true/false }
 function KernelNetwork.loop(kernel, runningRef)
     local EventUtils = mpm('utils/EventUtils')
+    local Protocol = mpm('net/Protocol')
     local lastHostAnnounce = 0
     local hostAnnounceInterval = 10000  -- 10 seconds
     local lastPeriphDiscovery = 0
-    local periphDiscoveryInterval = 30000  -- 30 seconds
+    local periphDiscoveryInterval = 5000   -- Start aggressive (5s)
+    local maxDiscoveryInterval = 30000     -- Slow down to 30s once found
 
     while runningRef.value do
         if kernel.channel then
@@ -116,19 +118,19 @@ function KernelNetwork.loop(kernel, runningRef)
             end
 
             -- Periodic re-discovery of remote peripherals
-            -- Handles late-joining hosts: if a host computer boots after us,
-            -- we need to discover its peripherals
+            -- Always re-discover: handles late-joining hosts, host reboots,
+            -- and newly-shared peripherals
             if kernel.peripheralClient then
                 local now = os.epoch("utc")
                 if now - lastPeriphDiscovery > periphDiscoveryInterval then
-                    local count = kernel.peripheralClient:getCount()
-                    if count == 0 then
-                        -- No remote peripherals known - actively discover
-                        local Protocol = mpm('net/Protocol')
-                        local msg = Protocol.createPeriphDiscover()
-                        kernel.channel:broadcast(msg)
-                    end
+                    local msg = Protocol.createPeriphDiscover()
+                    kernel.channel:broadcast(msg)
                     lastPeriphDiscovery = now
+
+                    -- Back off once we have peripherals
+                    if kernel.peripheralClient:getCount() > 0 then
+                        periphDiscoveryInterval = maxDiscoveryInterval
+                    end
                 end
             end
         else

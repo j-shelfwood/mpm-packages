@@ -56,7 +56,11 @@ end
 -- @return selectedView, newConfig, or nil if cancelled
 function MonitorConfigMenu.openConfigFlow(monitor)
     local peripheral = monitor.peripheral
-    local availableViews = monitor.availableViews
+
+    -- Refresh available views (peripherals may have been discovered since boot)
+    local availableViews = ViewManager.getMountableViews()
+    monitor.availableViews = availableViews
+
     local currentViewName = monitor.viewName
     local currentConfig = monitor.viewConfig
 
