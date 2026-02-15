@@ -69,6 +69,138 @@ local function drawStatusBar(monitor, y, width, active, total)
     monitor.setBackgroundColor(colors.black)
 end
 
+local function renderSingleType(self, data)
+    local machines = data.machines
+
+    if #machines == 0 then
+        MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "No machines found", colors.orange)
+        return
+    end
+
+    -- Title
+    local title = data.typeName or "Machines"
+    local titleColor = data.classification and data.classification.color or colors.white
+    MonitorHelpers.writeCentered(self.monitor, 1, title, titleColor)
+
+    -- Adaptive cell size
+    local cellSize = getCellSize(self.width, self.height)
+    local cellGap = 1
+    local cellStep = cellSize + cellGap
+    local cols = math.max(1, math.floor((self.width + cellGap) / cellStep))
+
+    local startY = 3
+    local activeCount = 0
+
+    for idx, machine in ipairs(machines) do
+        local col = (idx - 1) % cols
+        local row = math.floor((idx - 1) / cols)
+        local x = col * cellStep + 1
+        local y = startY + row * cellStep
+
+        -- Stop if we'd render past the status bar
+        if y + cellSize > self.height then break end
+
+        drawCell(self.monitor, x, y, cellSize, machine.isActive, machine.label)
+        if machine.isActive then activeCount = activeCount + 1 end
+    end
+
+    -- Status bar
+    drawStatusBar(self.monitor, self.height, self.width, activeCount, #machines)
+    self.monitor.setTextColor(colors.white)
+end
+
+local function renderCategorized(self, data)
+    local sections = data.sections
+
+    if not sections or #sections == 0 then
+        MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "No machines found", colors.orange)
+        return
+    end
+
+    -- Title row
+    local filterLabel = self.modFilter == "all" and "Machines" or
+                       (self.modFilter == "mekanism" and "Mekanism" or "MI")
+    self.monitor.setBackgroundColor(colors.black)
+    self.monitor.setTextColor(colors.white)
+    self.monitor.setCursorPos(1, 1)
+    self.monitor.write(filterLabel)
+
+    -- Active count on right side of title
+    local countStr = string.format("%d/%d", data.totalActive, data.totalMachines)
+    self.monitor.setTextColor(data.totalActive > 0 and colors.lime or colors.gray)
+    self.monitor.setCursorPos(math.max(1, self.width - #countStr + 1), 1)
+    self.monitor.write(countStr)
+
+    -- Adaptive cell size
+    local cellSize = getCellSize(self.width, self.height)
+    local cellGap = 1
+    local cellStep = cellSize + cellGap
+
+    -- Render sections
+    local y = 3
+    local overflow = false
+
+    for _, section in ipairs(sections) do
+        if overflow then break end
+
+        -- Category header
+        self.monitor.setBackgroundColor(colors.black)
+        self.monitor.setTextColor(section.color or colors.white)
+        self.monitor.setCursorPos(1, y)
+        local headerText = string.format("%s (%d/%d)", section.label, section.active, section.total)
+        self.monitor.write(headerText:sub(1, self.width))
+        y = y + 1
+
+        -- Types within category
+        for _, typeEntry in ipairs(section.types) do
+            if overflow then break end
+
+            -- Type label row (if more than one type in category or enough space)
+            if #section.types > 1 and y < self.height then
+                self.monitor.setBackgroundColor(colors.black)
+                self.monitor.setTextColor(colors.lightGray)
+                self.monitor.setCursorPos(2, y)
+                local typeLabel = string.format("%s %d/%d", typeEntry.shortName, typeEntry.active, typeEntry.total)
+                self.monitor.write(typeLabel:sub(1, self.width - 2))
+                y = y + 1
+            end
+
+            -- Machine cells for this type
+            local x = 1
+            for _, machine in ipairs(typeEntry.machines) do
+                -- Wrap to next row if needed
+                if x + cellSize - 1 > self.width then
+                    x = 1
+                    y = y + cellStep
+                end
+
+                -- Stop rendering if we'd overlap status bar
+                if y + cellSize > self.height then
+                    overflow = true
+                    break
+                end
+
+                drawCell(self.monitor, x, y, cellSize, machine.isActive, machine.label)
+                x = x + cellStep
+            end
+
+            -- Move to next line after cells
+            if not overflow and x > 1 then
+                y = y + cellStep
+            end
+        end
+
+        -- Gap between categories
+        if not overflow then
+            y = y + 1
+        end
+    end
+
+    -- Status bar at bottom
+    drawStatusBar(self.monitor, self.height, self.width, data.totalActive, data.totalMachines)
+    self.monitor.setTextColor(colors.white)
+end
+
 return BaseView.custom({
     sleepTime = 1,
 
@@ -231,143 +363,13 @@ return BaseView.custom({
 
     render = function(self, data)
         if data.mode == MODE_TYPE then
-            self:renderSingleType(data)
+            renderSingleType(self, data)
         else
-            self:renderCategorized(data)
+            renderCategorized(self, data)
         end
     end,
-
-    renderSingleType = function(self, data)
-        local machines = data.machines
-
-        if #machines == 0 then
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "No machines found", colors.orange)
-            return
-        end
-
-        -- Title
-        local title = data.typeName or "Machines"
-        local titleColor = data.classification and data.classification.color or colors.white
-        MonitorHelpers.writeCentered(self.monitor, 1, title, titleColor)
-
-        -- Adaptive cell size
-        local cellSize = getCellSize(self.width, self.height)
-        local cellGap = 1
-        local cellStep = cellSize + cellGap
-        local cols = math.max(1, math.floor((self.width + cellGap) / cellStep))
-
-        local startY = 3
-        local activeCount = 0
-
-        for idx, machine in ipairs(machines) do
-            local col = (idx - 1) % cols
-            local row = math.floor((idx - 1) / cols)
-            local x = col * cellStep + 1
-            local y = startY + row * cellStep
-
-            -- Stop if we'd render past the status bar
-            if y + cellSize > self.height then break end
-
-            drawCell(self.monitor, x, y, cellSize, machine.isActive, machine.label)
-            if machine.isActive then activeCount = activeCount + 1 end
-        end
-
-        -- Status bar
-        drawStatusBar(self.monitor, self.height, self.width, activeCount, #machines)
-        self.monitor.setTextColor(colors.white)
-    end,
-
-    renderCategorized = function(self, data)
-        local sections = data.sections
-
-        if not sections or #sections == 0 then
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "No machines found", colors.orange)
-            return
-        end
-
-        -- Title row
-        local filterLabel = self.modFilter == "all" and "Machines" or
-                           (self.modFilter == "mekanism" and "Mekanism" or "MI")
-        self.monitor.setBackgroundColor(colors.black)
-        self.monitor.setTextColor(colors.white)
-        self.monitor.setCursorPos(1, 1)
-        self.monitor.write(filterLabel)
-
-        -- Active count on right side of title
-        local countStr = string.format("%d/%d", data.totalActive, data.totalMachines)
-        self.monitor.setTextColor(data.totalActive > 0 and colors.lime or colors.gray)
-        self.monitor.setCursorPos(math.max(1, self.width - #countStr + 1), 1)
-        self.monitor.write(countStr)
-
-        -- Adaptive cell size
-        local cellSize = getCellSize(self.width, self.height)
-        local cellGap = 1
-        local cellStep = cellSize + cellGap
-
-        -- Render sections
-        local y = 3
-        local overflow = false
-
-        for _, section in ipairs(sections) do
-            if overflow then break end
-
-            -- Category header
-            self.monitor.setBackgroundColor(colors.black)
-            self.monitor.setTextColor(section.color or colors.white)
-            self.monitor.setCursorPos(1, y)
-            local headerText = string.format("%s (%d/%d)", section.label, section.active, section.total)
-            self.monitor.write(headerText:sub(1, self.width))
-            y = y + 1
-
-            -- Types within category
-            for _, typeEntry in ipairs(section.types) do
-                if overflow then break end
-
-                -- Type label row (if more than one type in category or enough space)
-                if #section.types > 1 and y < self.height then
-                    self.monitor.setBackgroundColor(colors.black)
-                    self.monitor.setTextColor(colors.lightGray)
-                    self.monitor.setCursorPos(2, y)
-                    local typeLabel = string.format("%s %d/%d", typeEntry.shortName, typeEntry.active, typeEntry.total)
-                    self.monitor.write(typeLabel:sub(1, self.width - 2))
-                    y = y + 1
-                end
-
-                -- Machine cells for this type
-                local x = 1
-                for _, machine in ipairs(typeEntry.machines) do
-                    -- Wrap to next row if needed
-                    if x + cellSize - 1 > self.width then
-                        x = 1
-                        y = y + cellStep
-                    end
-
-                    -- Stop rendering if we'd overlap status bar
-                    if y + cellSize > self.height then
-                        overflow = true
-                        break
-                    end
-
-                    drawCell(self.monitor, x, y, cellSize, machine.isActive, machine.label)
-                    x = x + cellStep
-                end
-
-                -- Move to next line after cells
-                if not overflow and x > 1 then
-                    y = y + cellStep
-                end
-            end
-
-            -- Gap between categories
-            if not overflow then
-                y = y + 1
-            end
-        end
-
-        -- Status bar at bottom
-        drawStatusBar(self.monitor, self.height, self.width, data.totalActive, data.totalMachines)
-        self.monitor.setTextColor(colors.white)
-    end,
+    renderSingleType = renderSingleType,
+    renderCategorized = renderCategorized,
 
     renderEmpty = function(self)
         MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) - 1, "Machine Activity", colors.white)
