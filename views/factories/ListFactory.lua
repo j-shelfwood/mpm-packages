@@ -105,6 +105,12 @@ function ListFactory.create(config)
         end,
 
         getData = function(self)
+            -- Lazy re-init: if interface was nil at init (host not yet discovered),
+            -- retry on each render cycle until it succeeds
+            if not self.interface then
+                local ok, interface = pcall(AEInterface.new)
+                self.interface = ok and interface or nil
+            end
             if not self.interface then return nil end
 
             -- Check for chemical support if needed

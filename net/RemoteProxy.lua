@@ -1,10 +1,16 @@
 -- RemoteProxy.lua
 -- Creates a proxy object that looks like a real peripheral
 -- but forwards method calls over the network
+-- Includes auto-reconnect with backoff for resilient remote access
 
 local Protocol = mpm('net/Protocol')
 
 local RemoteProxy = {}
+
+-- Reconnection settings
+local MAX_CONSECUTIVE_FAILURES = 3   -- Disconnect after this many consecutive failures
+local RECONNECT_COOLDOWN_MS = 10000  -- Wait 10 seconds before auto-reconnect attempt
+local RECONNECT_TIMEOUT = 3          -- Seconds for reconnect discovery
 
 -- Create a proxy for a remote peripheral
 -- @param client PeripheralClient instance
@@ -24,10 +30,51 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
     proxy._client = client
     proxy._connected = true
 
+    -- Reconnection state
+    proxy._failureCount = 0
+    proxy._lastFailureTime = 0
+    proxy._reconnecting = false
+
+    -- Auto-reconnect if disconnected and cooldown has elapsed
+    -- @return true if reconnected or already connected
+    local function ensureConnected()
+        if proxy._connected then
+            return true
+        end
+
+        -- Check cooldown
+        local now = os.epoch("utc")
+        if now - proxy._lastFailureTime < RECONNECT_COOLDOWN_MS then
+            return false
+        end
+
+        -- Prevent re-entrant reconnect attempts
+        if proxy._reconnecting then
+            return false
+        end
+
+        -- Attempt reconnect
+        proxy._reconnecting = true
+        local found = client:rediscover(name)
+        proxy._reconnecting = false
+
+        if found then
+            proxy._connected = true
+            proxy._hostId = found.hostId
+            proxy._failureCount = 0
+            return true
+        end
+
+        -- Reset timer so we don't spam reconnect attempts
+        proxy._lastFailureTime = now
+        return false
+    end
+
     -- Generate method stubs for each available method
     for _, methodName in ipairs(methods) do
         proxy[methodName] = function(...)
-            if not proxy._connected then
+            -- Auto-reconnect if disconnected
+            if not ensureConnected() then
                 return nil
             end
 
@@ -38,12 +85,18 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
             local results, err = client:call(hostId, name, methodName, args)
 
             if err then
-                -- Connection issue - mark as disconnected
-                if err == "timeout" or err == "not_connected" then
+                proxy._failureCount = proxy._failureCount + 1
+                proxy._lastFailureTime = os.epoch("utc")
+
+                -- Only disconnect after consecutive failures exceed threshold
+                if proxy._failureCount >= MAX_CONSECUTIVE_FAILURES then
                     proxy._connected = false
                 end
                 return nil
             end
+
+            -- Success: reset failure counter
+            proxy._failureCount = 0
 
             -- Unpack results
             if results and #results > 0 then
@@ -60,11 +113,15 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
     end
 
     proxy.reconnect = function()
-        -- Try to rediscover this peripheral
+        -- Force reconnect attempt (ignores cooldown)
+        proxy._reconnecting = true
         local found = client:rediscover(name)
+        proxy._reconnecting = false
+
         if found then
             proxy._connected = true
             proxy._hostId = found.hostId
+            proxy._failureCount = 0
         end
         return proxy._connected
     end

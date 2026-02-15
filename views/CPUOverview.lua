@@ -35,7 +35,11 @@ return BaseView.grid({
     end,
 
     getData = function(self)
-        -- Check interface is available
+        -- Lazy re-init: retry if host not yet discovered at init time
+        if not self.interface then
+            local ok, interface = pcall(AEInterface.new)
+            self.interface = ok and interface or nil
+        end
         if not self.interface then return nil end
 
         -- Get all CPUs

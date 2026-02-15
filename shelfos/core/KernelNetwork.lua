@@ -87,6 +87,8 @@ function KernelNetwork.loop(kernel, runningRef)
     local EventUtils = mpm('utils/EventUtils')
     local lastHostAnnounce = 0
     local hostAnnounceInterval = 10000  -- 10 seconds
+    local lastPeriphDiscovery = 0
+    local periphDiscoveryInterval = 30000  -- 30 seconds
 
     while runningRef.value do
         if kernel.channel then
@@ -110,6 +112,23 @@ function KernelNetwork.loop(kernel, runningRef)
                 if now - lastHostAnnounce > hostAnnounceInterval then
                     kernel.peripheralHost:announce()
                     lastHostAnnounce = now
+                end
+            end
+
+            -- Periodic re-discovery of remote peripherals
+            -- Handles late-joining hosts: if a host computer boots after us,
+            -- we need to discover its peripherals
+            if kernel.peripheralClient then
+                local now = os.epoch("utc")
+                if now - lastPeriphDiscovery > periphDiscoveryInterval then
+                    local count = kernel.peripheralClient:getCount()
+                    if count == 0 then
+                        -- No remote peripherals known - actively discover
+                        local Protocol = mpm('net/Protocol')
+                        local msg = Protocol.createPeriphDiscover()
+                        kernel.channel:broadcast(msg)
+                    end
+                    lastPeriphDiscovery = now
                 end
             end
         else
