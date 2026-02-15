@@ -15,7 +15,7 @@
 --   {replace = screen, args = ...} - Replace current screen
 --   nil            - No action (continue event loop)
 
-local TermUI = mpm('shelfos-swarm/ui/TermUI')
+local TermUI = mpm('ui/TermUI')
 
 local ScreenManager = {}
 ScreenManager.__index = ScreenManager

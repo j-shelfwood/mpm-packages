@@ -3,7 +3,7 @@
 -- Multi-phase wizard: scanning -> selection -> code entry -> pairing result
 -- Uses TermUI for styled rendering, ScreenManager for navigation
 
-local TermUI = mpm('shelfos-swarm/ui/TermUI')
+local TermUI = mpm('ui/TermUI')
 local Protocol = mpm('net/Protocol')
 local Crypto = mpm('net/Crypto')
 local ModemUtils = mpm('utils/ModemUtils')

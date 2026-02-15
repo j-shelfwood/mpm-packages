@@ -71,6 +71,9 @@ return BaseView.grid({
         local lines = {}
         local lineColors = {}
 
+        -- Check if compact mode is active
+        local compact = self._gridDisplay and self._gridDisplay.compact_mode
+
         -- Get drive stats
         local cells = driveData.cells or {}
         local cellCount = #cells
@@ -98,30 +101,47 @@ return BaseView.grid({
             end
         end
 
-        -- Line 1: Cell count
+        -- Cell count text
         local cellText = cellCount .. " cell" .. (cellCount ~= 1 and "s" or "")
         if cellCount == 0 then
             cellText = "Empty"
         end
-        table.insert(lines, cellText)
-        table.insert(lineColors, colors.white)
 
-        -- Line 2: Status indicator
+        -- Status text
         local statusText
         if cellCount == 0 then
             statusText = "----"
         else
             statusText = string.format("%.0f%%", percentage)
         end
-        table.insert(lines, statusText)
-        table.insert(lineColors, statusColor)
 
-        -- Line 3: Storage (if has cells)
-        if hasCells then
-            local usedStr = Text.formatNumber(usedBytes, 1) .. "B"
-            local totalStr = Text.formatNumber(totalBytes, 1) .. "B"
-            table.insert(lines, usedStr .. "/" .. totalStr)
-            table.insert(lineColors, colors.gray)
+        if compact then
+            -- Single-line compact: "3 cells 75%"
+            local line = cellText .. " " .. statusText
+            local colorArray = {}
+            for i = 1, #cellText do
+                colorArray[i] = colors.white
+            end
+            colorArray[#cellText + 1] = colors.gray  -- Space
+            for i = #cellText + 2, #line do
+                colorArray[i] = statusColor
+            end
+            table.insert(lines, line)
+            table.insert(lineColors, colorArray)
+        else
+            -- Standard multi-line
+            table.insert(lines, cellText)
+            table.insert(lineColors, colors.white)
+            table.insert(lines, statusText)
+            table.insert(lineColors, statusColor)
+
+            -- Line 3: Storage (if has cells)
+            if hasCells then
+                local usedStr = Text.formatNumber(usedBytes, 1) .. "B"
+                local totalStr = Text.formatNumber(totalBytes, 1) .. "B"
+                table.insert(lines, usedStr .. "/" .. totalStr)
+                table.insert(lineColors, colors.gray)
+            end
         end
 
         return {

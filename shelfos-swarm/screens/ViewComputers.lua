@@ -3,7 +3,7 @@
 -- Scrollable colored computer list with keyboard navigation
 -- Shows computer status, ID, and fingerprint
 
-local TermUI = mpm('shelfos-swarm/ui/TermUI')
+local TermUI = mpm('ui/TermUI')
 local Core = mpm('ui/Core')
 
 local ViewComputers = {}

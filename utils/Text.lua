@@ -52,6 +52,19 @@ function Text.truncateMiddle(text, maxLength)
     return text:sub(1, prefixLen) .. "..." .. text:sub(-suffixLen)
 end
 
+-- Truncate text with ellipsis at the end
+-- Useful for compact mode where preserving prefix is better than symmetry
+-- @param text Text to truncate
+-- @param maxLength Maximum length
+-- @return Truncated text like "Diamond..."
+function Text.truncateEnd(text, maxLength)
+    if not text then return "" end
+    text = tostring(text)
+    if #text <= maxLength then return text end
+    if maxLength <= 3 then return text:sub(1, maxLength) end
+    return text:sub(1, maxLength - 3) .. "..."
+end
+
 -- Format fluid amount in millibuckets to human-readable
 -- @param amount_mB Amount in millibuckets
 -- @return Formatted string like "500mB", "1.5B", "10K B", "1.2M B"

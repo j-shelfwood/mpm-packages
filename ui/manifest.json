@@ -4,6 +4,7 @@
   "dependencies": ["utils"],
   "files": [
     "Core.lua",
+    "TermUI.lua",
     "Controller.lua",
     "ListSelector.lua",
     "TouchZones.lua",

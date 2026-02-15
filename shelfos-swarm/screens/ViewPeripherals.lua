@@ -3,7 +3,7 @@
 -- Two-phase screen: computer discovery, then peripheral detail view
 -- Uses authenticated Channel to broadcast PERIPH_DISCOVER and collect responses
 
-local TermUI = mpm('shelfos-swarm/ui/TermUI')
+local TermUI = mpm('ui/TermUI')
 local Protocol = mpm('net/Protocol')
 local Core = mpm('ui/Core')
 local Keys = mpm('utils/Keys')

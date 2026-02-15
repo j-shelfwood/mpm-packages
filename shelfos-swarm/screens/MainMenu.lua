@@ -3,7 +3,7 @@
 -- Displays swarm info header with colored menu items
 -- Replaces App:drawMenu() and App:run() event loop
 
-local TermUI = mpm('shelfos-swarm/ui/TermUI')
+local TermUI = mpm('ui/TermUI')
 local Core = mpm('ui/Core')
 
 local MainMenu = {}

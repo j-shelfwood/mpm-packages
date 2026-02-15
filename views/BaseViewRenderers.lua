@@ -87,7 +87,12 @@ end
 -- Render grid layout
 function BaseViewRenderers.renderGrid(self, data, formatItem, startY, def)
     if not self._gridDisplay then
-        self._gridDisplay = GridDisplay.new(self.monitor)
+        -- Create GridDisplay with compact mode options from view definition
+        local options = {
+            auto_compact = def.auto_compact ~= false,  -- Default true
+            compact_mode = def.compact_mode or false
+        }
+        self._gridDisplay = GridDisplay.new(self.monitor, options)
     end
 
     -- Limit items for performance

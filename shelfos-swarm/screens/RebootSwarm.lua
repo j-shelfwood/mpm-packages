@@ -3,7 +3,7 @@
 -- Orange-themed confirmation with styled layout
 -- Broadcasts REBOOT command to all swarm computers via authenticated channel
 
-local TermUI = mpm('shelfos-swarm/ui/TermUI')
+local TermUI = mpm('ui/TermUI')
 local Protocol = mpm('net/Protocol')
 
 local RebootSwarm = {}

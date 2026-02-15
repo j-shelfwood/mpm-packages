@@ -42,6 +42,8 @@ local scaleCache = setmetatable({}, { __mode = "k" })
 --   spacing_y: Vertical spacing between cells (default: 1)
 --   padding: Padding inside cells (default: 1)
 --   fill_width: Whether to stretch cells to fill width (default: true)
+--   compact_mode: Force compact mode (single-line cells) regardless of size
+--   auto_compact: Auto-enable compact mode on small screens (default: true)
 function GridDisplay.new(monitor, options)
     if not monitor then
         error("GridDisplay requires a monitor peripheral")
@@ -62,6 +64,10 @@ function GridDisplay.new(monitor, options)
     self.min_cell_width = options.min_cell_width or 12
     self.max_cell_width = options.max_cell_width or 25
     self.fill_width = options.fill_width ~= false  -- default true
+
+    -- Compact mode options
+    self.compact_mode = options.compact_mode or false  -- Manual override
+    self.auto_compact = options.auto_compact ~= false  -- Default true
 
     -- Spacing and padding
     self.cell_padding = options.padding or 1
@@ -203,6 +209,11 @@ function GridDisplay:calculate_layout(num_items, content_width, content_height, 
     end
     screen_width = math.max(screen_width, 1)
     screen_height = math.max(screen_height, 1)
+
+    -- Auto-detect compact mode for small screens
+    if self.auto_compact and not self.compact_mode then
+        self.compact_mode = (screen_width < 30 or screen_height < 15)
+    end
 
     -- Determine cell width
     local cell_width
@@ -358,7 +369,8 @@ function GridDisplay:getLayout()
         start_y = self.start_y,
         cell_width = self.cell_width,
         cell_height = self.cell_height,
-        scale = self.scale
+        scale = self.scale,
+        compact_mode = self.compact_mode
     }
 end
 

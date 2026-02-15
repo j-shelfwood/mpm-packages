@@ -16,7 +16,7 @@
 
 local SwarmAuthority = mpm('shelfos-swarm/core/SwarmAuthority')
 local ScreenManager = mpm('shelfos-swarm/ui/ScreenManager')
-local TermUI = mpm('shelfos-swarm/ui/TermUI')
+local TermUI = mpm('ui/TermUI')
 local ModemUtils = mpm('utils/ModemUtils')
 local Channel = mpm('net/Channel')
 local Crypto = mpm('net/Crypto')

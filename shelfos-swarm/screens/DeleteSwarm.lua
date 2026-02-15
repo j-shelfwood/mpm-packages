@@ -3,7 +3,7 @@
 -- Red-themed danger confirmation with styled layout
 -- Handles complete swarm teardown with Y/N confirmation
 
-local TermUI = mpm('shelfos-swarm/ui/TermUI')
+local TermUI = mpm('ui/TermUI')
 local Paths = mpm('shelfos-swarm/core/Paths')
 
 local DeleteSwarm = {}

@@ -1,6 +1,6 @@
 -- TermUI.lua
--- Pocket terminal drawing primitives for shelfos-swarm
--- Provides styled UI components for the pocket computer terminal
+-- Terminal drawing primitives for ShelfOS apps
+-- Provides styled UI components for terminal-based flows
 -- Color scheme matches ui/Core.lua for visual consistency with monitor UI
 
 local Core = mpm('ui/Core')

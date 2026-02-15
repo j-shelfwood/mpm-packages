@@ -41,14 +41,43 @@ function ChangesFactory.create(config)
     config.defaultMinChange = config.defaultMinChange or 1
 
     -- Format function for grid display
-    local function formatChange(resource)
+    local formatChange = nil  -- Forward declaration
+    formatChange = function(self, resource)
         local color = resource.change > 0 and colors.lime or colors.red
         local sign = resource.change > 0 and "+" or ""
         local displayChange = resource.change / config.unitDivisor
-        return {
-            lines = { Text.prettifyName(resource.id), sign .. Text.formatNumber(displayChange, 1) .. config.unitLabel },
-            colors = { colors.white, color }
-        }
+        local name = Text.prettifyName(resource.id)
+        local changeStr = sign .. Text.formatNumber(displayChange, 1) .. config.unitLabel
+
+        -- Check if compact mode is active
+        local compact = self.display and self.display.compact_mode
+
+        if compact then
+            -- Single-line format: "Name +123"
+            local truncatedName = Text.truncateEnd(name, 10)
+            local line = truncatedName .. " " .. changeStr
+
+            -- Build per-character color array
+            local colorArray = {}
+            for i = 1, #truncatedName do
+                colorArray[i] = colors.white
+            end
+            colorArray[#truncatedName + 1] = colors.gray  -- Space
+            for i = #truncatedName + 2, #line do
+                colorArray[i] = color
+            end
+
+            return {
+                lines = { line },
+                colors = { colorArray }
+            }
+        else
+            -- Standard 2-line format
+            return {
+                lines = { name, changeStr },
+                colors = { colors.white, color }
+            }
+        end
     end
 
     return BaseView.custom({
@@ -256,8 +285,10 @@ function ChangesFactory.create(config)
                 return
             end
 
-            -- Display in grid
-            self.display:display(changes, formatChange)
+            -- Display in grid (bind self for compact mode detection)
+            self.display:display(changes, function(item)
+                return formatChange(self, item)
+            end)
 
             -- Header and summary
             Renderer.renderHeader(self, data, cfg, remaining)

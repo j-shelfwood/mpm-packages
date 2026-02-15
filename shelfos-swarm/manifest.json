@@ -7,7 +7,6 @@
     "App.lua",
     "core/SwarmAuthority.lua",
     "core/Paths.lua",
-    "ui/TermUI.lua",
     "ui/ScreenManager.lua",
     "screens/MainMenu.lua",
     "screens/CreateSwarm.lua",

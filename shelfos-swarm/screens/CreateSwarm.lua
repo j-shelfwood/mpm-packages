@@ -3,7 +3,7 @@
 -- Multi-step: name input -> creation -> success display
 -- Extracted from App:createSwarm()
 
-local TermUI = mpm('shelfos-swarm/ui/TermUI')
+local TermUI = mpm('ui/TermUI')
 
 local CreateSwarm = {}
 

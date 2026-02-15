@@ -11,46 +11,50 @@ local Pairing = mpm('net/Pairing')
 local Crypto = mpm('net/Crypto')
 local PairingScreen = mpm('shelfos/ui/PairingScreen')
 local ModemUtils = mpm('utils/ModemUtils')
+local TermUI = mpm('ui/TermUI')
 
 local headless = {}
 
 -- Draw status to terminal
 local function drawStatus(host, channel, config)
-    term.clear()
-    term.setCursorPos(1, 1)
+    TermUI.clear()
+    TermUI.drawTitleBar("ShelfOS Headless")
 
-    print("=====================================")
-    print("  ShelfOS - Peripheral Host Mode")
-    print("=====================================")
-    print("")
-    print("Computer: " .. (config.computer.name or "Unknown"))
-    print("Computer ID: " .. os.getComputerID())
-    print("")
+    local y = 3
+    TermUI.drawInfoLine(y, "Computer", config.computer.name or "Unknown", colors.white)
+    y = y + 1
+    TermUI.drawInfoLine(y, "Computer ID", os.getComputerID(), colors.lightGray)
+    y = y + 2
 
-    -- Network status
-    if channel and channel:isOpen() then
-        print("Network: Connected")
-    else
-        print("Network: Disconnected")
-    end
-    print("")
+    local netConnected = channel and channel:isOpen()
+    local netLabel = netConnected and "Connected" or "Disconnected"
+    local netColor = netConnected and colors.lime or colors.orange
+    TermUI.drawInfoLine(y, "Network", netLabel, netColor)
+    y = y + 2
 
-    -- Peripheral list
-    print("Shared Peripherals:")
-    print("-------------------")
+    TermUI.drawSeparator(y, colors.gray)
+    y = y + 1
+    TermUI.drawText(2, y, "Shared Peripherals", colors.lightGray)
+    y = y + 1
 
     local peripherals = host:getPeripheralList()
+    local _, h = TermUI.getSize()
     if #peripherals == 0 then
-        print("  (none)")
+        TermUI.drawText(4, y, "(none)", colors.gray)
+        y = y + 1
     else
         for _, p in ipairs(peripherals) do
-            print("  [" .. p.type .. "] " .. p.name)
+            if y >= h - 1 then break end
+            TermUI.drawText(4, y, "[" .. p.type .. "] " .. p.name, colors.white)
+            y = y + 1
         end
     end
 
-    print("")
-    print("-------------------")
-    print("[Q] Quit  [R] Rescan  [X] Reset")
+    TermUI.drawStatusBar({
+        { key = "Q", label = "Quit" },
+        { key = "R", label = "Rescan" },
+        { key = "X", label = "Reset" }
+    })
 end
 
 -- Accept pairing from pocket computer
@@ -60,8 +64,12 @@ function headless.acceptPairing(config)
     -- Pre-validate modem exists (Pairing.acceptFromPocket will open it)
     local modem, modemName, modemType = ModemUtils.find(true)
     if not modem then
-        print("[!] No modem found")
-        sleep(2)
+        TermUI.clear()
+        TermUI.drawTitleBar("Pairing")
+        TermUI.drawText(2, 4, "No modem found", colors.red)
+        TermUI.drawWrapped(6, "Attach a wireless or ender modem to continue.", colors.lightGray, 2, 2)
+        TermUI.drawStatusBar("Press any key to return...")
+        os.pullEvent("key")
         return false, nil, nil
     end
     local computerLabel = os.getComputerLabel() or ("Computer #" .. os.getComputerID())
@@ -71,42 +79,42 @@ function headless.acceptPairing(config)
     local callbacks = {
         onDisplayCode = function(code)
             displayCode = code
-            term.clear()
-            term.setCursorPos(1, 1)
-            print("=====================================")
-            print("   Waiting for Pocket Pairing")
-            print("=====================================")
-            print("")
-            print("  Computer: " .. computerLabel)
-            print("  Modem: " .. modemType)
-            print("")
-            print("  +-----------------------+")
-            print("  |  PAIRING CODE:        |")
-            print("  |                       |")
-            print("  |      " .. code .. "      |")
-            print("  |                       |")
-            print("  +-----------------------+")
-            print("")
-            print("On your pocket computer:")
-            print("  1. Select 'Add Computer'")
-            print("  2. Select this computer")
-            print("  3. Enter the code shown")
-            print("")
-            print("Press [Q] to cancel")
+            TermUI.clear()
+            TermUI.drawTitleBar("Pairing")
+
+            local y = 3
+            TermUI.drawInfoLine(y, "Computer", computerLabel, colors.white)
+            y = y + 1
+            TermUI.drawInfoLine(y, "Modem", modemType, colors.lime)
+            y = y + 2
+
+            TermUI.drawCentered(y, "PAIRING CODE", colors.yellow)
+            local w, h = TermUI.getSize()
+            local codeY = y + 2
+            term.setCursorPos(math.floor((w - #code) / 2) + 1, codeY)
+            term.setBackgroundColor(colors.white)
+            term.setTextColor(colors.black)
+            term.write(code)
+            term.setBackgroundColor(colors.black)
+            term.setTextColor(colors.white)
+
+            y = codeY + 2
+            TermUI.drawText(2, y, "On your pocket computer:", colors.lightGray)
+            TermUI.drawText(4, y + 1, "1. Select 'Add Computer'", colors.white)
+            TermUI.drawText(4, y + 2, "2. Select this computer", colors.white)
+            TermUI.drawText(4, y + 3, "3. Enter the code shown", colors.white)
+            TermUI.drawStatusBar("Press [Q] to cancel")
         end,
         onStatus = function(msg)
-            local _, h = term.getSize()
-            term.setCursorPos(1, h)
-            term.clearLine()
-            term.write("[*] " .. msg)
+            local _, h = TermUI.getSize()
+            TermUI.clearLine(h - 1)
+            TermUI.drawText(2, h - 1, "[*] " .. msg, colors.yellow)
         end,
         onSuccess = function(secret, computerId)
-            print("")
-            print("[*] Pairing successful!")
+            TermUI.drawStatusBar("Pairing successful!")
         end,
         onCancel = function(reason)
-            print("")
-            print("[*] " .. (reason or "Cancelled"))
+            TermUI.drawStatusBar(reason or "Cancelled")
         end
     }
 
@@ -115,7 +123,9 @@ end
 
 -- Run headless mode
 function headless.run()
-    print("[ShelfOS] Starting in headless mode...")
+    TermUI.clear()
+    TermUI.drawTitleBar("ShelfOS Headless")
+    TermUI.drawText(2, 3, "Starting...", colors.lightGray)
 
     -- Clear any stale crypto state from previous session FIRST
     -- _G persists across program restarts in CC:Tweaked
@@ -129,17 +139,40 @@ function headless.run()
             os.getComputerLabel() or ("Peripheral Node " .. os.getComputerID())
         )
         Config.save(config)
-        print("[ShelfOS] Created new configuration")
+        TermUI.drawText(2, 5, "Created new configuration", colors.lightGray)
+    end
+
+    local hasMonitor = peripheral.find("monitor") ~= nil
+    local hasEnder = ModemUtils.hasEnder()
+    if not hasMonitor and not hasEnder then
+        TermUI.clear()
+        TermUI.drawTitleBar("Headless Mode")
+        local y = 4
+        TermUI.drawText(2, y, "No monitors or ender modem detected.", colors.orange)
+        y = y + 2
+        TermUI.drawWrapped(
+            y,
+            "Headless mode requires an ender modem to share peripherals, or a monitor to display network data.",
+            colors.lightGray,
+            2,
+            3
+        )
+        TermUI.drawStatusBar("Press any key to exit...")
+        os.pullEvent("key")
+        return
     end
 
     -- Check if paired with swarm
     if not config.network or not config.network.secret then
-        print("")
-        print("[ShelfOS] Not in swarm yet")
-        print("")
-        print("[L] Accept pairing from pocket")
-        print("[Q] Quit")
-        print("")
+        TermUI.clear()
+        TermUI.drawTitleBar("ShelfOS Headless")
+        local y = 4
+        TermUI.drawText(2, y, "Not in swarm yet", colors.lightGray)
+        y = y + 2
+        TermUI.drawMenuItem(y, "L", "Accept pairing from pocket")
+        y = y + 1
+        TermUI.drawMenuItem(y, "Q", "Quit")
+        TermUI.drawStatusBar("Select an option")
 
         -- Wait for pairing or quit
         while true do
@@ -158,20 +191,20 @@ function headless.run()
                     end
                     Config.save(config)
 
-                    print("")
-                    print("[*] Paired successfully!")
-                    print("[*] Restarting...")
+                    TermUI.drawStatusBar("Paired successfully. Restarting...")
                     sleep(2)
                     os.reboot()
                 else
                     -- Redraw unpaired screen
-                    term.clear()
-                    term.setCursorPos(1, 1)
-                    print("[ShelfOS] Not in swarm yet")
-                    print("")
-                    print("[L] Accept pairing from pocket")
-                    print("[Q] Quit")
-                    print("")
+                    TermUI.clear()
+                    TermUI.drawTitleBar("ShelfOS Headless")
+                    local redrawY = 4
+                    TermUI.drawText(2, redrawY, "Not in swarm yet", colors.lightGray)
+                    redrawY = redrawY + 2
+                    TermUI.drawMenuItem(redrawY, "L", "Accept pairing from pocket")
+                    redrawY = redrawY + 1
+                    TermUI.drawMenuItem(redrawY, "Q", "Quit")
+                    TermUI.drawStatusBar("Select an option")
                 end
             end
         end
@@ -185,25 +218,26 @@ function headless.run()
     local ok, modemType = channel:open(true)  -- Prefer ender modem
 
     if not ok then
-        print("[!] No modem found")
-        print("    Attach a wireless or ender modem")
-        print("")
-        print("Press any key to exit...")
+        TermUI.clear()
+        TermUI.drawTitleBar("Headless Mode")
+        TermUI.drawText(2, 4, "No modem found", colors.red)
+        TermUI.drawWrapped(6, "Attach a wireless or ender modem to continue.", colors.lightGray, 2, 2)
+        TermUI.drawStatusBar("Press any key to exit...")
         os.pullEvent("key")
         return
     end
 
-    print("[ShelfOS] Network: " .. modemType .. " modem")
+    TermUI.drawText(2, 7, "Network: " .. modemType .. " modem", colors.lightGray)
 
     -- Create peripheral host
     local host = PeripheralHost.new(channel, config.computer.id, config.computer.name)
     local count = host:start()
 
-    print("[ShelfOS] Sharing " .. count .. " peripheral(s)")
+    TermUI.drawText(2, 8, "Sharing " .. count .. " peripheral(s)", colors.lightGray)
 
     -- Register REBOOT handler
     channel:on(Protocol.MessageType.REBOOT, function(senderId, msg)
-        print("[ShelfOS] Reboot command received from #" .. senderId)
+        TermUI.drawStatusBar("Reboot command received from #" .. senderId)
         os.reboot()
     end)
 
@@ -238,22 +272,17 @@ function headless.run()
                 -- Rescan peripherals
                 local newCount = host:rescan()
                 drawStatus(host, channel, config)
-                print("")
-                print("Rescanned: " .. newCount .. " peripheral(s)")
+                TermUI.drawStatusBar("Rescanned: " .. newCount .. " peripheral(s)")
             elseif key == keys.x then
                 -- Factory reset
                 channel:close()
                 Crypto.clearSecret()
                 Paths.deleteFiles()
 
-                term.clear()
-                term.setCursorPos(1, 1)
-                print("=====================================")
-                print("   FACTORY RESET")
-                print("=====================================")
-                print("")
-                print("Configuration deleted.")
-                print("Rebooting in 2 seconds...")
+                TermUI.clear()
+                TermUI.drawTitleBar("FACTORY RESET", colors.red)
+                TermUI.drawText(2, 4, "Configuration deleted.", colors.lightGray)
+                TermUI.drawText(2, 5, "Rebooting in 2 seconds...", colors.lightGray)
                 sleep(2)
                 os.reboot()
             end
@@ -277,9 +306,9 @@ function headless.run()
     -- Cleanup
     channel:close()
 
-    term.clear()
-    term.setCursorPos(1, 1)
-    print("[ShelfOS] Peripheral host stopped")
+    TermUI.clear()
+    TermUI.drawTitleBar("Headless Mode")
+    TermUI.drawCentered(4, "Peripheral host stopped", colors.lightGray)
 end
 
 return headless
