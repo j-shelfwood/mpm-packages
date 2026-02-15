@@ -146,11 +146,14 @@ function SwarmAuthority:issueCredentials(computerId, computerLabel)
         return nil, "Swarm not initialized"
     end
 
-    -- Generate unique secret for this computer
-    local computerSecret = self.registry:generateSecret()
+    local existing = self.registry:get(computerId)
+    local computerSecret = existing and existing.secret or nil
+    if not computerSecret or (existing and existing.status ~= "active") then
+        computerSecret = self.registry:generateSecret()
+    end
 
-    -- Add to registry
-    local entry, err = self.registry:add(computerId, computerLabel, computerSecret)
+    -- Add or update registry entry (re-pair support)
+    local entry, err = self.registry:upsert(computerId, computerLabel, computerSecret)
     if not entry then
         return nil, err
     end
@@ -161,7 +164,7 @@ function SwarmAuthority:issueCredentials(computerId, computerLabel)
     -- Return credentials for computer
     return {
         computerId = computerId,
-        computerSecret = computerSecret,
+        computerSecret = entry.secret,
         swarmId = self.identity.id,
         swarmSecret = self.identity.secret,  -- Computer needs this to verify pocket messages
         swarmFingerprint = self.identity.fingerprint

@@ -70,6 +70,29 @@ function Registry:add(computerId, label, secret)
     return entry
 end
 
+-- Add or update a computer entry (re-pair support)
+-- @param computerId Computer identifier
+-- @param label Human-readable label
+-- @param secret Optional new secret
+-- @return entry
+function Registry:upsert(computerId, label, secret)
+    local entry = self.entries[computerId]
+    if entry then
+        if label then
+            entry.label = label
+        end
+        if secret then
+            entry.secret = secret
+            entry.fingerprint = KeyPair.fingerprint(secret)
+        end
+        entry.status = "active"
+        entry.addedAt = os.epoch("utc")
+        return entry
+    end
+
+    return self:add(computerId, label, secret)
+end
+
 -- Get computer entry
 -- @param computerId Computer identifier
 -- @return entry or nil
