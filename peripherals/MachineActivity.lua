@@ -15,13 +15,35 @@ local ACTIVITY_STRATEGIES = {
     {
         method = "getRecipeProgress",
         detect = function(p)
-            local progress = p.getRecipeProgress()
-            local total = p.getTicksRequired and p.getTicksRequired() or 0
-            return progress > 0 and total > 0, {
-                progress = progress,
+            local ok, progress = pcall(p.getRecipeProgress, 0)
+            if not ok then
+                ok, progress = pcall(p.getRecipeProgress)
+            end
+            if not ok then
+                return false, {}
+            end
+            local total = 0
+            if type(p.getTicksRequired) == "function" then
+                local totalOk, totalVal = pcall(p.getTicksRequired)
+                if totalOk then total = totalVal or 0 end
+            end
+            local progressValue = progress or 0
+            local active = progressValue > 0
+            return active, {
+                progress = progressValue,
                 total = total,
-                percent = total > 0 and (progress / total * 100) or 0
+                percent = total > 0 and (progressValue / total * 100) or 0
             }
+        end
+    },
+
+    -- Mekanism Processing (energy usage)
+    {
+        method = "getEnergyUsage",
+        detect = function(p)
+            local ok, usage = pcall(p.getEnergyUsage)
+            if not ok then return false, {} end
+            return (usage or 0) > 0, { usage = usage }
         end
     },
 
