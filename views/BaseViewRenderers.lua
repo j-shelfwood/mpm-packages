@@ -84,15 +84,75 @@ function BaseViewRenderers.renderFooter(self, footer)
     end
 end
 
+-- Compact list threshold: monitors narrower than this use single-line list mode
+local COMPACT_LIST_THRESHOLD = 20
+
+-- Render compact single-line list for narrow monitors
+-- Each item: "Name         Count" on one line (name left, count right)
+local function renderCompactList(self, data, formatItem, startY, def)
+    local maxItems = def.maxItems or 50
+    local maxRows = self.height - startY
+    local count = math.min(#data, maxItems, maxRows)
+
+    for i = 1, count do
+        local item = data[i]
+        local y = startY + i - 1
+        if y > self.height - 1 then break end  -- Leave room for footer
+
+        local formatted = formatItem(self, item)
+        if formatted.lines then
+            local name = formatted.lines[1] or ""
+            local amount = formatted.lines[2] or ""
+            local nameColor = formatted.colors and formatted.colors[1] or colors.white
+            local amountColor = formatted.colors and formatted.colors[2] or colors.gray
+
+            -- Calculate widths: reserve space for amount + 1 gap char
+            local amountWidth = #amount
+            local nameWidth = self.width - amountWidth - 1
+            if nameWidth < 1 then nameWidth = self.width end
+
+            -- Truncate name to fit, preserving readable prefix
+            local displayName = Text.truncateEnd(name, nameWidth)
+
+            -- Write name (left-aligned)
+            self.monitor.setCursorPos(1, y)
+            self.monitor.setTextColor(nameColor)
+            self.monitor.write(displayName)
+
+            -- Write amount (right-aligned)
+            if amountWidth > 0 and self.width > amountWidth then
+                local amountX = self.width - amountWidth + 1
+                self.monitor.setCursorPos(amountX, y)
+                self.monitor.setTextColor(amountColor)
+                self.monitor.write(amount)
+            end
+        end
+    end
+
+    -- Show overflow indicator
+    if #data > count then
+        self.monitor.setCursorPos(1, self.height)
+        self.monitor.setTextColor(colors.gray)
+        self.monitor.write("+" .. (#data - count) .. " more")
+    end
+end
+
 -- Render grid layout
 function BaseViewRenderers.renderGrid(self, data, formatItem, startY, def)
+    -- Auto-switch to compact list mode on narrow monitors
+    -- Narrow monitors can't fit readable grid cells; single-line list is clearer
+    if self.width < COMPACT_LIST_THRESHOLD then
+        renderCompactList(self, data, formatItem, startY, def)
+        return
+    end
+
     if not self._gridDisplay then
         self._gridDisplay = GridDisplay.new(self.monitor, {
             cellHeight = def.cellHeight or 2,
             gap = { x = def.gapX or 1, y = def.gapY or 0 },
             headerRows = (startY or 1) - 1,
             columns = def.columns,
-            minCellWidth = def.minCellWidth or 8,
+            minCellWidth = def.minCellWidth or 16,
         })
     end
 

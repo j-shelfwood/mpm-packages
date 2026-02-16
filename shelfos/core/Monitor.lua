@@ -62,12 +62,11 @@ local function calculateTextScale(monitor)
     -- A 4x4 monitor block is ~36x25 at scale 1.0
     local pixels = nativeWidth * nativeHeight
 
-    local scale
-    if pixels >= 400 then
-        scale = 1.0  -- 3x3 or larger: normal scale
-    else
-        scale = 1.0  -- 2x2 or smaller: keep scale 1.0 for readability
-    end
+    -- Scale 1.0 for all monitor sizes.
+    -- Smaller scales (0.5) pack more chars but become hard to read.
+    -- Larger scales (2.0+) reduce available chars too much.
+    -- GridDisplay handles readability via adaptive column count instead.
+    local scale = 1.0
 
     -- Apply scale
     monitor.setTextScale(scale)

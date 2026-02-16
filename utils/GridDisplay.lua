@@ -28,7 +28,7 @@ local ELLIPSIS = "..."
 --   cellHeight: Lines per cell (default: 2)
 --   gap: { x = horizontal gap, y = vertical gap } (default: {x=1, y=0})
 --   headerRows: Reserved rows at top for header (default: 0)
---   minCellWidth: Minimum width per cell for auto-columns (default: 8)
+--   minCellWidth: Minimum width per cell for auto-columns (default: 16)
 function GridDisplay.new(monitor, options)
     if not monitor then
         error("GridDisplay requires a monitor peripheral")
@@ -45,7 +45,7 @@ function GridDisplay.new(monitor, options)
     self.gapX = (options.gap and options.gap.x) or 1
     self.gapY = (options.gap and options.gap.y) or 0
     self.headerRows = options.headerRows or 0
-    self.minCellWidth = options.minCellWidth or 8
+    self.minCellWidth = options.minCellWidth or 16
 
     -- Cached layout (set by layout())
     self._layout = nil
@@ -104,6 +104,17 @@ function GridDisplay:layout(itemCount)
     -- total_used = cols * cellWidth + (cols-1) * gapX = screenW
     -- cellWidth = (screenW - (cols-1) * gapX) / cols
     local cellWidth = math.max(1, math.floor((screenW - (cols - 1) * self.gapX) / cols))
+
+    -- Readability guard: if cells are too narrow for readable text,
+    -- reduce column count until cellWidth >= 14 or we're at 1 column.
+    -- 14 chars allows names like "Redstone Dust" (13) to display fully.
+    local MIN_READABLE_WIDTH = 14
+    if not self.fixedColumns then
+        while cols > 1 and cellWidth < MIN_READABLE_WIDTH do
+            cols = cols - 1
+            cellWidth = math.max(1, math.floor((screenW - (cols - 1) * self.gapX) / cols))
+        end
+    end
 
     -- Calculate rows
     local cellStepY = self.cellHeight + self.gapY

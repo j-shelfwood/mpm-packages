@@ -4,10 +4,10 @@
 
 local GridDisplayRenderer = {}
 
--- Truncate text with ellipsis in the middle
+-- Truncate text with ellipsis in the middle (for wide cells)
 local ELLIPSIS = "..."
 
-local function truncateText(text, maxLength)
+local function truncateMiddle(text, maxLength)
     if not text then return "" end
     text = tostring(text)
 
@@ -18,6 +18,31 @@ local function truncateText(text, maxLength)
     local prefixLength = math.floor((maxLength - #ELLIPSIS) / 2)
     local suffixLength = maxLength - #ELLIPSIS - prefixLength
     return text:sub(1, prefixLength) .. ELLIPSIS .. text:sub(-suffixLength)
+end
+
+-- Truncate text with ellipsis at end (for narrow cells — preserves readable prefix)
+local function truncateEnd(text, maxLength)
+    if not text then return "" end
+    text = tostring(text)
+
+    if maxLength < 1 then return "" end
+    if #text <= maxLength then return text end
+    if maxLength <= #ELLIPSIS then return text:sub(1, maxLength) end
+
+    return text:sub(1, maxLength - #ELLIPSIS) .. ELLIPSIS
+end
+
+-- Choose truncation strategy based on cell width
+-- End-truncation is more readable at narrow widths (preserves name prefix)
+-- Middle-truncation is better at wide widths (shows both prefix and suffix)
+local WIDE_CELL_THRESHOLD = 20
+
+local function truncateText(text, maxLength)
+    if maxLength >= WIDE_CELL_THRESHOLD then
+        return truncateMiddle(text, maxLength)
+    else
+        return truncateEnd(text, maxLength)
+    end
 end
 
 -- Render cells in grid layout

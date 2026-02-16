@@ -87,6 +87,7 @@ function ListFactory.create(config)
     return BaseView.grid({
         sleepTime = config.sleepTime,
         configSchema = baseConfigSchema,
+        minCellWidth = config.minCellWidth or 16,
 
         mount = function()
             if config.mountCheck then

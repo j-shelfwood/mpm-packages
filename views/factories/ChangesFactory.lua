@@ -108,6 +108,7 @@ function ChangesFactory.create(config)
             self.display = GridDisplay.new(self.monitor, {
                 cellHeight = 2,
                 headerRows = 2,  -- title + summary line
+                minCellWidth = 16,
             })
 
             self.state = "init"
