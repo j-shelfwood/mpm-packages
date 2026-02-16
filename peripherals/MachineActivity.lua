@@ -280,7 +280,11 @@ function MachineActivity.getMachineTypes(modFilter)
     local types = {}
 
     for pType, data in pairs(discovered) do
-        local label = data.classification.label
+        local shortName = MachineActivity.getShortName(pType)
+        local label = shortName
+        if data.classification.mod == "mi" then
+            label = "MI: " .. shortName
+        end
         local count = #data.machines
         table.insert(types, {
             value = pType,
@@ -290,6 +294,8 @@ function MachineActivity.getMachineTypes(modFilter)
 
     -- Sort by label
     table.sort(types, function(a, b) return a.label < b.label end)
+
+    table.insert(types, 1, { value = nil, label = "(All types)" })
 
     return types
 end
