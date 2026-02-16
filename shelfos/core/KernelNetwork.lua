@@ -96,7 +96,18 @@ function KernelNetwork.loop(kernel, runningRef)
 
     while runningRef.value do
         if kernel.channel then
-            kernel.channel:poll(0.5)
+            -- Drain ALL pending messages per iteration (up to safety limit)
+            -- Single poll() only processes one message, causing response backlog
+            -- when multiple monitors make concurrent RPC calls
+            local maxDrain = 50
+            local drained = 0
+            while drained < maxDrain do
+                -- First iteration: block up to 0.5s waiting for a message
+                -- Subsequent: non-blocking (timeout=0) to drain queued messages
+                local handled = kernel.channel:poll(drained == 0 and 0.5 or 0)
+                if not handled then break end
+                drained = drained + 1
+            end
 
             -- Periodic computer announce
             if kernel.discovery and kernel.discovery:shouldAnnounce() then

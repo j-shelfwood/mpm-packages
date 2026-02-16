@@ -27,7 +27,8 @@ local CACHE_STALE_MS = 5000          -- Fire async refresh after 5s staleness
 local CACHE_EXPIRE_MS = 30000        -- Discard cache after 30s (peripheral may be gone)
 
 -- Default RPC timeout in seconds (only used for initial blocking call)
-local DEFAULT_TIMEOUT = 2
+-- 3s allows time for host to process if busy with another heavy request
+local DEFAULT_TIMEOUT = 3
 
 -- Methods that return large payloads and need extended timeouts
 local HEAVY_METHOD_TIMEOUT = {
@@ -173,11 +174,9 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
                     client:callAsync(proxy._hostId, name, methodName, args, function(results, err)
                         proxy._pending[key] = nil
                         if err then
-                            proxy._failureCount = proxy._failureCount + 1
-                            proxy._lastFailureTime = os.epoch("utc")
-                            if proxy._failureCount >= MAX_CONSECUTIVE_FAILURES then
-                                proxy._connected = false
-                            end
+                            -- Async refresh is opportunistic — don't increment failureCount
+                            -- The stale cached value is still being served to views
+                            -- Only blocking call failures should count toward disconnect
                             return
                         end
                         proxy._failureCount = 0
@@ -205,8 +204,8 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
                 if proxy._failureCount >= MAX_CONSECUTIVE_FAILURES then
                     proxy._connected = false
                 end
-                -- Store nil result in cache to avoid retrying immediately
-                proxy._cache[key] = { results = nil, timestamp = now }
+                -- Don't cache nil — let next render cycle retry immediately
+                -- With the network drain fix, retries should succeed quickly
                 return nil
             end
 

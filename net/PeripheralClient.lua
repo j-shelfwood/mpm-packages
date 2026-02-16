@@ -293,8 +293,11 @@ function PeripheralClient:call(hostId, peripheralName, methodName, args, timeout
     while not state.done and os.epoch("utc") < deadline do
         -- Use os.pullEvent with a short timer to yield control
         -- This allows the parallel scheduler to run the network coroutine
-        local timer = os.startTimer(0.05)
-        os.pullEvent("timer")
+        -- IMPORTANT: Check timer ID to avoid consuming other coroutines' timer events
+        local waitTimer = os.startTimer(0.05)
+        repeat
+            local _, tid = os.pullEvent("timer")
+        until tid == waitTimer
     end
 
     -- Clean up if timed out
