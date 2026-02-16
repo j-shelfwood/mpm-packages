@@ -87,12 +87,13 @@ end
 -- Render grid layout
 function BaseViewRenderers.renderGrid(self, data, formatItem, startY, def)
     if not self._gridDisplay then
-        -- Create GridDisplay with compact mode options from view definition
-        local options = {
-            auto_compact = def.auto_compact ~= false,  -- Default true
-            compact_mode = def.compact_mode or false
-        }
-        self._gridDisplay = GridDisplay.new(self.monitor, options)
+        self._gridDisplay = GridDisplay.new(self.monitor, {
+            cellHeight = def.cellHeight or 2,
+            gap = { x = def.gapX or 1, y = def.gapY or 0 },
+            headerRows = (startY or 1) - 1,
+            columns = def.columns,
+            minCellWidth = def.minCellWidth or 8,
+        })
     end
 
     -- Limit items for performance
@@ -102,10 +103,11 @@ function BaseViewRenderers.renderGrid(self, data, formatItem, startY, def)
         displayData[i] = data[i]
     end
 
-    -- Display with skipClear since we already cleared
-    self._gridDisplay:display(displayData, function(item)
+    -- Calculate layout and render
+    self._gridDisplay:layout(#displayData)
+    self._gridDisplay:render(displayData, function(item)
         return formatItem(self, item)
-    end, { skipClear = true, startY = startY })
+    end)
 end
 
 -- Render list layout

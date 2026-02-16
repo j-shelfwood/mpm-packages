@@ -217,35 +217,10 @@ function ListFactory.create(config)
                 end
             end
 
-            -- Check if compact mode is active
-            local compact = self._gridDisplay and self._gridDisplay.compact_mode
-
-            if compact then
-                -- Single-line format: "Name Amount"
-                local truncatedName = Text.truncateEnd(name, 10)
-                local line = truncatedName .. " " .. amountStr
-
-                -- Build per-character color array
-                local colorArray = {}
-                for i = 1, #truncatedName do
-                    colorArray[i] = colors.white
-                end
-                colorArray[#truncatedName + 1] = colors.gray  -- Space
-                for i = #truncatedName + 2, #line do
-                    colorArray[i] = amountColor
-                end
-
-                return {
-                    lines = { line },
-                    colors = { colorArray }
-                }
-            else
-                -- Standard 2-line format
-                return {
-                    lines = { name, amountStr },
-                    colors = { colors.white, amountColor }
-                }
-            end
+            return {
+                lines = { name, amountStr },
+                colors = { colors.white, amountColor }
+            }
         end,
 
         emptyMessage = config.emptyMessage,

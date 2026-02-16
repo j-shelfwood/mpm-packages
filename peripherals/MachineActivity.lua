@@ -432,25 +432,24 @@ function MachineActivity.groupByCategory(modFilter)
     return groups
 end
 
--- Get short display name for a peripheral type
+-- Get human-readable display name for a peripheral type
+-- Does NOT truncate — views handle truncation based on available width
 function MachineActivity.getShortName(peripheralType)
     -- Remove mod prefix
     local name = peripheralType:match(":(.+)$") or peripheralType
 
-    -- Shorten factory names
+    -- Shorten factory tier prefixes
     name = name:gsub("^basic", "B.")
     name = name:gsub("^advanced", "A.")
     name = name:gsub("^elite", "E.")
     name = name:gsub("^ultimate", "U.")
     name = name:gsub("Factory$", "Fac")
 
-    -- CamelCase to readable
+    -- CamelCase to readable (e.g., "enrichmentChamber" -> "Enrichment Chamber")
     name = name:gsub("(%l)(%u)", "%1 %2")
 
-    -- Truncate if too long
-    if #name > 12 then
-        name = name:sub(1, 11) .. "."
-    end
+    -- Capitalize first letter
+    name = name:sub(1, 1):upper() .. name:sub(2)
 
     return name
 end

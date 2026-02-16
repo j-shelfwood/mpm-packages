@@ -64,47 +64,29 @@ return BaseView.grid({
         }
     end,
 
+    cellHeight = 3,
+
     formatItem = function(self, cpuData)
         local lines = {}
         local lineColors = {}
         local taskInfo = nil
 
-        -- Check if compact mode is active
-        local compact = self._gridDisplay and self._gridDisplay.compact_mode
-
-        -- Line 1: CPU name (truncated)
-        local name = Text.truncateMiddle(cpuData.name or "Unknown", compact and 12 or 20)
+        -- Line 1: CPU name
+        local name = cpuData.name or "Unknown"
 
         -- Line 2: Status
         local status = cpuData.isBusy and "BUSY" or "IDLE"
         local statusColor = cpuData.isBusy and colors.orange or colors.lime
 
-        if compact then
-            -- Single-line compact: "Name BUSY"
-            local line = name .. " " .. status
-            local colorArray = {}
-            for i = 1, #name do
-                colorArray[i] = colors.white
-            end
-            colorArray[#name + 1] = colors.gray  -- Space
-            for i = #name + 2, #line do
-                colorArray[i] = statusColor
-            end
-            table.insert(lines, line)
-            table.insert(lineColors, colorArray)
-        else
-            -- Standard multi-line
-            table.insert(lines, name)
-            table.insert(lineColors, colors.white)
-            table.insert(lines, status)
-            table.insert(lineColors, statusColor)
-        end
+        table.insert(lines, name)
+        table.insert(lineColors, colors.white)
+        table.insert(lines, status)
+        table.insert(lineColors, statusColor)
 
-        -- Line 3: Crafting item (if busy and not compact)
-        if not compact and cpuData.isBusy and self.tasks then
+        -- Line 3: Crafting item (if busy) or storage info
+        if cpuData.isBusy and self.tasks then
             local craftingItem = "..."
             for _, task in ipairs(self.tasks) do
-                -- Match task to this CPU
                 if task.cpu == cpuData.name or (not task.cpu and cpuData.isBusy) then
                     local itemName = "Unknown"
                     if task.resource and task.resource.displayName then
@@ -114,39 +96,26 @@ return BaseView.grid({
                     elseif task.name or task.item then
                         itemName = Text.prettifyName(task.name or task.item)
                     end
-                    craftingItem = Text.prettifyName(itemName)
-                    craftingItem = Text.truncateMiddle(craftingItem, 18)
+                    craftingItem = itemName
                     taskInfo = task
                     break
                 end
             end
-            table.insert(lines, craftingItem)
-            table.insert(lineColors, colors.yellow)
+
+            -- Add crafting item with optional progress
+            local detailStr = craftingItem
             if taskInfo then
-                local detailParts = {}
                 local quantity = taskInfo.quantity or (taskInfo.resource and taskInfo.resource.count)
                 if quantity then
-                    table.insert(detailParts, "x" .. Text.formatNumber(quantity, 0))
+                    detailStr = detailStr .. " x" .. Text.formatNumber(quantity, 0)
                 end
                 if type(taskInfo.completion) == "number" then
-                    local percent = math.floor(taskInfo.completion * 100 + 0.5)
-                    table.insert(detailParts, percent .. "%")
-                end
-                if #detailParts > 0 then
-                    table.insert(lines, table.concat(detailParts, " "))
-                    table.insert(lineColors, colors.gray)
+                    detailStr = detailStr .. " " .. math.floor(taskInfo.completion * 100 + 0.5) .. "%"
                 end
             end
-        elseif not compact and self.showStorage then
-            -- Show storage info if not busy and config enabled
-            local storageStr = (cpuData.storage or 0) .. "B"
-            if cpuData.coProcessors and cpuData.coProcessors > 0 then
-                storageStr = storageStr .. " " .. cpuData.coProcessors .. "cp"
-            end
-            table.insert(lines, storageStr)
-            table.insert(lineColors, colors.gray)
-        end
-        if not compact and cpuData.isBusy and self.showStorage then
+            table.insert(lines, detailStr)
+            table.insert(lineColors, colors.yellow)
+        elseif self.showStorage then
             local storageStr = (cpuData.storage or 0) .. "B"
             if cpuData.coProcessors and cpuData.coProcessors > 0 then
                 storageStr = storageStr .. " " .. cpuData.coProcessors .. "cp"

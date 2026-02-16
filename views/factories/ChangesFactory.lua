@@ -49,35 +49,10 @@ function ChangesFactory.create(config)
         local name = Text.prettifyName(resource.id)
         local changeStr = sign .. Text.formatNumber(displayChange, 1) .. config.unitLabel
 
-        -- Check if compact mode is active
-        local compact = self.display and self.display.compact_mode
-
-        if compact then
-            -- Single-line format: "Name +123"
-            local truncatedName = Text.truncateEnd(name, 10)
-            local line = truncatedName .. " " .. changeStr
-
-            -- Build per-character color array
-            local colorArray = {}
-            for i = 1, #truncatedName do
-                colorArray[i] = colors.white
-            end
-            colorArray[#truncatedName + 1] = colors.gray  -- Space
-            for i = #truncatedName + 2, #line do
-                colorArray[i] = color
-            end
-
-            return {
-                lines = { line },
-                colors = { colorArray }
-            }
-        else
-            -- Standard 2-line format
-            return {
-                lines = { name, changeStr },
-                colors = { colors.white, color }
-            }
-        end
+        return {
+            lines = { name, changeStr },
+            colors = { colors.white, color }
+        }
     end
 
     return BaseView.custom({
@@ -130,7 +105,10 @@ function ChangesFactory.create(config)
             self.showMode = viewConfig.showMode or "both"
             self.minChange = viewConfig.minChange or config.defaultMinChange
 
-            self.display = GridDisplay.new(self.monitor)
+            self.display = GridDisplay.new(self.monitor, {
+                cellHeight = 2,
+                headerRows = 2,  -- title + summary line
+            })
 
             self.state = "init"
             self.baseline = {}
@@ -285,8 +263,9 @@ function ChangesFactory.create(config)
                 return
             end
 
-            -- Display in grid (bind self for compact mode detection)
-            self.display:display(changes, function(item)
+            -- Display in grid
+            self.display:layout(#changes)
+            self.display:render(changes, function(item)
                 return formatChange(self, item)
             end)
 
@@ -306,21 +285,26 @@ function ChangesFactory.create(config)
                 return false
             end
 
-            local itemsPerRow = math.floor(self.width / 12)
-            if itemsPerRow < 1 then itemsPerRow = 1 end
+            -- Use actual grid layout for touch detection
+            local layout = self.display:getLayout()
+            if not layout then return false end
 
-            local startY = 3
-            local itemHeight = 2
-            local itemWidth = math.floor(self.width / itemsPerRow)
+            local startY = layout.startY
+            local cellHeight = 2  -- matches cellHeight in GridDisplay config
+            local cellWidth = layout.cellWidth
+            local cols = layout.cols
+            local gapX = 1
+            local gapY = 0
 
             if y >= startY and y < self.height then
-                local row = math.floor((y - startY) / itemHeight)
-                local col = math.floor((x - 1) / itemWidth)
-                local index = row * itemsPerRow + col + 1
-
-                if index >= 1 and index <= #self.lastChanges then
-                    ChangesOverlay.show(self, self.lastChanges[index], self.factoryConfig)
-                    return true
+                local row = math.floor((y - startY) / (cellHeight + gapY))
+                local col = math.floor((x - layout.startX) / (cellWidth + gapX))
+                if col >= 0 and col < cols then
+                    local index = row * cols + col + 1
+                    if index >= 1 and index <= #self.lastChanges then
+                        ChangesOverlay.show(self, self.lastChanges[index], self.factoryConfig)
+                        return true
+                    end
                 end
             end
 

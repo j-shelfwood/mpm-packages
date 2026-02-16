@@ -1,6 +1,6 @@
 -- GridDisplayRenderer.lua
 -- Cell rendering logic for GridDisplay
--- Extracted from GridDisplay.lua for maintainability
+-- Uses blit for efficient single-call-per-line rendering
 
 local GridDisplayRenderer = {}
 
@@ -22,70 +22,64 @@ end
 
 -- Render cells in grid layout
 -- @param monitor The monitor to render to
--- @param data Array of items to display
--- @param format_callback Function to format items
--- @param layout Layout parameters from GridDisplay
--- @param options Rendering options (center_text, cell_padding)
-function GridDisplayRenderer.renderCells(monitor, data, format_callback, layout, options)
-    local maxItems = layout.rows * layout.columns
-    local content_area = layout.cell_width - (options.cell_padding * 2)
-    content_area = math.max(1, content_area)
+-- @param items Array of data items
+-- @param formatFn Function(item) -> { lines={...}, colors={...}, aligns={...} }
+-- @param layout Table: { cols, rows, cellWidth, cellHeight, gapX, gapY, startX, startY, visibleCount }
+function GridDisplayRenderer.renderCells(monitor, items, formatFn, layout)
+    local maxItems = layout.visibleCount or (layout.rows * layout.cols)
+    local cellWidth = layout.cellWidth
 
     -- Get background color for blit
     local bgColor = monitor.getBackgroundColor()
     local bgHex = colors.toBlit(bgColor)
 
-    for i, item in ipairs(data) do
-        if i > maxItems then
-            break
-        end
+    for i, item in ipairs(items) do
+        if i > maxItems then break end
 
-        -- Calculate grid position (1-indexed)
-        local column = ((i - 1) % layout.columns) + 1
-        local row = math.floor((i - 1) / layout.columns) + 1
+        -- Calculate grid position (0-indexed)
+        local col = (i - 1) % layout.cols
+        local row = math.floor((i - 1) / layout.cols)
 
         -- Calculate pixel position
-        local cell_x = layout.start_x + (column - 1) * (layout.cell_width + layout.spacing_x)
-        local cell_y = layout.start_y + (row - 1) * (layout.cell_height + layout.spacing_y)
+        local cellX = layout.startX + col * (cellWidth + layout.gapX)
+        local cellY = layout.startY + row * (layout.cellHeight + layout.gapY)
 
         -- Get formatted content
-        local ok, formatted = pcall(format_callback, item)
+        local ok, formatted = pcall(formatFn, item)
         if not ok or not formatted then
-            formatted = {lines = {"Error"}, colors = {colors.red}}
+            formatted = { lines = {"Error"}, colors = {colors.red} }
         end
 
         formatted.lines = formatted.lines or {}
         formatted.colors = formatted.colors or {}
 
-        -- Render each line using blit for efficiency
-        for line_idx, line_content in ipairs(formatted.lines) do
-            if line_idx > layout.cell_height then
-                break
+        -- Render each line
+        for lineIdx, lineContent in ipairs(formatted.lines) do
+            if lineIdx > layout.cellHeight then break end
+
+            local yPos = cellY + lineIdx - 1
+
+            -- Truncate content to cell width
+            local content = truncateText(lineContent, cellWidth)
+
+            -- Calculate X position based on alignment
+            local xPos = cellX
+            local lineAlign = formatted.aligns and formatted.aligns[lineIdx]
+
+            if lineAlign == "right" and #content < cellWidth then
+                xPos = cellX + (cellWidth - #content)
+            elseif lineAlign == "center" and #content < cellWidth then
+                xPos = cellX + math.floor((cellWidth - #content) / 2)
             end
-
-            local y_pos = cell_y + line_idx - 1
-            local x_pos = cell_x + options.cell_padding
-
-            -- Truncate content
-            local content = truncateText(line_content, content_area)
-
-            local lineAlign = formatted.aligns and formatted.aligns[line_idx] or formatted.align
-            if lineAlign == "right" and #content < content_area then
-                x_pos = x_pos + (content_area - #content)
-            elseif lineAlign == "center" or (not lineAlign and options.center_text) then
-                if #content < content_area then
-                    local leftPad = math.floor((content_area - #content) / 2)
-                    x_pos = x_pos + leftPad
-                end
-            end
+            -- "left" or default: xPos stays at cellX
 
             -- Ensure valid cursor position
-            x_pos = math.max(1, x_pos)
-            y_pos = math.max(1, y_pos)
+            xPos = math.max(1, xPos)
+            yPos = math.max(1, yPos)
 
             -- Build blit strings
-            local fgStr, bgStr
-            local lineColor = formatted.colors[line_idx]
+            local fgStr
+            local lineColor = formatted.colors[lineIdx]
 
             if type(lineColor) == "table" then
                 -- Per-character colors: lineColor is array of color constants
@@ -100,10 +94,10 @@ function GridDisplayRenderer.renderCells(monitor, data, format_callback, layout,
                 fgStr = string.rep(fgHex, #content)
             end
 
-            bgStr = string.rep(bgHex, #content)
+            local bgStr = string.rep(bgHex, #content)
 
-            -- Render with blit (single call vs setTextColor + write)
-            monitor.setCursorPos(x_pos, y_pos)
+            -- Render with blit (single call per line)
+            monitor.setCursorPos(xPos, yPos)
             monitor.blit(content, fgStr, bgStr)
         end
     end

@@ -1,5 +1,6 @@
 -- MachineList.lua
 -- Browseable list of machines with detail overlay
+-- Shows full machine name, status badge, and activity details
 
 local BaseView = mpm('views/BaseView')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
@@ -19,6 +20,36 @@ end
 local function formatPercent(value)
     if value == nil then return nil end
     return string.format("%.0f%%", value * 100)
+end
+
+-- Build a short activity summary string for the list row
+local function buildActivitySummary(machine)
+    local parts = {}
+    local activity = machine.activity or {}
+
+    -- Progress info
+    if activity.progress and activity.total and activity.total > 0 then
+        local pct = math.floor(activity.progress / activity.total * 100)
+        table.insert(parts, pct .. "%")
+    end
+
+    -- Energy usage
+    if activity.usage and activity.usage > 0 then
+        table.insert(parts, Text.formatEnergy(activity.usage, "J"))
+    end
+
+    -- Production rate
+    if activity.rate and activity.rate > 0 then
+        table.insert(parts, Text.formatEnergy(activity.rate, "J") .. "/t")
+    end
+
+    -- Multiblock formed status
+    if activity.formed ~= nil and not activity.formed then
+        table.insert(parts, "NOT FORMED")
+    end
+
+    if #parts == 0 then return nil end
+    return table.concat(parts, " | ")
 end
 
 local function buildDetailLines(machine)
@@ -101,7 +132,7 @@ end
 local function showDetailOverlay(self, machine)
     local monitor = self.monitor
     local overlay = Overlay.new(monitor, { footerHeight = 1 })
-    local title = Activity.getShortName(machine.type) or "Machine"
+    local title = Text.truncateMiddle(machine.fullLabel or machine.shortName or "Machine", self.width - 4)
     local lines = buildDetailLines(machine)
     local maxLines = math.max(4, math.min(#lines, self.height - 6))
 
@@ -232,10 +263,36 @@ return BaseView.interactive({
             }
         end
 
-        local status = item.isActive and "ACTIVE" or "IDLE"
+        -- Line 1: Full machine name + status badge
+        local status = item.isActive and " ACTIVE" or " IDLE"
+        local statusColor = item.isActive and colors.lime or colors.gray
+        local nameWidth = self.width - #status
+        local name = Text.truncateMiddle(item.fullLabel or item.shortName or item.label, math.max(1, nameWidth))
+        local line1 = name .. status
+
+        -- Build per-character color array for line 1
+        local colorArray = {}
+        for i = 1, #name do
+            colorArray[i] = colors.white
+        end
+        for i = #name + 1, #line1 do
+            colorArray[i] = statusColor
+        end
+
+        -- Line 2: Activity summary (if available)
+        local summary = buildActivitySummary(item)
+        if summary then
+            return {
+                lines = { line1, summary },
+                colors = { colorArray, colors.gray },
+                touchAction = "detail",
+                touchData = item
+            }
+        end
+
         return {
-            lines = { item.fullLabel or item.label, status },
-            colors = { colors.white, item.isActive and colors.lime or colors.gray },
+            lines = { line1 },
+            colors = { colorArray },
             touchAction = "detail",
             touchData = item
         }
