@@ -295,9 +295,55 @@ function MachineActivity.getMachineTypes(modFilter)
     -- Sort by label
     table.sort(types, function(a, b) return a.label < b.label end)
 
-    table.insert(types, 1, { value = nil, label = "(All types)" })
+    table.insert(types, 1, { value = "all", label = "(All types)" })
 
     return types
+end
+
+function MachineActivity.getMachineTypeOptions(modFilter)
+    return MachineActivity.getMachineTypes(modFilter)
+end
+
+function MachineActivity.normalizeMachineType(value)
+    if value == "all" or value == nil then return nil end
+    if type(value) == "table" then
+        value = value.value
+        if value == "all" or value == nil then return nil end
+    end
+    return value
+end
+
+function MachineActivity.buildTypeList(modFilter)
+    local discovered = MachineActivity.discover(modFilter or "all")
+    local types = {}
+
+    for pType, data in pairs(discovered) do
+        local shortName = MachineActivity.getShortName(pType)
+        local label = data.classification.mod == "mi" and ("MI: " .. shortName) or shortName
+        table.insert(types, {
+            type = pType,
+            label = label,
+            shortName = shortName,
+            classification = data.classification,
+            machines = data.machines
+        })
+    end
+
+    table.sort(types, function(a, b) return a.label < b.label end)
+    return types
+end
+
+function MachineActivity.buildMachineEntry(machine, idx)
+    local isActive, activityData = MachineActivity.getActivity(machine.peripheral)
+    local label = machine.name:match("_(%d+)$") or (idx and tostring(idx)) or machine.name
+
+    return {
+        label = label,
+        name = machine.name,
+        peripheral = machine.peripheral,
+        isActive = isActive,
+        activity = activityData
+    }
 end
 
 -- Get mod filter options

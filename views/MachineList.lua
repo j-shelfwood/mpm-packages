@@ -151,7 +151,7 @@ return BaseView.interactive({
             type = "select",
             label = "Machine Type",
             options = function(config)
-                return Activity.getMachineTypes((config and config.mod_filter) or "all")
+                return Activity.getMachineTypeOptions((config and config.mod_filter) or "all")
             end
         }
     },
@@ -163,27 +163,12 @@ return BaseView.interactive({
 
     init = function(self, config)
         self.modFilter = config.mod_filter or "all"
-        self.machineType = config.machine_type
+        self.machineType = Activity.normalizeMachineType(config.machine_type)
         self.typeIndex = 1
     end,
 
     getData = function(self)
-        local discovered = Activity.discover(self.modFilter)
-        local types = {}
-
-        for pType, data in pairs(discovered) do
-            local shortName = Activity.getShortName(pType)
-            local label = data.classification.mod == "mi" and ("MI: " .. shortName) or shortName
-            table.insert(types, {
-                type = pType,
-                label = label,
-                shortName = shortName,
-                classification = data.classification,
-                machines = data.machines
-            })
-        end
-
-        table.sort(types, function(a, b) return a.label < b.label end)
+        local types = Activity.buildTypeList(self.modFilter)
         self._types = types
 
         if self.machineType then
@@ -209,18 +194,11 @@ return BaseView.interactive({
         end
 
         for idx, machine in ipairs(current.machines) do
-            local isActive, activityData = Activity.getActivity(machine.peripheral)
-            if isActive then activeCount = activeCount + 1 end
-            local label = machine.name:match("_(%d+)$") or machine.name
-            table.insert(items, {
-                kind = "machine",
-                label = label,
-                name = machine.name,
-                type = current.type,
-                peripheral = machine.peripheral,
-                isActive = isActive,
-                activity = activityData
-            })
+            local entry = Activity.buildMachineEntry(machine, idx)
+            if entry.isActive then activeCount = activeCount + 1 end
+            entry.kind = "machine"
+            entry.type = current.type
+            table.insert(items, entry)
             Yield.check(idx, 10)
         end
 

@@ -73,6 +73,15 @@ local function computeGrid(width, height, count)
     return 1, 0, width, availableHeight
 end
 
+local function normalizeMachineType(value)
+    if value == "all" or value == nil then return nil end
+    if type(value) == "table" then
+        value = value.value
+        if value == "all" or value == nil then return nil end
+    end
+    return value
+end
+
 return BaseView.custom({
     sleepTime = 1,
 
@@ -89,7 +98,7 @@ return BaseView.custom({
             type = "select",
             label = "Machine Type",
             options = function(config)
-                return Activity.getMachineTypes((config and config.mod_filter) or "all")
+                return Activity.getMachineTypeOptions((config and config.mod_filter) or "all")
             end
         }
     },
@@ -101,11 +110,11 @@ return BaseView.custom({
 
     init = function(self, config)
         self.modFilter = config.mod_filter or "all"
-        self.machineType = config.machine_type
+        self.machineType = Activity.normalizeMachineType(config.machine_type)
     end,
 
     getData = function(self)
-        local discovered = Activity.discover(self.modFilter)
+        local types = Activity.buildTypeList(self.modFilter)
         local machines = {}
         local title = self.modFilter == "all" and "Machines" or
                      (self.modFilter == "mekanism" and "Mekanism" or "MI")
@@ -114,7 +123,13 @@ return BaseView.custom({
         local pollIdx = 0
 
         if self.machineType then
-            local typeData = discovered[self.machineType]
+            local typeData = nil
+            for _, info in ipairs(types) do
+                if info.type == self.machineType then
+                    typeData = info
+                    break
+                end
+            end
             if not typeData then
                 return { machines = {}, title = title, titleColor = colors.gray, totalActive = 0, totalMachines = 0 }
             end
@@ -126,25 +141,25 @@ return BaseView.custom({
             titleColor = typeData.classification.color or colors.white
 
             for idx, machine in ipairs(typeData.machines) do
-                local isActive, activityData = Activity.getActivity(machine.peripheral)
-                if isActive then totalActive = totalActive + 1 end
+                local entry = Activity.buildMachineEntry(machine, idx)
+                if entry.isActive then totalActive = totalActive + 1 end
                 table.insert(machines, {
-                    label = machine.name:match("_(%d+)$") or tostring(idx),
-                    isActive = isActive,
-                    data = activityData
+                    label = entry.label,
+                    isActive = entry.isActive,
+                    data = entry.activity
                 })
                 Yield.check(idx, 6)
             end
         else
-            for _, typeData in pairs(discovered) do
+            for _, typeData in ipairs(types) do
                 for _, machine in ipairs(typeData.machines) do
                     pollIdx = pollIdx + 1
-                    local isActive, activityData = Activity.getActivity(machine.peripheral)
-                    if isActive then totalActive = totalActive + 1 end
+                    local entry = Activity.buildMachineEntry(machine, pollIdx)
+                    if entry.isActive then totalActive = totalActive + 1 end
                     table.insert(machines, {
-                        label = machine.name:match("_(%d+)$") or "?",
-                        isActive = isActive,
-                        data = activityData
+                        label = entry.label,
+                        isActive = entry.isActive,
+                        data = entry.activity
                     })
                     Yield.check(pollIdx, 8)
                 end
