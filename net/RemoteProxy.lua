@@ -10,23 +10,24 @@ local RemoteProxy = {}
 -- Reconnection settings
 local MAX_CONSECUTIVE_FAILURES = 3   -- Disconnect after this many consecutive failures
 local RECONNECT_COOLDOWN_MS = 10000  -- Wait 10 seconds before auto-reconnect attempt
-local RECONNECT_TIMEOUT = 3          -- Seconds for reconnect discovery
+local RECONNECT_TIMEOUT = 2          -- Seconds for reconnect discovery
 
 -- Default RPC timeout in seconds
-local DEFAULT_TIMEOUT = 10
+-- Keep short to avoid blocking render paths - remote calls that fail should fail fast
+local DEFAULT_TIMEOUT = 2
 
 -- Methods that return large payloads and need extended timeouts
 -- Even with host-side stripping, serialization of hundreds of items takes time
 local HEAVY_METHOD_TIMEOUT = {
-    getItems = 15,
-    getFluids = 15,
-    getChemicals = 15,
-    getCraftableItems = 15,
-    getCraftableFluids = 15,
-    getCraftableChemicals = 15,
-    getPatterns = 15,
-    getCells = 10,
-    getDrives = 10,
+    getItems = 5,
+    getFluids = 5,
+    getChemicals = 5,
+    getCraftableItems = 5,
+    getCraftableFluids = 5,
+    getCraftableChemicals = 5,
+    getPatterns = 5,
+    getCells = 3,
+    getDrives = 3,
 }
 
 -- Create a proxy for a remote peripheral

@@ -333,13 +333,31 @@ function MachineActivity.buildTypeList(modFilter)
     return types
 end
 
-function MachineActivity.buildMachineEntry(machine, idx)
+-- Build a machine entry with activity data and labels
+-- @param machine {peripheral, name} from discover result
+-- @param idx Numeric index fallback
+-- @param pType Optional peripheral type string (e.g. "mekanism:enrichmentChamber")
+function MachineActivity.buildMachineEntry(machine, idx, pType)
     local isActive, activityData = MachineActivity.getActivity(machine.peripheral)
-    local label = machine.name:match("_(%d+)$") or (idx and tostring(idx)) or machine.name
+
+    -- Short label for grid views (just ID number)
+    local shortLabel = machine.name:match("_(%d+)$") or (idx and tostring(idx)) or machine.name
+
+    -- Descriptive label for list views: "Enrich Chamber #3" style
+    local typeStr = pType or machine.name:match("^(.-)_%d+$") or machine.name
+    local shortName = MachineActivity.getShortName(typeStr)
+    local idSuffix = machine.name:match("_(%d+)$")
+    local fullLabel = shortName
+    if idSuffix then
+        fullLabel = shortName .. " #" .. idSuffix
+    end
 
     return {
-        label = label,
+        label = shortLabel,
+        fullLabel = fullLabel,
+        shortName = shortName,
         name = machine.name,
+        type = typeStr,
         peripheral = machine.peripheral,
         isActive = isActive,
         activity = activityData

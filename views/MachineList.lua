@@ -194,10 +194,9 @@ return BaseView.interactive({
         end
 
         for idx, machine in ipairs(current.machines) do
-            local entry = Activity.buildMachineEntry(machine, idx)
+            local entry = Activity.buildMachineEntry(machine, idx, current.type)
             if entry.isActive then activeCount = activeCount + 1 end
             entry.kind = "machine"
-            entry.type = current.type
             table.insert(items, entry)
             Yield.check(idx, 10)
         end
@@ -235,7 +234,7 @@ return BaseView.interactive({
 
         local status = item.isActive and "ACTIVE" or "IDLE"
         return {
-            lines = { item.label, status },
+            lines = { item.fullLabel or item.label, status },
             colors = { colors.white, item.isActive and colors.lime or colors.gray },
             touchAction = "detail",
             touchData = item

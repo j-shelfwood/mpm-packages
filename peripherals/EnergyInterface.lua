@@ -118,7 +118,10 @@ end
 
 -- Get energy status from a peripheral (normalized)
 -- Uses CC:Tweaked generic methods (FE) with fallback to Mekanism methods (Joules)
+-- Returns nil if peripheral is unreachable (remote timeout, etc.)
 function EnergyInterface.getStatus(p)
+    if not p then return nil end
+
     local status = {
         stored = 0,
         capacity = 0,
@@ -130,9 +133,9 @@ function EnergyInterface.getStatus(p)
     local storedOk, stored = pcall(p.getEnergy)
     local capacityOk, capacity = pcall(p.getEnergyCapacity)
 
-    if storedOk and capacityOk then
-        status.stored = stored or 0
-        status.capacity = capacity or 1
+    if storedOk and capacityOk and type(stored) == "number" and type(capacity) == "number" then
+        status.stored = stored
+        status.capacity = capacity > 0 and capacity or 1
         status.percent = status.capacity > 0 and (status.stored / status.capacity) or 0
         return status
     end
@@ -141,15 +144,16 @@ function EnergyInterface.getStatus(p)
     storedOk, stored = pcall(p.getEnergy)  -- Mekanism also uses getEnergy
     local maxOk, max = pcall(p.getMaxEnergy)
 
-    if storedOk and maxOk then
-        status.stored = stored or 0
-        status.capacity = max or 1
+    if storedOk and maxOk and type(stored) == "number" and type(max) == "number" then
+        status.stored = stored
+        status.capacity = max > 0 and max or 1
         status.percent = status.capacity > 0 and (status.stored / status.capacity) or 0
         status.unit = "J"
         return status
     end
 
-    return status
+    -- Peripheral unreachable or returned non-numeric data
+    return nil
 end
 
 -- Discover all energy storage grouped by mod
@@ -172,13 +176,16 @@ function EnergyInterface.discoverByMod()
 
         local status = EnergyInterface.getStatus(storage.peripheral)
 
-        table.insert(groups[mod].storages, {
-            peripheral = storage.peripheral,
-            name = storage.name,
-            shortName = classification.shortName,
-            storageType = classification.storageType,
-            status = status
-        })
+        -- Skip peripherals that returned nil status (unreachable remote, etc.)
+        if status then
+            table.insert(groups[mod].storages, {
+                peripheral = storage.peripheral,
+                name = storage.name,
+                shortName = classification.shortName,
+                storageType = classification.storageType,
+                status = status
+            })
+        end
 
         Yield.check(idx, 5)
     end
@@ -197,9 +204,11 @@ function EnergyInterface.getTotals()
 
     for idx, storage in ipairs(all) do
         local status = EnergyInterface.getStatus(storage.peripheral)
-        totals.stored = totals.stored + status.stored
-        totals.capacity = totals.capacity + status.capacity
-        totals.count = totals.count + 1
+        if status then
+            totals.stored = totals.stored + status.stored
+            totals.capacity = totals.capacity + status.capacity
+            totals.count = totals.count + 1
+        end
         Yield.check(idx, 10)
     end
 
@@ -233,10 +242,12 @@ function EnergyInterface.getModFilterOptions()
     local options = {{ value = "all", label = "All Mods" }}
 
     for mod, data in pairs(groups) do
-        table.insert(options, {
-            value = mod,
-            label = data.label .. " (" .. #data.storages .. ")"
-        })
+        if #data.storages > 0 then
+            table.insert(options, {
+                value = mod,
+                label = data.label .. " (" .. #data.storages .. ")"
+            })
+        end
     end
 
     return options

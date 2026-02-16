@@ -126,6 +126,7 @@ function PeripheralClient:registerRemote(hostId, name, pType, methods)
 end
 
 -- Discover remote peripherals (broadcast and wait)
+-- Called during boot (before parallel starts) - uses channel:poll() directly.
 -- @param timeout Seconds to wait for responses
 -- @return Number of peripherals discovered
 function PeripheralClient:discover(timeout)
@@ -142,7 +143,9 @@ function PeripheralClient:discover(timeout)
     local msg = Protocol.createPeriphDiscover()
     self.channel:broadcast(msg)
 
-    -- Poll for responses (with yields to allow event processing)
+    -- Poll for responses
+    -- NOTE: This is safe during boot (single coroutine, no parallel contention).
+    -- During parallel execution, use discoverAsync() instead.
     local deadline = os.epoch("utc") + (timeout * 1000)
     while os.epoch("utc") < deadline do
         self.channel:poll(0.1)
@@ -150,6 +153,16 @@ function PeripheralClient:discover(timeout)
     end
 
     return self:getCount()
+end
+
+-- Non-blocking discovery request (safe during parallel execution)
+-- Broadcasts a discover message; responses are handled by KernelNetwork loop
+-- @return void
+function PeripheralClient:discoverAsync()
+    if not self.channel then return end
+
+    local msg = Protocol.createPeriphDiscover()
+    self.channel:broadcast(msg)
 end
 
 -- Get count of known remote peripherals
@@ -240,8 +253,14 @@ end
 -- @param args Arguments array
 -- @param timeout Timeout in seconds
 -- @return results, error
+--
+-- IMPORTANT: This runs inside view coroutines (parallel architecture).
+-- We MUST NOT call channel:poll() here because rednet_message events
+-- are delivered to the KernelNetwork coroutine's event queue, not ours.
+-- Instead, we send the request and yield-wait for the callback to be
+-- triggered by the network loop's channel:poll().
 function PeripheralClient:call(hostId, peripheralName, methodName, args, timeout)
-    timeout = timeout or 5
+    timeout = timeout or 2
 
     if not self.channel then
         return nil, "not_connected"
@@ -250,16 +269,16 @@ function PeripheralClient:call(hostId, peripheralName, methodName, args, timeout
     -- Create call message
     local msg = Protocol.createPeriphCall(peripheralName, methodName, args)
 
-    -- Set up response handling
-    local result = nil
-    local err = nil
-    local done = false
+    -- Set up response handling via shared state
+    -- The KernelNetwork loop's channel:poll() will trigger PERIPH_RESULT handler
+    -- which calls this callback, setting done=true
+    local state = { done = false, result = nil, err = nil }
 
     self.pendingRequests[msg.requestId] = {
         callback = function(r, e)
-            result = r
-            err = e
-            done = true
+            state.result = r
+            state.err = e
+            state.done = true
         end,
         timeout = os.epoch("utc") + (timeout * 1000)
     }
@@ -267,30 +286,45 @@ function PeripheralClient:call(hostId, peripheralName, methodName, args, timeout
     -- Send request
     self.channel:send(hostId, msg)
 
-    -- Wait for response (with yields to allow event processing)
+    -- Wait for response by yielding
+    -- The network coroutine processes incoming messages and triggers our callback
+    -- We just need to yield to give it CPU time, then check the flag
     local deadline = os.epoch("utc") + (timeout * 1000)
-    while not done and os.epoch("utc") < deadline do
-        self.channel:poll(0.05)
-        Yield.yield()
+    while not state.done and os.epoch("utc") < deadline do
+        -- Use os.pullEvent with a short timer to yield control
+        -- This allows the parallel scheduler to run the network coroutine
+        local timer = os.startTimer(0.05)
+        os.pullEvent("timer")
     end
 
     -- Clean up if timed out
-    if not done then
+    if not state.done then
         self.pendingRequests[msg.requestId] = nil
         return nil, "timeout"
     end
 
-    return result, err
+    return state.result, state.err
 end
 
 -- Rediscover a specific peripheral
+-- During parallel execution, broadcasts async and waits briefly for the
+-- KernelNetwork loop to process responses.
 -- @param name Peripheral name to find
 -- @return info table or nil
 function PeripheralClient:rediscover(name)
-    -- Broadcast discovery
-    self:discover(2)
+    -- Broadcast discovery request (handled by network loop)
+    self:discoverAsync()
 
-    -- Check if found
+    -- Wait briefly for network loop to process PERIPH_LIST responses
+    local deadline = os.epoch("utc") + 2000
+    while os.epoch("utc") < deadline do
+        if self.remotePeripherals[name] then
+            return self.remotePeripherals[name]
+        end
+        local timer = os.startTimer(0.1)
+        os.pullEvent("timer")
+    end
+
     return self.remotePeripherals[name]
 end
 

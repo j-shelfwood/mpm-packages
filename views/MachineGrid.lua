@@ -141,7 +141,7 @@ return BaseView.custom({
             titleColor = typeData.classification.color or colors.white
 
             for idx, machine in ipairs(typeData.machines) do
-                local entry = Activity.buildMachineEntry(machine, idx)
+                local entry = Activity.buildMachineEntry(machine, idx, typeData.type)
                 if entry.isActive then totalActive = totalActive + 1 end
                 table.insert(machines, {
                     label = entry.label,
@@ -154,7 +154,7 @@ return BaseView.custom({
             for _, typeData in ipairs(types) do
                 for _, machine in ipairs(typeData.machines) do
                     pollIdx = pollIdx + 1
-                    local entry = Activity.buildMachineEntry(machine, pollIdx)
+                    local entry = Activity.buildMachineEntry(machine, pollIdx, typeData.type)
                     if entry.isActive then totalActive = totalActive + 1 end
                     table.insert(machines, {
                         label = entry.label,

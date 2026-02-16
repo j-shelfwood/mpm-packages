@@ -20,7 +20,8 @@ local state = {
     spinnerFrame = 0,
     errorMsg = nil,
     successMsg = nil,
-    pairingCreds = nil
+    pairingCreds = nil,
+    spinnerTimer = nil
 }
 
 local PAIR_PROTOCOL = "shelfos_pair"
@@ -34,6 +35,7 @@ function AddComputer.onEnter(ctx, args)
     state.errorMsg = nil
     state.successMsg = nil
     state.pairingCreds = nil
+    state.spinnerTimer = nil
 
     -- Open modem
     local ok, modemName, modemType = ModemUtils.open(true)
@@ -334,8 +336,11 @@ function AddComputer.handleScanning(ctx, event, p1, p2, p3)
         end
     end
 
-    -- Keep a timer running for spinner animation
-    os.startTimer(0.5)
+    -- Keep a timer running for spinner animation (cancel previous to prevent leak)
+    if state.spinnerTimer then
+        os.cancelTimer(state.spinnerTimer)
+    end
+    state.spinnerTimer = os.startTimer(0.5)
 
     return nil
 end

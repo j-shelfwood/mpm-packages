@@ -328,8 +328,16 @@ function Config.discoverMonitors()
     return result, aliases
 end
 
--- Reconcile existing config against actual hardware.
--- Fixes duplicate entries, remaps aliased names, adds new monitors.
+-- Known view renames: old name -> new name
+-- When views are renamed/replaced, add mappings here so existing configs auto-migrate
+local VIEW_RENAMES = {
+    MachineActivity = "MachineGrid",
+    MachineStatus = "MachineGrid",
+}
+
+-- Reconcile existing config against actual hardware and view availability.
+-- Fixes duplicate entries, remaps aliased names, adds new monitors,
+-- and auto-migrates renamed/deleted views.
 -- Called on every boot after Config.load() to self-heal config issues.
 -- @param config Existing configuration table
 -- @return changed (boolean), summary (string)
@@ -372,7 +380,36 @@ function Config.reconcile(config)
     end
     config.monitors = deduped
 
-    -- Phase 3: Add newly-discovered monitors not in config
+    -- Phase 3: Validate and auto-migrate view names
+    -- Handles renamed/deleted views so monitors don't show errors
+    local availableViews = ViewManager.getAvailableViews()
+    local availableSet = {}
+    for _, name in ipairs(availableViews) do
+        availableSet[name] = true
+    end
+
+    for _, entry in ipairs(config.monitors) do
+        if entry.view and not availableSet[entry.view] then
+            -- Check known renames first
+            local renamed = VIEW_RENAMES[entry.view]
+            if renamed and availableSet[renamed] then
+                table.insert(actions, "Migrated view " .. entry.view .. " -> " .. renamed .. " on " .. entry.peripheral)
+                entry.view = renamed
+                entry.viewConfig = ViewManager.getDefaultConfig(renamed)
+                changed = true
+            else
+                -- View is gone with no known replacement - suggest best alternative
+                local suggestion, reason = ViewManager.suggestView()
+                local fallback = suggestion or "Clock"
+                table.insert(actions, "Replaced missing view " .. entry.view .. " -> " .. fallback .. " on " .. entry.peripheral)
+                entry.view = fallback
+                entry.viewConfig = ViewManager.getDefaultConfig(fallback)
+                changed = true
+            end
+        end
+    end
+
+    -- Phase 4: Add newly-discovered monitors not in config
     local configuredSet = {}
     for _, entry in ipairs(config.monitors) do
         configuredSet[entry.peripheral] = true

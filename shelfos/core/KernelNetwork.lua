@@ -85,7 +85,7 @@ end
 -- @param runningRef Shared running flag table { value = true/false }
 function KernelNetwork.loop(kernel, runningRef)
     local EventUtils = mpm('utils/EventUtils')
-    local Protocol = mpm('net/Protocol')
+    local Yield = mpm('utils/Yield')
     local lastHostAnnounce = 0
     local hostAnnounceInterval = 10000  -- 10 seconds
     local lastPeriphDiscovery = 0
@@ -123,8 +123,7 @@ function KernelNetwork.loop(kernel, runningRef)
             if kernel.peripheralClient then
                 local now = os.epoch("utc")
                 if now - lastPeriphDiscovery > periphDiscoveryInterval then
-                    local msg = Protocol.createPeriphDiscover()
-                    kernel.channel:broadcast(msg)
+                    kernel.peripheralClient:discoverAsync()
                     lastPeriphDiscovery = now
 
                     -- Back off once we have peripherals
@@ -133,6 +132,11 @@ function KernelNetwork.loop(kernel, runningRef)
                     end
                 end
             end
+
+            -- CRITICAL: Yield after each iteration to prevent "too long without yielding"
+            -- channel:poll() yields via rednet.receive(), but the subsequent announce/broadcast
+            -- work can accumulate CPU time across iterations when poll returns quickly
+            Yield.yield()
         else
             EventUtils.sleep(1)
         end
