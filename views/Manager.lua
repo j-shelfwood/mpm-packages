@@ -179,7 +179,7 @@ function Manager.suggestView()
     local suggestions = {
         { check = function() return Peripherals.find("me_bridge") end, view = "StorageGraph", reason = "AE2 ME Bridge detected" },
         { check = function() return Peripherals.find("rsBridge") end, view = "StorageGraph", reason = "RS Bridge detected" },
-        { check = function() return Peripherals.find("enrichmentChamber") end, view = "MachineActivity", reason = "Mekanism machines detected" },
+        { check = function() return Peripherals.find("enrichmentChamber") end, view = "MachineGrid", reason = "Mekanism machines detected" },
         { check = function() return Peripherals.find("energyStorage") end, view = "EnergyGraph", reason = "Energy storage detected" },
         { check = function() return Peripherals.find("environment_detector") end, view = "Clock", reason = "Environment detector found" },
     }
@@ -261,7 +261,7 @@ function Manager.suggestViewsForMonitors(monitorCount)
 
     if hasMekanism then
         for _, m in ipairs(mountable) do
-            if m == "MachineActivity" then
+            if m == "MachineGrid" then
                 table.insert(prioritized, m)
                 break
             end

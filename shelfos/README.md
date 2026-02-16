@@ -313,7 +313,8 @@ Views are provided by the `views` package:
 |------|-------------|
 | `EnergyGraph` | Energy storage graph |
 | `EnergyStatus` | Energy capacity display |
-| `MachineStatus` | Machine activity monitor |
+| `MachineGrid` | Machine activity grid |
+| `MachineList` | Machine activity list + details |
 
 ### General
 
