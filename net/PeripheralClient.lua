@@ -306,6 +306,34 @@ function PeripheralClient:call(hostId, peripheralName, methodName, args, timeout
     return state.result, state.err
 end
 
+-- Fire-and-forget RPC call (non-blocking)
+-- Sends the request and registers a callback that will be invoked by the
+-- KernelNetwork loop when the response arrives. Does NOT block the caller.
+-- Used by RemoteProxy cache-refresh to update cached values asynchronously.
+-- @param hostId Host computer ID
+-- @param peripheralName Peripheral name
+-- @param methodName Method to call
+-- @param args Arguments array
+-- @param callback function(results, error) called when response arrives
+-- @param timeout Timeout in seconds for expiring the pending request
+function PeripheralClient:callAsync(hostId, peripheralName, methodName, args, callback, timeout)
+    timeout = timeout or 5
+
+    if not self.channel then
+        if callback then callback(nil, "not_connected") end
+        return
+    end
+
+    local msg = Protocol.createPeriphCall(peripheralName, methodName, args)
+
+    self.pendingRequests[msg.requestId] = {
+        callback = callback or function() end,
+        timeout = os.epoch("utc") + (timeout * 1000)
+    }
+
+    self.channel:send(hostId, msg)
+end
+
 -- Rediscover a specific peripheral
 -- During parallel execution, broadcasts async and waits briefly for the
 -- KernelNetwork loop to process responses.
@@ -326,6 +354,26 @@ function PeripheralClient:rediscover(name)
     end
 
     return self.remotePeripherals[name]
+end
+
+-- Clean up expired pending requests (prevents memory leaks from async calls)
+-- Called periodically by KernelNetwork loop
+function PeripheralClient:cleanupExpired()
+    local now = os.epoch("utc")
+    local expired = {}
+    for reqId, req in pairs(self.pendingRequests) do
+        if req.timeout and now > req.timeout then
+            table.insert(expired, reqId)
+        end
+    end
+    for _, reqId in ipairs(expired) do
+        local req = self.pendingRequests[reqId]
+        self.pendingRequests[reqId] = nil
+        -- Notify callback of timeout so proxy cache can handle it
+        if req and req.callback then
+            pcall(req.callback, nil, "timeout")
+        end
+    end
 end
 
 -- Check if a peripheral is available

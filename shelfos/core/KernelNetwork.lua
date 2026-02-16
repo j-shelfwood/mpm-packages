@@ -91,6 +91,8 @@ function KernelNetwork.loop(kernel, runningRef)
     local lastPeriphDiscovery = 0
     local periphDiscoveryInterval = 5000   -- Start aggressive (5s)
     local maxDiscoveryInterval = 30000     -- Slow down to 30s once found
+    local lastCleanup = 0
+    local cleanupInterval = 5000           -- Clean expired requests every 5s
 
     while runningRef.value do
         if kernel.channel then
@@ -130,6 +132,12 @@ function KernelNetwork.loop(kernel, runningRef)
                     if kernel.peripheralClient:getCount() > 0 then
                         periphDiscoveryInterval = maxDiscoveryInterval
                     end
+                end
+
+                -- Clean up expired async requests (prevents memory leaks)
+                if now - lastCleanup > cleanupInterval then
+                    kernel.peripheralClient:cleanupExpired()
+                    lastCleanup = now
                 end
             end
 

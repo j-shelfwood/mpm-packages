@@ -1,7 +1,17 @@
 -- RemoteProxy.lua
 -- Creates a proxy object that looks like a real peripheral
 -- but forwards method calls over the network
--- Includes auto-reconnect with backoff for resilient remote access
+-- Includes result caching for non-blocking reads and auto-reconnect with backoff
+--
+-- CACHE ARCHITECTURE:
+-- Remote peripheral calls are expensive (RPC over ender modem, 50-200ms best case,
+-- 2s timeout worst case). Views call methods every render cycle (1s).
+-- To avoid blocking render paths:
+--   1. First call: blocking RPC to populate initial cache
+--   2. Subsequent calls: return cached value instantly
+--   3. If cache is stale: fire async refresh via network loop, still return cache
+--   4. Cache updated when PERIPH_RESULT arrives via KernelNetwork loop
+-- Result: views always get instant responses, data is at most 1 refresh cycle stale.
 
 local Protocol = mpm('net/Protocol')
 
@@ -10,14 +20,16 @@ local RemoteProxy = {}
 -- Reconnection settings
 local MAX_CONSECUTIVE_FAILURES = 3   -- Disconnect after this many consecutive failures
 local RECONNECT_COOLDOWN_MS = 10000  -- Wait 10 seconds before auto-reconnect attempt
-local RECONNECT_TIMEOUT = 2          -- Seconds for reconnect discovery
 
--- Default RPC timeout in seconds
--- Keep short to avoid blocking render paths - remote calls that fail should fail fast
+-- Cache settings
+local CACHE_TTL_MS = 2000            -- Return cache if fresher than 2s (covers 2 render cycles)
+local CACHE_STALE_MS = 5000          -- Fire async refresh after 5s staleness
+local CACHE_EXPIRE_MS = 30000        -- Discard cache after 30s (peripheral may be gone)
+
+-- Default RPC timeout in seconds (only used for initial blocking call)
 local DEFAULT_TIMEOUT = 2
 
 -- Methods that return large payloads and need extended timeouts
--- Even with host-side stripping, serialization of hundreds of items takes time
 local HEAVY_METHOD_TIMEOUT = {
     getItems = 5,
     getFluids = 5,
@@ -28,6 +40,17 @@ local HEAVY_METHOD_TIMEOUT = {
     getPatterns = 5,
     getCells = 3,
     getDrives = 3,
+}
+
+-- Methods that should never be cached (they perform actions, not reads)
+local NO_CACHE_METHODS = {
+    craftItem = true,
+    exportItem = true,
+    importItem = true,
+    exportFluid = true,
+    importFluid = true,
+    exportItemToPeripheral = true,
+    importItemFromPeripheral = true,
 }
 
 -- Create a proxy for a remote peripheral
@@ -53,25 +76,26 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
     proxy._lastFailureTime = 0
     proxy._reconnecting = false
 
+    -- Result cache: { [methodKey] = { results = {...}, timestamp = epoch_ms } }
+    proxy._cache = {}
+    -- Track in-flight async requests to avoid duplicate sends
+    proxy._pending = {}
+
     -- Auto-reconnect if disconnected and cooldown has elapsed
-    -- @return true if reconnected or already connected
     local function ensureConnected()
         if proxy._connected then
             return true
         end
 
-        -- Check cooldown
         local now = os.epoch("utc")
         if now - proxy._lastFailureTime < RECONNECT_COOLDOWN_MS then
             return false
         end
 
-        -- Prevent re-entrant reconnect attempts
         if proxy._reconnecting then
             return false
         end
 
-        -- Attempt reconnect
         proxy._reconnecting = true
         local found = client:rediscover(name)
         proxy._reconnecting = false
@@ -83,49 +107,126 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
             return true
         end
 
-        -- Reset timer so we don't spam reconnect attempts
         proxy._lastFailureTime = now
         return false
+    end
+
+    -- Build a cache key from method name + args
+    local function cacheKey(methodName, args)
+        if not args or #args == 0 then
+            return methodName
+        end
+        -- Simple key: method_arg1_arg2 (sufficient for peripheral APIs)
+        local parts = { methodName }
+        for _, a in ipairs(args) do
+            table.insert(parts, tostring(a))
+        end
+        return table.concat(parts, "_")
     end
 
     -- Generate method stubs for each available method
     for _, methodName in ipairs(methods) do
         proxy[methodName] = function(...)
-            -- Auto-reconnect if disconnected
             if not ensureConnected() then
                 return nil
             end
 
-            -- Pack arguments
             local args = {...}
-
-            -- Use extended timeout for methods that return large payloads
             local timeout = HEAVY_METHOD_TIMEOUT[methodName] or DEFAULT_TIMEOUT
 
-            -- Call via client
-            local results, err = client:call(hostId, name, methodName, args, timeout)
-
-            if err then
-                proxy._failureCount = proxy._failureCount + 1
-                proxy._lastFailureTime = os.epoch("utc")
-
-                -- Only disconnect after consecutive failures exceed threshold
-                if proxy._failureCount >= MAX_CONSECUTIVE_FAILURES then
-                    proxy._connected = false
+            -- Action methods (craft, export, import) are never cached
+            if NO_CACHE_METHODS[methodName] then
+                local results, err = client:call(proxy._hostId, name, methodName, args, timeout)
+                if err then
+                    proxy._failureCount = proxy._failureCount + 1
+                    proxy._lastFailureTime = os.epoch("utc")
+                    if proxy._failureCount >= MAX_CONSECUTIVE_FAILURES then
+                        proxy._connected = false
+                    end
+                    return nil
+                end
+                proxy._failureCount = 0
+                if results and #results > 0 then
+                    return table.unpack(results)
                 end
                 return nil
             end
 
-            -- Success: reset failure counter
-            proxy._failureCount = 0
+            -- Read methods: use cache-first pattern
+            local key = cacheKey(methodName, args)
+            local now = os.epoch("utc")
+            local cached = proxy._cache[key]
 
-            -- Unpack results
+            -- Return cached value if fresh enough
+            if cached and (now - cached.timestamp) < CACHE_TTL_MS then
+                if cached.results and #cached.results > 0 then
+                    return table.unpack(cached.results)
+                end
+                return nil
+            end
+
+            -- Cache exists but stale: return stale value, fire async refresh
+            if cached and (now - cached.timestamp) < CACHE_EXPIRE_MS then
+                -- Fire async refresh if not already in-flight
+                if not proxy._pending[key] then
+                    proxy._pending[key] = true
+                    client:callAsync(proxy._hostId, name, methodName, args, function(results, err)
+                        proxy._pending[key] = nil
+                        if err then
+                            proxy._failureCount = proxy._failureCount + 1
+                            proxy._lastFailureTime = os.epoch("utc")
+                            if proxy._failureCount >= MAX_CONSECUTIVE_FAILURES then
+                                proxy._connected = false
+                            end
+                            return
+                        end
+                        proxy._failureCount = 0
+                        proxy._cache[key] = {
+                            results = results,
+                            timestamp = os.epoch("utc")
+                        }
+                    end)
+                end
+
+                -- Return stale cached value immediately
+                if cached.results and #cached.results > 0 then
+                    return table.unpack(cached.results)
+                end
+                return nil
+            end
+
+            -- No cache or expired: blocking call to populate initial cache
+            -- This only happens on the very first call per method
+            local results, err = client:call(proxy._hostId, name, methodName, args, timeout)
+
+            if err then
+                proxy._failureCount = proxy._failureCount + 1
+                proxy._lastFailureTime = os.epoch("utc")
+                if proxy._failureCount >= MAX_CONSECUTIVE_FAILURES then
+                    proxy._connected = false
+                end
+                -- Store nil result in cache to avoid retrying immediately
+                proxy._cache[key] = { results = nil, timestamp = now }
+                return nil
+            end
+
+            proxy._failureCount = 0
+            proxy._cache[key] = {
+                results = results,
+                timestamp = now
+            }
+
             if results and #results > 0 then
                 return table.unpack(results)
             end
-
             return nil
         end
+    end
+
+    -- Clear all cached results (e.g., after reconnect)
+    proxy.clearCache = function()
+        proxy._cache = {}
+        proxy._pending = {}
     end
 
     -- Add peripheral-like helper methods
@@ -134,7 +235,6 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
     end
 
     proxy.reconnect = function()
-        -- Force reconnect attempt (ignores cooldown)
         proxy._reconnecting = true
         local found = client:rediscover(name)
         proxy._reconnecting = false
@@ -143,6 +243,7 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
             proxy._connected = true
             proxy._hostId = found.hostId
             proxy._failureCount = 0
+            proxy.clearCache()
         end
         return proxy._connected
     end
