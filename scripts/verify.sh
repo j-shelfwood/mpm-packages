@@ -26,10 +26,6 @@ run_section() {
   log "== $name =="
 }
 
-require_cmd() {
-  command -v "$1" >/dev/null 2>&1
-}
-
 run_section "JSON validation"
 while IFS= read -r file; do
   if jq empty "$file" >/dev/null 2>&1; then
@@ -96,66 +92,11 @@ else
   fail "index.json missing"
 fi
 
-run_section "Lua unit tests"
-if lua tests/lua/run.lua "$ROOT_DIR"; then
-  pass "tests/lua/run.lua"
+run_section "CraftOS integration scenarios"
+if tests/craftos/run_tests.sh; then
+  pass "tests/craftos/run_tests.sh"
 else
-  fail "tests/lua/run.lua"
-fi
-
-run_section "Optional tool checks"
-if require_cmd luacheck; then
-  if [[ -f ".luacheckrc" || -f "luacheckrc" ]]; then
-    if luacheck .; then
-      pass "luacheck"
-    else
-      fail "luacheck"
-    fi
-  else
-    log "[SKIP] luacheck installed but no .luacheckrc found"
-  fi
-else
-  log "[SKIP] luacheck not installed"
-fi
-
-if require_cmd stylua; then
-  if [[ -f ".stylua.toml" || -f "stylua.toml" ]]; then
-    if stylua --check . --exclude tests/; then
-      pass "stylua --check"
-    else
-      fail "stylua --check"
-    fi
-  else
-    log "[SKIP] stylua installed but no stylua.toml found"
-  fi
-else
-  log "[SKIP] stylua not installed"
-fi
-
-CRAFTOS_CMD=""
-if require_cmd craftos; then
-  CRAFTOS_CMD="craftos"
-elif require_cmd craftos-pc; then
-  CRAFTOS_CMD="craftos-pc"
-elif [[ -x "/Applications/CraftOS-PC.app/Contents/MacOS/craftos" ]]; then
-  CRAFTOS_CMD="/Applications/CraftOS-PC.app/Contents/MacOS/craftos"
-fi
-
-if [[ -n "$CRAFTOS_CMD" ]]; then
-  CRAFTOS_DATA_DIR="$ROOT_DIR/.tmp/craftos-ci"
-  mkdir -p "$CRAFTOS_DATA_DIR"
-  if "$CRAFTOS_CMD" \
-      --headless \
-      --directory "$CRAFTOS_DATA_DIR" \
-      --mount-ro "/workspace=$ROOT_DIR" \
-      --exec 'local p=dofile("/workspace/net/Protocol.lua"); local c=dofile("/workspace/net/Crypto.lua"); local t=dofile("/workspace/utils/Text.lua"); local m=p.createMessage(p.MessageType.PING,{}); assert(m.type=="ping"); print("craftos smoke ok"); os.shutdown()' \
-      >/dev/null 2>&1; then
-    pass "$CRAFTOS_CMD headless smoke"
-  else
-    fail "$CRAFTOS_CMD headless smoke"
-  fi
-else
-  log "[SKIP] craftos/craftos-pc not installed"
+  fail "tests/craftos/run_tests.sh"
 fi
 
 log ""

@@ -1,24 +1,18 @@
--- CraftOS-PC CI Startup Script
--- This runs when CraftOS-PC starts in CI environment
--- Mounts the workspace and runs tests
+-- CraftOS-PC CI startup entrypoint
 
--- Check for workspace mount
-if not fs.exists("/workspace") then
+if not fs.exists("/workspace/mpm-packages") then
     print("ERROR: /workspace not mounted")
-    print("Run with: --mount-ro /workspace=<mpm-packages-path>")
+    print("Run with: --mount-ro /workspace=<repo-root>")
     os.shutdown()
 end
 
--- Run test harness
 local ok, err = pcall(function()
-    dofile("/workspace/tests/craftos/test_runner.lua")
+    dofile("/workspace/mpm-packages/tests/craftos/runner.lua")
 end)
 
 if not ok then
-    print("")
-    print("TEST HARNESS ERROR:")
-    print(tostring(err))
-    print("")
+    print("[FAIL] CraftOS test harness crashed")
+    print("       " .. tostring(err))
     print("TESTS FAILED")
 end
 
