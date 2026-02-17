@@ -188,7 +188,10 @@ return BaseView.interactive({
     },
 
     mount = function()
-        return AEInterface.exists()
+        local ok, exists = pcall(function()
+            return AEInterface and AEInterface.exists and AEInterface.exists()
+        end)
+        return ok and exists == true
     end,
 
     init = function(self, config)

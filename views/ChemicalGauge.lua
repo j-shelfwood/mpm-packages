@@ -33,8 +33,11 @@ return BaseView.custom({
     },
 
     mount = function()
-        local exists, bridge = AEInterface.exists()
-        if not exists or not bridge then
+        if not AEInterface or type(AEInterface.exists) ~= "function" then
+            return false
+        end
+        local ok, exists, bridge = pcall(AEInterface.exists)
+        if not ok or not exists or not bridge then
             return false
         end
         local hasChemicals = type(bridge.getChemicals) == "function"

@@ -56,7 +56,17 @@ AEInterface.__index = AEInterface
 -- Check if ME Bridge peripheral exists (local or remote)
 -- @return boolean, peripheral|nil
 function AEInterface.exists()
-    local p = Peripherals.find("me_bridge")
+    if not Peripherals or type(Peripherals.find) ~= "function" then
+        return false, nil
+    end
+
+    local ok, p = pcall(function()
+        return Peripherals.find("me_bridge")
+    end)
+    if not ok then
+        return false, nil
+    end
+
     return p ~= nil, p
 end
 

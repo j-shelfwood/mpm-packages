@@ -23,8 +23,10 @@ return BaseView.grid({
     },
 
     mount = function()
-        local exists, pType = AEInterface.exists()
-        return exists and pType == "me_bridge"
+        local ok, exists = pcall(function()
+            return AEInterface and AEInterface.exists and AEInterface.exists()
+        end)
+        return ok and exists == true
     end,
 
     init = function(self, config)

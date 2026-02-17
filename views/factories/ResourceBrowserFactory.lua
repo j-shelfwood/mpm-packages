@@ -146,7 +146,10 @@ function ResourceBrowserFactory.create(config)
             if config.mountCheck then
                 return config.mountCheck()
             end
-            return AEInterface.exists()
+            local ok, exists = pcall(function()
+                return AEInterface and AEInterface.exists and AEInterface.exists()
+            end)
+            return ok and exists == true
         end,
 
         init = function(self, viewConfig)
