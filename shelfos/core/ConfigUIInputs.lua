@@ -7,8 +7,40 @@ local Text = mpm('utils/Text')
 local Core = mpm('ui/Core')
 local Stepper = mpm('ui/Stepper')
 local Toggle = mpm('ui/Toggle')
+local EventLoop = mpm('ui/EventLoop')
 
 local ConfigUIInputs = {}
+
+local function runConfigDialog(monitor, monitorName, title, renderBody, handleTouch)
+    local _, height = monitor.getSize()
+    local saveY = height - 1
+    local cancelY = height
+
+    while true do
+        Core.clear(monitor)
+        Core.drawBar(monitor, 1, title, Core.COLORS.titleBar, Core.COLORS.titleText)
+
+        renderBody()
+
+        Core.drawBar(monitor, saveY, "Save", Core.COLORS.confirmButton, Core.COLORS.text)
+        Core.drawBar(monitor, cancelY, "Cancel", Core.COLORS.cancelButton, Core.COLORS.text)
+        Core.resetColors(monitor)
+
+        local _, x, y = EventLoop.waitForMonitorTouch(monitorName)
+
+        if y == saveY then
+            return true
+        end
+
+        if y == cancelY then
+            return false
+        end
+
+        if handleTouch then
+            handleTouch(x, y)
+        end
+    end
+end
 
 -- Draw number input using ui/Stepper widget
 -- @param monitor Monitor peripheral
@@ -21,7 +53,7 @@ local ConfigUIInputs = {}
 -- @param largeStep Large step increment (default: 100)
 -- @return Selected value or nil if cancelled
 function ConfigUIInputs.drawNumberInput(monitor, title, currentValue, min, max, presets, step, largeStep)
-    local width, height = monitor.getSize()
+    local width = monitor.getSize()
     local monitorName = peripheral.getName(monitor)
     min = min or 0
     max = max or 999999999
@@ -30,6 +62,7 @@ function ConfigUIInputs.drawNumberInput(monitor, title, currentValue, min, max, 
     largeStep = largeStep or 100
 
     local value = currentValue or presets[1] or 1000
+    local presetBounds = {}
 
     -- Create stepper widget
     local stepperY = 4
@@ -43,12 +76,7 @@ function ConfigUIInputs.drawNumberInput(monitor, title, currentValue, min, max, 
         value = newValue
     end)
 
-    while true do
-        Core.clear(monitor)
-
-        -- Title bar
-        Core.drawBar(monitor, 1, title, Core.COLORS.titleBar, Core.COLORS.titleText)
-
+    local saved = runConfigDialog(monitor, monitorName, title, function()
         -- Current value display (formatted nicely)
         monitor.setTextColor(Core.COLORS.text)
         local valueStr = Text.formatNumber(value, 0)
@@ -66,7 +94,7 @@ function ConfigUIInputs.drawNumberInput(monitor, title, currentValue, min, max, 
 
         local btnY = stepperY + 3
         local btnX = 2
-        local presetBounds = {}
+        presetBounds = {}
 
         for i, preset in ipairs(presets) do
             local label = Text.formatNumber(preset, 0)
@@ -92,31 +120,7 @@ function ConfigUIInputs.drawNumberInput(monitor, title, currentValue, min, max, 
             btnX = btnX + #label + 3
         end
 
-        -- Save/Cancel buttons
-        local saveY = height - 1
-        local cancelY = height
-
-        Core.drawBar(monitor, saveY, "Save", Core.COLORS.confirmButton, Core.COLORS.text)
-        Core.drawBar(monitor, cancelY, "Cancel", Core.COLORS.cancelButton, Core.COLORS.text)
-
-        Core.resetColors(monitor)
-
-        -- Wait for touch on THIS monitor only
-        local event, side, x, y
-        repeat
-            event, side, x, y = os.pullEvent("monitor_touch")
-        until side == monitorName
-
-        -- Save
-        if y == saveY then
-            return value
-        end
-
-        -- Cancel
-        if y == cancelY then
-            return nil
-        end
-
+    end, function(x, y)
         -- Check stepper touch
         if stepper:handleTouch(x, y) then
             value = stepper:getValue()
@@ -130,7 +134,13 @@ function ConfigUIInputs.drawNumberInput(monitor, title, currentValue, min, max, 
                 break
             end
         end
+    end)
+
+    if saved then
+        return value
     end
+
+    return nil
 end
 
 -- Draw boolean toggle using ui/Toggle widget
@@ -139,7 +149,7 @@ end
 -- @param currentValue Current boolean value
 -- @return Selected value or nil if cancelled
 function ConfigUIInputs.drawBooleanInput(monitor, title, currentValue)
-    local width, height = monitor.getSize()
+    local _, height = monitor.getSize()
     local monitorName = peripheral.getName(monitor)
     local value = currentValue or false
 
@@ -149,12 +159,7 @@ function ConfigUIInputs.drawBooleanInput(monitor, title, currentValue)
         value = newValue
     end)
 
-    while true do
-        Core.clear(monitor)
-
-        -- Title bar
-        Core.drawBar(monitor, 1, title, Core.COLORS.titleBar, Core.COLORS.titleText)
-
+    local saved = runConfigDialog(monitor, monitorName, title, function()
         -- Instructions
         monitor.setTextColor(Core.COLORS.textMuted)
         monitor.setCursorPos(2, 3)
@@ -162,37 +167,18 @@ function ConfigUIInputs.drawBooleanInput(monitor, title, currentValue)
 
         -- Render toggle
         toggle:render()
-
-        -- Save/Cancel buttons
-        local saveY = height - 1
-        local cancelY = height
-
-        Core.drawBar(monitor, saveY, "Save", Core.COLORS.confirmButton, Core.COLORS.text)
-        Core.drawBar(monitor, cancelY, "Cancel", Core.COLORS.cancelButton, Core.COLORS.text)
-
-        Core.resetColors(monitor)
-
-        -- Wait for touch on THIS monitor only
-        local event, side, x, y
-        repeat
-            event, side, x, y = os.pullEvent("monitor_touch")
-        until side == monitorName
-
-        -- Save
-        if y == saveY then
-            return value
-        end
-
-        -- Cancel
-        if y == cancelY then
-            return nil
-        end
-
+    end, function(x, y)
         -- Check toggle touch
         if toggle:handleTouch(x, y) then
             value = toggle:getValue()
         end
+    end)
+
+    if saved then
+        return value
     end
+
+    return nil
 end
 
 return ConfigUIInputs

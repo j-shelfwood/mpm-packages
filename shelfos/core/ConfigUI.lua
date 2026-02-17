@@ -11,6 +11,7 @@ local Peripherals = mpm('utils/Peripherals')
 local Text = mpm('utils/Text')
 local Core = mpm('ui/Core')
 local ScrollableList = mpm('ui/ScrollableList')
+local EventLoop = mpm('ui/EventLoop')
 local Inputs = mpm('shelfos/core/ConfigUIInputs')
 -- Note: Uses os.pullEvent directly - each monitor runs in its own coroutine with parallel API
 
@@ -197,10 +198,7 @@ function ConfigUI.drawConfigMenu(monitor, viewName, schema, currentConfig)
         Core.resetColors(monitor)
 
         -- Wait for touch on THIS monitor only
-        local event, side, x, y
-        repeat
-            event, side, x, y = os.pullEvent("monitor_touch")
-        until side == monitorName
+        local _, x, y = EventLoop.waitForMonitorTouch(monitorName)
 
         -- Save
         if y == saveY then
@@ -285,11 +283,11 @@ function ConfigUI.drawConfigMenu(monitor, viewName, schema, currentConfig)
                     -- Handle empty options with informative message
                     if not options or #options == 0 then
                         local Dialog = mpm('ui/Dialog')
-                        Dialog.new(monitor, {
-                            title = field.label or field.key,
-                            message = "No options available.\nCheck peripheral connections.",
-                            buttons = {{ label = "OK", value = true }}
-                        }):show()
+                        Dialog.confirm(
+                            monitor,
+                            field.label or field.key,
+                            "No options available. Check peripheral connections."
+                        )
                     else
                         newValue = ConfigUI.drawPicker(monitor, field.label or field.key, options, config[field.key])
                     end

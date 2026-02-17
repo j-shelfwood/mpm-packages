@@ -7,8 +7,8 @@
 
 local Controller = mpm('ui/Controller')
 local ListSelector = mpm('ui/ListSelector')
+local EventLoop = mpm('ui/EventLoop')
 local Keys = mpm('utils/Keys')
-local EventUtils = mpm('utils/EventUtils')
 local MenuStatus = mpm('shelfos/input/MenuStatus')
 
 local Menu = {}
@@ -234,9 +234,9 @@ function Menu.showLink(config, target)
 
     -- Wait for selection
     while true do
-        local event, p1, p2, p3 = os.pullEvent()
+        local kind, p1, p2 = EventLoop.waitForTouchOrKey(monitorName)
 
-        if event == "key" then
+        if kind == "key" then
             local keyName = keys.getName(p1)
             if keyName then
                 keyName = keyName:lower()
@@ -254,11 +254,11 @@ function Menu.showLink(config, target)
                 end
             end
 
-        elseif event == "monitor_touch" and p1 == monitorName then
+        elseif kind == "touch" then
             -- Check option touches
             for i, opt in ipairs(options) do
                 local y = startY + i - 1
-                if p3 == y then
+                if p2 == y then
                     local selected = opt.value
 
                     if selected == "back" then

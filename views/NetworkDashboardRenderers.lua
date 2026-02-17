@@ -3,20 +3,13 @@
 -- Extracted from NetworkDashboard.lua for maintainability
 
 local Text = mpm('utils/Text')
+local MonitorHelpers = mpm('utils/MonitorHelpers')
 
 local Renderers = {}
 
 -- Draw a horizontal progress bar
 function Renderers.drawProgressBar(monitor, x, y, width, percent, fillColor, emptyColor)
-    local filled = math.floor(width * math.min(1, math.max(0, percent)))
-    local empty = width - filled
-
-    monitor.setCursorPos(x, y)
-    monitor.setBackgroundColor(fillColor)
-    monitor.write(string.rep(" ", filled))
-    monitor.setBackgroundColor(emptyColor)
-    monitor.write(string.rep(" ", empty))
-    monitor.setBackgroundColor(colors.black)
+    MonitorHelpers.drawProgressBar(monitor, x, y, width, percent * 100, fillColor, emptyColor, false)
 end
 
 -- Get color based on percentage (green -> yellow -> red)

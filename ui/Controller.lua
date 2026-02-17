@@ -9,6 +9,7 @@
 local Core = mpm('ui/Core')
 local Keys = mpm('utils/Keys')
 local ListSelector = mpm('ui/ListSelector')
+local EventLoop = mpm('ui/EventLoop')
 
 local Controller = {}
 
@@ -96,16 +97,9 @@ function Controller.showInfo(target, title, lines, opts)
 
     -- Wait for input
     if isMonitor then
-        while true do
-            local event, side = os.pullEvent()
-            if event == "monitor_touch" and side == monitorName then
-                break
-            elseif event == "key" then
-                break
-            end
-        end
+        EventLoop.waitForTouchOrKey(monitorName)
     else
-        os.pullEvent("key")
+        EventLoop.waitForKey()
     end
 end
 
@@ -160,18 +154,18 @@ function Controller.showConfirm(target, title, message, opts)
 
         -- Wait for touch or key
         while true do
-            local event, p1, p2, p3 = os.pullEvent()
+            local kind, p1, p2 = EventLoop.waitForTouchOrKey(monitorName)
 
-            if event == "monitor_touch" and p1 == monitorName then
+            if kind == "touch" then
                 -- Check button bounds
-                if p3 == buttonY then
-                    if p2 >= okX and p2 < okX + 5 then
+                if p2 == buttonY then
+                    if p1 >= okX and p1 < okX + 5 then
                         return true
-                    elseif p2 >= cancelX and p2 < cancelX + 5 then
+                    elseif p1 >= cancelX and p1 < cancelX + 5 then
                         return false
                     end
                 end
-            elseif event == "key" then
+            elseif kind == "key" then
                 local keyName = keys.getName(p1)
                 if keyName then
                     keyName = keyName:lower()
@@ -186,8 +180,8 @@ function Controller.showConfirm(target, title, message, opts)
     else
         -- Terminal: just wait for Y/N key
         while true do
-            local event, key = os.pullEvent("key")
-            local keyName = keys.getName(key)
+            local keyCode = EventLoop.waitForKey()
+            local keyName = keys.getName(keyCode)
             if keyName then
                 keyName = keyName:lower()
                 if keyName == confirmKey then

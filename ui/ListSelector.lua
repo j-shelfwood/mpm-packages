@@ -4,6 +4,7 @@
 -- Extracted from Controller.lua for maintainability
 
 local Keys = mpm('utils/Keys')
+local EventLoop = mpm('ui/EventLoop')
 
 local ListSelector = {}
 
@@ -175,9 +176,9 @@ function ListSelector.show(target, title, options, opts)
     while true do
         render()
 
-        local event, p1, p2, p3 = os.pullEvent()
+        local kind, p1, p2 = EventLoop.waitForTouchOrKey(monitorName)
 
-        if event == "key" then
+        if kind == "key" then
             local keyName = keys.getName(p1)
 
             if keyName then
@@ -207,25 +208,25 @@ function ListSelector.show(target, title, options, opts)
                 end
             end
 
-        elseif event == "monitor_touch" and p1 == monitorName then
+        elseif kind == "touch" then
             local startY, maxVisible = getLayout()
 
             -- Back button (bottom row)
-            if showBack and p3 == height then
+            if showBack and p2 == height then
                 return nil
             end
 
             -- Scroll indicators
-            if p2 == width then
-                if p3 == startY and scrollOffset > 0 then
+            if p1 == width then
+                if p2 == startY and scrollOffset > 0 then
                     scrollOffset = scrollOffset - 1
-                elseif p3 == startY + maxVisible - 1 and scrollOffset + maxVisible < #options then
+                elseif p2 == startY + maxVisible - 1 and scrollOffset + maxVisible < #options then
                     scrollOffset = scrollOffset + 1
                 end
             else
                 -- Option selection
-                if p3 >= startY and p3 < startY + maxVisible then
-                    local optIndex = (p3 - startY + 1) + scrollOffset
+                if p2 >= startY and p2 < startY + maxVisible then
+                    local optIndex = (p2 - startY + 1) + scrollOffset
                     if optIndex >= 1 and optIndex <= #options then
                         return getValue(options[optIndex])
                     end

@@ -4,11 +4,11 @@
   "dependencies": ["utils"],
   "files": [
     "Core.lua",
+    "EventLoop.lua",
     "TermUI.lua",
     "Controller.lua",
     "ListSelector.lua",
     "TouchZones.lua",
-    "Overlay.lua",
     "ModalOverlay.lua",
     "Button.lua",
     "Toggle.lua",

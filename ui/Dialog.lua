@@ -3,7 +3,7 @@
 -- Provides modal dialogs with configurable widgets
 
 local Core = mpm('ui/Core')
-local Overlay = mpm('ui/Overlay')
+local ModalOverlay = mpm('ui/ModalOverlay')
 local Button = mpm('ui/Button')
 
 local Dialog = {}
@@ -15,7 +15,7 @@ Dialog.__index = Dialog
 function Dialog.new(monitor)
     local self = setmetatable({}, Dialog)
     self.monitor = monitor
-    self.overlay = Overlay.new(monitor, {footerHeight = 1})
+    self.title = ""
     self.widgets = {}
     self.result = nil
     self.cancelled = false
@@ -26,7 +26,7 @@ end
 
 -- Set dialog title
 function Dialog:setTitle(title)
-    self.overlay.title = title
+    self.title = title or ""
 end
 
 -- Add a widget to the dialog
@@ -42,35 +42,26 @@ end
 
 -- Render the dialog
 function Dialog:render()
-    -- Build content lines from widget count (for sizing)
-    local contentLines = {}
-    for i = 1, #self.widgets + 2 do  -- +2 for spacing and buttons
-        table.insert(contentLines, "")
-    end
+    -- Retained for API compatibility. Rendering is coordinated by show().
+end
 
-    self.overlay.content = contentLines
-    self.overlay:render()
-
-    -- Render widgets
-    local cx1, cy1, cx2, cy2 = self.overlay:getContentBounds()
+local function renderWithFrame(self, monitor, frame)
+    local contentX = frame.x1 + 1
+    local contentY = frame.y1 + 2
+    local buttonY = frame.y2 - 1
 
     for i, widget in ipairs(self.widgets) do
-        -- Position widget within content area
-        widget.x = cx1
-        widget.y = cy1 + i - 1
+        widget.x = contentX
+        widget.y = contentY + i - 1
         widget:render()
     end
 
-    -- Render OK/Cancel buttons in footer area
-    local fx1, fy1, fx2, fy2 = self.overlay:getFooterBounds()
-    local buttonY = fy1
-
-    self.okButton = Button.confirm(self.monitor, fx1, buttonY, "OK", function()
+    self.okButton = Button.confirm(monitor, frame.x1 + 1, buttonY, "OK", function()
         self.result = self:collectValues()
         self.running = false
     end)
 
-    self.cancelButton = Button.cancel(self.monitor, fx2 - 8, buttonY, "Cancel", function()
+    self.cancelButton = Button.cancel(monitor, frame.x2 - 8, buttonY, "Cancel", function()
         self.cancelled = true
         self.running = false
     end)
@@ -118,25 +109,27 @@ function Dialog:show()
     self.cancelled = false
     self.result = nil
 
-    self:render()
-
-    local monitorName = peripheral.getName(self.monitor)
-
-    while self.running do
-        local event, p1, p2, p3 = os.pullEvent()
-
-        if event == "monitor_touch" and p1 == monitorName then
-            self:handleTouch(p2, p3)
+    local _, monitorHeight = self.monitor.getSize()
+    local result = ModalOverlay.show(self.monitor, {
+        title = self.title,
+        closeOnOutside = false,
+        height = math.min(monitorHeight - 2, math.max(6, #self.widgets + 4)),
+        render = function(monitor, frame)
+            renderWithFrame(self, monitor, frame)
+        end,
+        onTouch = function(_, _, _, x, y)
+            self:handleTouch(x, y)
+            if self.running then
+                return false, nil
+            end
+            if self.cancelled then
+                return true, nil
+            end
+            return true, self.result
         end
-    end
+    })
 
-    self.overlay:hide()
-
-    if self.cancelled then
-        return nil
-    end
-
-    return self.result
+    return result
 end
 
 -- Show a simple confirmation dialog
@@ -145,47 +138,38 @@ end
 -- @param message Message to display
 -- @return true if confirmed, false if cancelled
 function Dialog.confirm(monitor, title, message)
-    local width, height = monitor.getSize()
+    local _, height = monitor.getSize()
+    local state = {}
 
-    Core.clear(monitor)
+    return ModalOverlay.show(monitor, {
+        title = title,
+        closeOnOutside = false,
+        height = math.min(height - 2, 7),
+        render = function(m, frame)
+            local text = Core.truncate(message, frame.width - 2)
+            local textX = frame.x1 + math.floor((frame.width - #text) / 2)
+            local textY = frame.y1 + 2
+            m.setBackgroundColor(colors.gray)
+            m.setTextColor(Core.COLORS.text)
+            m.setCursorPos(textX, textY)
+            m.write(text)
 
-    -- Title bar
-    Core.drawBar(monitor, 1, title, Core.COLORS.titleBar, Core.COLORS.titleText)
-
-    -- Message (centered)
-    local msgY = math.floor(height / 2)
-    monitor.setTextColor(Core.COLORS.text)
-    local msgX = Core.centerX(width, #message)
-    monitor.setCursorPos(msgX, msgY)
-    monitor.write(message)
-
-    -- Buttons
-    local buttonY = msgY + 2
-    local result = nil
-
-    local okButton = Button.confirm(monitor, math.floor(width / 2) - 6, buttonY, "OK", function()
-        result = true
-    end)
-
-    local cancelButton = Button.cancel(monitor, math.floor(width / 2) + 2, buttonY, "Cancel", function()
-        result = false
-    end)
-
-    okButton:render()
-    cancelButton:render()
-
-    local monitorName = peripheral.getName(monitor)
-
-    while result == nil do
-        local event, p1, p2, p3 = os.pullEvent()
-
-        if event == "monitor_touch" and p1 == monitorName then
-            okButton:handleTouch(p2, p3)
-            cancelButton:handleTouch(p2, p3)
+            local buttonY = frame.y2 - 1
+            state.okButton = Button.confirm(m, frame.x1 + 1, buttonY, "OK")
+            state.cancelButton = Button.cancel(m, frame.x2 - 8, buttonY, "Cancel")
+            state.okButton:render()
+            state.cancelButton:render()
+        end,
+        onTouch = function(_, _, _, x, y)
+            if state.okButton and state.okButton:handleTouch(x, y) then
+                return true, true
+            end
+            if state.cancelButton and state.cancelButton:handleTouch(x, y) then
+                return true, false
+            end
+            return false, nil
         end
-    end
-
-    return result
+    })
 end
 
 return Dialog

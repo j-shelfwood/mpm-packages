@@ -7,17 +7,6 @@ local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Yield = mpm('utils/Yield')
 local EnergyInterface = mpm('peripherals/EnergyInterface')
 
--- Draw a mini progress bar
-local function drawMiniBar(monitor, x, y, width, pct, fgColor, bgColor)
-    local filledWidth = math.floor(pct * width)
-    monitor.setCursorPos(x, y)
-    monitor.setBackgroundColor(bgColor or colors.gray)
-    monitor.write(string.rep(" ", width))
-    monitor.setCursorPos(x, y)
-    monitor.setBackgroundColor(fgColor or colors.green)
-    monitor.write(string.rep(" ", filledWidth))
-end
-
 return BaseView.custom({
     sleepTime = 1,
 
@@ -133,7 +122,7 @@ return BaseView.custom({
         -- Progress bar
         local barWidth = self.width - 4
         local barX = 3
-        drawMiniBar(self.monitor, barX, midY + 1, barWidth, totals.percent, colors.green, colors.gray)
+        MonitorHelpers.drawProgressBar(self.monitor, barX, midY + 1, barWidth, totals.percent * 100, colors.green, colors.gray, false)
 
         -- Values
         self.monitor.setBackgroundColor(colors.black)
@@ -183,7 +172,7 @@ return BaseView.custom({
             y = y + 1
 
             -- Progress bar
-            drawMiniBar(self.monitor, 1, y, barWidth, gd.percent, colors.green, colors.gray)
+            MonitorHelpers.drawProgressBar(self.monitor, 1, y, barWidth, gd.percent * 100, colors.green, colors.gray, false)
 
             -- Percentage
             self.monitor.setBackgroundColor(colors.black)

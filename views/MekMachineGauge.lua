@@ -40,15 +40,8 @@ end
 
 -- Draw a progress bar
 local function drawProgressBar(monitor, x, y, width, pct, fgColor, bgColor, label)
+    MonitorHelpers.drawProgressBar(monitor, x, y, width, pct * 100, fgColor or colors.green, bgColor or colors.gray, false)
     local filledWidth = math.floor(pct * width)
-
-    monitor.setCursorPos(x, y)
-    monitor.setBackgroundColor(bgColor or colors.gray)
-    monitor.write(string.rep(" ", width))
-
-    monitor.setCursorPos(x, y)
-    monitor.setBackgroundColor(fgColor or colors.green)
-    monitor.write(string.rep(" ", filledWidth))
 
     -- Label overlay
     if label then
