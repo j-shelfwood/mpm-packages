@@ -7,6 +7,7 @@ local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Yield = mpm('utils/Yield')
 local Peripherals = mpm('utils/Peripherals')
+local Core = mpm('ui/Core')
 
 -- Moon phase names
 local MOON_PHASES = {
@@ -292,18 +293,21 @@ return BaseView.custom({
         local row = 6
 
         -- Weather
-        self.monitor.setTextColor(colors.white)
-        self.monitor.setCursorPos(1, row)
-        self.monitor.write("Weather: ")
         if data.weather == "thunder" then
-            self.monitor.setTextColor(colors.yellow)
-            self.monitor.write("Thunder")
+            Core.drawLabelValue(self.monitor, row, "Weather:", "Thunder", {
+                labelColor = colors.white,
+                valueColor = colors.yellow
+            })
         elseif data.weather == "rain" then
-            self.monitor.setTextColor(colors.lightBlue)
-            self.monitor.write("Rain")
+            Core.drawLabelValue(self.monitor, row, "Weather:", "Rain", {
+                labelColor = colors.white,
+                valueColor = colors.lightBlue
+            })
         else
-            self.monitor.setTextColor(colors.green)
-            self.monitor.write("Clear")
+            Core.drawLabelValue(self.monitor, row, "Weather:", "Clear", {
+                labelColor = colors.white,
+                valueColor = colors.green
+            })
         end
         row = row + 1
 

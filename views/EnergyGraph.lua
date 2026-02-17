@@ -8,6 +8,7 @@ local AEViewSupport = mpm('views/AEViewSupport')
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Yield = mpm('utils/Yield')
+local Core = mpm('ui/Core')
 
 return BaseView.custom({
     sleepTime = 1,
@@ -95,18 +96,15 @@ return BaseView.custom({
         end
 
         -- Row 1: Title and percentage
-        self.monitor.setTextColor(colors.white)
-        self.monitor.setCursorPos(1, 1)
-        self.monitor.write("AE2 Energy")
-
         local pctStr = string.format("%.1f%%", data.percentage)
-        self.monitor.setTextColor(barColor)
-        self.monitor.setCursorPos(math.max(1, self.width - #pctStr + 1), 1)
-        self.monitor.write(pctStr)
+        Core.drawLabelValue(self.monitor, 1, "AE2 Energy", pctStr, {
+            labelColor = colors.white,
+            valueColor = barColor
+        })
 
         -- Row 2: Stats
-        self.monitor.setTextColor(colors.lightGray)
         local statsStr = Text.formatNumber(data.stored, 1) .. " / " .. Text.formatNumber(data.capacity, 1) .. " AE"
+        self.monitor.setTextColor(colors.lightGray)
         self.monitor.setCursorPos(1, 2)
         self.monitor.write(Text.truncateMiddle(statsStr, self.width))
 

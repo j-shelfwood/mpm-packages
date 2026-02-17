@@ -7,6 +7,7 @@ local AEViewSupport = mpm('views/AEViewSupport')
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Yield = mpm('utils/Yield')
+local Core = mpm('ui/Core')
 
 return BaseView.custom({
     sleepTime = 2,
@@ -126,15 +127,16 @@ return BaseView.custom({
             local intPct = stats.internal_total > 0 and (stats.internal_used / stats.internal_total * 100) or 0
             local intColor = getUsageColor(intPct)
 
-            self.monitor.setTextColor(colors.lightGray)
-            MonitorHelpers.writeAt(self.monitor, 2, y, "Internal:")
-
             local usedStr = Text.formatNumber(stats.internal_used, 1) .. "B"
             local totalStr = Text.formatNumber(stats.internal_total, 1) .. "B"
             local infoStr = usedStr .. " / " .. totalStr
 
-            self.monitor.setTextColor(colors.gray)
-            MonitorHelpers.writeAt(self.monitor, self.width - #infoStr + 1, y, infoStr)
+            Core.drawLabelValue(self.monitor, y, "Internal:", infoStr, {
+                x = 2,
+                width = self.width - 1,
+                labelColor = colors.lightGray,
+                valueColor = colors.gray
+            })
             y = y + 1
 
             -- Internal progress bar
@@ -148,15 +150,16 @@ return BaseView.custom({
                 local extPct = (stats.external_used / stats.external_total * 100)
                 local extColor = getUsageColor(extPct)
 
-                self.monitor.setTextColor(colors.lightGray)
-                MonitorHelpers.writeAt(self.monitor, 2, y, "External:")
-
                 usedStr = Text.formatNumber(stats.external_used, 1) .. "B"
                 totalStr = Text.formatNumber(stats.external_total, 1) .. "B"
                 infoStr = usedStr .. " / " .. totalStr
 
-                self.monitor.setTextColor(colors.gray)
-                MonitorHelpers.writeAt(self.monitor, self.width - #infoStr + 1, y, infoStr)
+                Core.drawLabelValue(self.monitor, y, "External:", infoStr, {
+                    x = 2,
+                    width = self.width - 1,
+                    labelColor = colors.lightGray,
+                    valueColor = colors.gray
+                })
                 y = y + 1
 
                 -- External progress bar
@@ -196,12 +199,12 @@ return BaseView.custom({
             local totalPct = totalCapacity > 0 and (totalUsed / totalCapacity * 100) or 0
             local totalColor = getUsageColor(totalPct)
 
-            self.monitor.setTextColor(colors.white)
-            MonitorHelpers.writeAt(self.monitor, 1, self.height - 2, "Total:")
-
             self.monitor.setTextColor(totalColor)
             local pctStr = string.format("%.1f%%", totalPct)
-            MonitorHelpers.writeAt(self.monitor, self.width - #pctStr + 1, self.height - 2, pctStr)
+            Core.drawLabelValue(self.monitor, self.height - 2, "Total:", pctStr, {
+                labelColor = colors.white,
+                valueColor = totalColor
+            })
 
             -- Total progress bar
             if self.width >= 10 then

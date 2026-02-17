@@ -140,4 +140,37 @@ function Core.clear(monitor)
     monitor.clear()
 end
 
+-- Draw left label and right value on the same row.
+-- @param monitor Monitor peripheral
+-- @param y Row number
+-- @param label Left text
+-- @param value Right text
+-- @param opts Optional table: {x, width, gap, labelColor, valueColor}
+-- @return valueX Start x-position for value
+function Core.drawLabelValue(monitor, y, label, value, opts)
+    opts = opts or {}
+    local x = opts.x or 1
+    local width = opts.width or select(1, monitor.getSize())
+    local gap = opts.gap or 1
+    local labelColor = opts.labelColor or Core.COLORS.text
+    local valueColor = opts.valueColor or Core.COLORS.text
+
+    label = tostring(label or "")
+    value = tostring(value or "")
+
+    local maxLabelLen = math.max(0, width - #value - gap)
+    local displayLabel = Core.truncate(label, maxLabelLen)
+    local valueX = x + width - #value
+
+    monitor.setTextColor(labelColor)
+    monitor.setCursorPos(x, y)
+    monitor.write(displayLabel)
+
+    monitor.setTextColor(valueColor)
+    monitor.setCursorPos(valueX, y)
+    monitor.write(value)
+
+    return valueX
+end
+
 return Core
