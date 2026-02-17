@@ -8,6 +8,7 @@ local Manager = {}
 
 -- Cache of loaded views
 local viewCache = {}
+local mountErrorCache = {}
 
 -- Get list of all available views from manifest
 function Manager.getAvailableViews()
@@ -68,7 +69,11 @@ function Manager.load(viewName)
 
     -- Validate that this is actually a view module (must have new function)
     if not View or type(View) ~= "table" or type(View.new) ~= "function" then
-        print("[ViewManager] Invalid view module: " .. viewName .. " (missing new function)")
+        if View == nil then
+            print("[ViewManager] Invalid view module: " .. viewName .. " (module returned nil; check /mpm/Packages install alignment)")
+        else
+            print("[ViewManager] Invalid view module: " .. viewName .. " (missing new function)")
+        end
         return nil
     end
 
@@ -91,9 +96,14 @@ function Manager.canMount(viewName)
 
     local ok, result = pcall(View.mount)
     if not ok then
-        print("[ViewManager] Mount error for " .. viewName .. ": " .. tostring(result))
+        local err = tostring(result)
+        if mountErrorCache[viewName] ~= err then
+            print("[ViewManager] Mount error for " .. viewName .. ": " .. err)
+            mountErrorCache[viewName] = err
+        end
         return false
     end
+    mountErrorCache[viewName] = nil
     return result
 end
 
@@ -133,6 +143,7 @@ end
 -- Clear view cache (for reloading)
 function Manager.clearCache()
     viewCache = {}
+    mountErrorCache = {}
 end
 
 -- Create a view instance
