@@ -13,9 +13,10 @@
 -- }
 
 local BaseView = mpm('views/BaseView')
-local AEInterface = mpm('peripherals/AEInterface')
+local AEViewSupport = mpm('views/AEViewSupport')
 local Text = mpm('utils/Text')
 local Core = mpm('ui/Core')
+local ModalOverlay = mpm('ui/ModalOverlay')
 
 -- Helper functions
 local function getDisplayName(pattern)
@@ -66,108 +67,75 @@ end
 
 -- Pattern detail overlay (blocking)
 local function showPatternDetail(self, pattern)
-    local monitor = self.monitor
-    local width, height = monitor.getSize()
+    ModalOverlay.show(self, {
+        maxWidth = 35,
+        maxHeight = 12,
+        title = getDisplayName(pattern),
+        titleBackgroundColor = colors.lightGray,
+        titleTextColor = colors.black,
+        closeOnOutside = true,
+        render = function(monitor, frame, state, addAction)
+            local contentY = frame.y1 + 2
+            local contentWidth = frame.width - 2
 
-    -- Calculate overlay bounds
-    local overlayWidth = math.min(width - 2, 35)
-    local overlayHeight = math.min(height - 2, 12)
-    local x1 = math.floor((width - overlayWidth) / 2) + 1
-    local y1 = math.floor((height - overlayHeight) / 2) + 1
-    local x2 = x1 + overlayWidth - 1
-    local y2 = y1 + overlayHeight - 1
-
-    -- Use stored peripheral name (monitor is a window buffer, not a peripheral)
-    local monitorName = self.peripheralName
-
-    while true do
-        -- Draw background
-        monitor.setBackgroundColor(colors.gray)
-        for y = y1, y2 do
-            monitor.setCursorPos(x1, y)
-            monitor.write(string.rep(" ", overlayWidth))
-        end
-
-        -- Title bar
-        local displayName = getDisplayName(pattern)
-        monitor.setBackgroundColor(colors.lightGray)
-        monitor.setTextColor(colors.black)
-        monitor.setCursorPos(x1, y1)
-        monitor.write(string.rep(" ", overlayWidth))
-        monitor.setCursorPos(x1 + 1, y1)
-        monitor.write(Core.truncate(displayName, overlayWidth - 2))
-
-        -- Content
-        monitor.setBackgroundColor(colors.gray)
-        local contentY = y1 + 2
-        local contentWidth = overlayWidth - 2
-
-        -- Pattern type
-        local patternType = pattern.patternType or "unknown"
-        monitor.setTextColor(getPatternTypeColor(patternType))
-        monitor.setCursorPos(x1 + 1, contentY)
-        monitor.write("Type: " .. patternType)
-        contentY = contentY + 1
-
-        -- Output count
-        local outputCount = getOutputCount(pattern)
-        if outputCount then
-            monitor.setTextColor(colors.white)
-            monitor.setCursorPos(x1 + 1, contentY)
-            monitor.write("Output: x" .. Text.formatNumber(outputCount, 0))
+            local patternType = pattern.patternType or "unknown"
+            monitor.setTextColor(getPatternTypeColor(patternType))
+            monitor.setCursorPos(frame.x1 + 1, contentY)
+            monitor.write("Type: " .. patternType)
             contentY = contentY + 1
-        end
 
-        -- Inputs header
-        monitor.setTextColor(colors.cyan)
-        monitor.setCursorPos(x1 + 1, contentY)
-        monitor.write("Inputs (" .. countInputs(pattern) .. "):")
-        contentY = contentY + 1
-
-        -- List inputs (up to available space)
-        local maxInputs = y2 - contentY - 1  -- Leave room for close button
-        if pattern.inputs then
-            for i = 1, math.min(#pattern.inputs, maxInputs) do
-                local input = pattern.inputs[i]
-                local inputName = "?"
-                local inputCount = 1
-
-                if input.primaryInput then
-                    inputName = input.primaryInput.displayName or input.primaryInput.name or "?"
-                    inputCount = input.primaryInput.count or 1
-                end
-
-                monitor.setTextColor(colors.lightGray)
-                monitor.setCursorPos(x1 + 2, contentY)
-                local inputText = "- " .. Core.truncate(inputName, contentWidth - 8) .. " x" .. inputCount
-                monitor.write(inputText)
+            local outputCount = getOutputCount(pattern)
+            if outputCount then
+                monitor.setTextColor(colors.white)
+                monitor.setCursorPos(frame.x1 + 1, contentY)
+                monitor.write("Output: x" .. Text.formatNumber(outputCount, 0))
                 contentY = contentY + 1
             end
 
-            if #pattern.inputs > maxInputs then
-                monitor.setTextColor(colors.gray)
-                monitor.setCursorPos(x1 + 2, contentY)
-                monitor.write("+" .. (#pattern.inputs - maxInputs) .. " more...")
+            monitor.setTextColor(colors.cyan)
+            monitor.setCursorPos(frame.x1 + 1, contentY)
+            monitor.write("Inputs (" .. countInputs(pattern) .. "):")
+            contentY = contentY + 1
+
+            local maxInputs = frame.y2 - contentY - 1
+            if pattern.inputs then
+                for i = 1, math.min(#pattern.inputs, maxInputs) do
+                    local input = pattern.inputs[i]
+                    local inputName = "?"
+                    local inputCount = 1
+                    if input.primaryInput then
+                        inputName = input.primaryInput.displayName or input.primaryInput.name or "?"
+                        inputCount = input.primaryInput.count or 1
+                    end
+
+                    monitor.setTextColor(colors.lightGray)
+                    monitor.setCursorPos(frame.x1 + 2, contentY)
+                    monitor.write("- " .. Core.truncate(inputName, contentWidth - 8) .. " x" .. inputCount)
+                    contentY = contentY + 1
+                end
+
+                if #pattern.inputs > maxInputs then
+                    monitor.setTextColor(colors.gray)
+                    monitor.setCursorPos(frame.x1 + 2, contentY)
+                    monitor.write("+" .. (#pattern.inputs - maxInputs) .. " more...")
+                end
             end
-        end
 
-        -- Close button
-        monitor.setTextColor(colors.red)
-        monitor.setCursorPos(x1 + math.floor((overlayWidth - 7) / 2), y2 - 1)
-        monitor.write("[Close]")
-
-        Core.resetColors(monitor)
-
-        -- Wait for touch
-        local event, side, tx, ty = os.pullEvent("monitor_touch")
-
-        if side == monitorName then
-            -- Close button or outside overlay
-            if ty == y2 - 1 or tx < x1 or tx > x2 or ty < y1 or ty > y2 then
-                return
+            local closeLabel = "[Close]"
+            local closeX = frame.x1 + math.floor((frame.width - #closeLabel) / 2)
+            local closeY = frame.y2 - 1
+            monitor.setTextColor(colors.red)
+            monitor.setCursorPos(closeX, closeY)
+            monitor.write(closeLabel)
+            addAction("close", closeX, closeY, closeX + #closeLabel - 1, closeY)
+        end,
+        onTouch = function(monitor, frame, state, tx, ty, action)
+            if action == "close" then
+                return true
             end
+            return false
         end
-    end
+    })
 end
 
 return BaseView.interactive({
@@ -188,26 +156,18 @@ return BaseView.interactive({
     },
 
     mount = function()
-        local ok, exists = pcall(function()
-            return AEInterface and AEInterface.exists and AEInterface.exists()
-        end)
-        return ok and exists == true
-    end,
+            return AEViewSupport.mount()
+        end,
 
     init = function(self, config)
-        local ok, interface = pcall(function() return AEInterface and AEInterface.new and AEInterface.new() end)
-        self.interface = ok and interface or nil
+        AEViewSupport.init(self)
         self.sortBy = config.sortBy or "output"
         self.totalPatterns = 0
     end,
 
     getData = function(self)
         -- Lazy re-init: retry if host not yet discovered at init time
-        if not self.interface then
-            local ok, interface = pcall(function() return AEInterface and AEInterface.new and AEInterface.new() end)
-            self.interface = ok and interface or nil
-        end
-        if not self.interface then return nil end
+        if not AEViewSupport.ensureInterface(self) then return nil end
 
         local patterns = self.interface:getPatterns()
         if not patterns then return {} end

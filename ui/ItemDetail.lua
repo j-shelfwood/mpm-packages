@@ -5,6 +5,7 @@
 
 local Core = mpm('ui/Core')
 local Text = mpm('utils/Text')
+local EventUtils = mpm('utils/EventUtils')
 
 local ItemDetail = {}
 ItemDetail.__index = ItemDetail
@@ -201,7 +202,7 @@ function ItemDetail:show()
     while true do
         self:render()
 
-        local event, side, x, y = os.pullEvent("monitor_touch")
+        local side, x, y = EventUtils.waitForTouch(monitorName)
 
         if side == monitorName then
             local result = self:handleTouch(x, y)

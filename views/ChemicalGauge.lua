@@ -4,7 +4,7 @@
 -- Touch to craft when craftable
 
 local BaseView = mpm('views/BaseView')
-local AEInterface = mpm('peripherals/AEInterface')
+local AEViewSupport = mpm('views/AEViewSupport')
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local CraftDialog = mpm('ui/CraftDialog')
@@ -33,20 +33,16 @@ return BaseView.custom({
     },
 
     mount = function()
-        if not AEInterface or type(AEInterface.exists) ~= "function" then
+        if not AEViewSupport.mount() then
             return false
         end
-        local ok, exists, bridge = pcall(AEInterface.exists)
-        if not ok or not exists or not bridge then
-            return false
-        end
-        local hasChemicals = type(bridge.getChemicals) == "function"
-        return hasChemicals
+        local probe = {}
+        local interface = AEViewSupport.init(probe)
+        return interface ~= nil and interface:hasChemicalSupport() == true
     end,
 
     init = function(self, config)
-        local ok, interface = pcall(function() return AEInterface and AEInterface.new and AEInterface.new() end)
-        self.interface = ok and interface or nil
+        AEViewSupport.init(self)
         self.chemicalId = config.chemical
         self.warningBelow = config.warningBelow or 1000
         self.history = {}
@@ -56,11 +52,7 @@ return BaseView.custom({
 
     getData = function(self)
         -- Lazy re-init: retry if host not yet discovered at init time
-        if not self.interface then
-            local ok, interface = pcall(function() return AEInterface and AEInterface.new and AEInterface.new() end)
-            self.interface = ok and interface or nil
-        end
-        if not self.interface then return nil end
+        if not AEViewSupport.ensureInterface(self) then return nil end
         if not self.chemicalId then return nil end
 
         if not self.interface:hasChemicalSupport() then

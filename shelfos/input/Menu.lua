@@ -3,13 +3,12 @@
 -- Uses Controller abstraction for unified terminal/monitor support
 --
 -- Split modules:
---   MenuViewSelector.lua - View selection UI
 --   MenuStatus.lua - Status dialog rendering
 
 local Controller = mpm('ui/Controller')
+local ListSelector = mpm('ui/ListSelector')
 local Keys = mpm('utils/Keys')
 local EventUtils = mpm('utils/EventUtils')
-local MenuViewSelector = mpm('shelfos/input/MenuViewSelector')
 local MenuStatus = mpm('shelfos/input/MenuStatus')
 
 local Menu = {}
@@ -98,13 +97,47 @@ function Menu.showMonitors(monitors, availableViews, target)
 end
 
 -- Show view selection for a specific monitor
--- Delegates to MenuViewSelector module
 -- @param monitor Monitor instance
 -- @param availableViews Array of view names
 -- @param target Term-like object (default: term.current())
 -- @return Selected view name or nil if cancelled
 function Menu.showViewSelect(monitor, availableViews, target)
-    return MenuViewSelector.show(monitor, availableViews, target)
+    target = target or term.current()
+
+    if #availableViews == 0 then
+        Controller.showInfo(target, "Select View", {
+            "",
+            "No views available.",
+            "",
+            "Check that view modules are installed."
+        })
+        return nil
+    end
+
+    local currentView = monitor:getViewName()
+    local currentIndex = 1
+    local options = {}
+
+    for i, view in ipairs(availableViews) do
+        if view == currentView then
+            currentIndex = i
+        end
+        local marker = (view == currentView) and " *" or ""
+        table.insert(options, { value = view, label = view .. marker })
+    end
+
+    local shortcuts = {
+        n = availableViews[(currentIndex % #availableViews) + 1],
+        p = availableViews[((currentIndex - 2 + #availableViews) % #availableViews) + 1]
+    }
+
+    return ListSelector.show(target, "Select View", options, {
+        selected = currentView,
+        showNumbers = true,
+        showBack = true,
+        formatFn = function(opt) return opt.label end,
+        shortcuts = shortcuts
+    })
 end
 
 -- Show reset confirmation dialog

@@ -3,7 +3,7 @@
 -- Configurable: storage type (items, fluids, both)
 
 local BaseView = mpm('views/BaseView')
-local AEInterface = mpm('peripherals/AEInterface')
+local AEViewSupport = mpm('views/AEViewSupport')
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Yield = mpm('utils/Yield')
@@ -26,15 +26,11 @@ return BaseView.custom({
     },
 
     mount = function()
-        local ok, exists = pcall(function()
-            return AEInterface and AEInterface.exists and AEInterface.exists()
-        end)
-        return ok and exists == true
-    end,
+            return AEViewSupport.mount()
+        end,
 
     init = function(self, config)
-        local ok, interface = pcall(function() return AEInterface and AEInterface.new and AEInterface.new() end)
-        self.interface = ok and interface or nil
+        AEViewSupport.init(self)
         self.storageType = config.storageType or "items"
         self.history = {}
         self.maxHistory = self.width
@@ -42,11 +38,7 @@ return BaseView.custom({
 
     getData = function(self)
         -- Lazy re-init: retry if host not yet discovered at init time
-        if not self.interface then
-            local ok, interface = pcall(function() return AEInterface and AEInterface.new and AEInterface.new() end)
-            self.interface = ok and interface or nil
-        end
-        if not self.interface then return nil end
+        if not AEViewSupport.ensureInterface(self) then return nil end
 
         -- Get storage data (with yields after peripheral calls)
         local used, total = 0, 0

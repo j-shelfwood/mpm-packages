@@ -6,7 +6,7 @@ local BaseView = mpm('views/BaseView')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Text = mpm('utils/Text')
 local Core = mpm('ui/Core')
-local Overlay = mpm('ui/Overlay')
+local ModalOverlay = mpm('ui/ModalOverlay')
 local Yield = mpm('utils/Yield')
 local Activity = mpm('peripherals/MachineActivity')
 
@@ -130,40 +130,49 @@ local function buildDetailLines(machine)
 end
 
 local function showDetailOverlay(self, machine)
-    local monitor = self.monitor
-    local overlay = Overlay.new(monitor, { footerHeight = 1 })
     local title = Text.truncateMiddle(machine.fullLabel or machine.shortName or "Machine", self.width - 4)
     local lines = buildDetailLines(machine)
     local maxLines = math.max(4, math.min(#lines, self.height - 6))
-
     if #lines > maxLines then
         local remaining = #lines - maxLines
         lines = { table.unpack(lines, 1, maxLines) }
         table.insert(lines, { text = "+" .. remaining .. " more...", color = colors.gray })
     end
 
-    overlay:show(title, lines)
-
-    local x1, y1, x2, y2 = overlay:getBounds()
-    local fx1, fy1 = overlay:getFooterBounds()
-
-    monitor.setBackgroundColor(colors.gray)
-    monitor.setTextColor(colors.red)
-    monitor.setCursorPos(fx1, fy1)
-    monitor.write("[Close]")
-    Core.resetColors(monitor)
-
-    local monitorName = self.peripheralName
-    while true do
-        local event, side, x, y = os.pullEvent("monitor_touch")
-        if side == monitorName then
-            if (y == fy1 and x >= fx1 and x <= fx1 + 6) or
-               x < x1 or x > x2 or y < y1 or y > y2 then
-                overlay:hide()
-                return
+    ModalOverlay.show(self, {
+        maxWidth = self.width - 2,
+        maxHeight = maxLines + 4,
+        title = title,
+        titleBackgroundColor = colors.lightGray,
+        titleTextColor = colors.black,
+        closeOnOutside = true,
+        render = function(monitor, frame, state, addAction)
+            local y = frame.y1 + 2
+            for _, line in ipairs(lines) do
+                local text = line.text or ""
+                local color = line.color or colors.white
+                if y < frame.y2 - 1 then
+                    monitor.setTextColor(color)
+                    monitor.setCursorPos(frame.x1 + 1, y)
+                    monitor.write(Core.truncate(text, frame.width - 2))
+                end
+                y = y + 1
             end
+
+            local closeX = frame.x1 + 1
+            local closeY = frame.y2 - 1
+            monitor.setTextColor(colors.red)
+            monitor.setCursorPos(closeX, closeY)
+            monitor.write("[Close]")
+            addAction("close", closeX, closeY, closeX + 6, closeY)
+        end,
+        onTouch = function(monitor, frame, state, tx, ty, action)
+            if action == "close" then
+                return true
+            end
+            return false
         end
-    end
+    })
 end
 
 return BaseView.interactive({

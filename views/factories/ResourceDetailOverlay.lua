@@ -1,14 +1,12 @@
 -- ResourceDetailOverlay.lua
 -- Resource detail overlay for ResourceBrowserFactory
--- Shows resource info with optional crafting controls
--- Extracted from ResourceBrowserFactory.lua for maintainability
 
 local Text = mpm('utils/Text')
 local Core = mpm('ui/Core')
+local ModalOverlay = mpm('ui/ModalOverlay')
 
 local ResourceDetailOverlay = {}
 
--- Generate craft amount labels
 local function generateCraftLabels(amounts, unitDivisor, unitLabel)
     local labels = {}
     for _, amt in ipairs(amounts) do
@@ -18,183 +16,132 @@ local function generateCraftLabels(amounts, unitDivisor, unitLabel)
     return labels
 end
 
--- Show resource detail overlay (blocking)
--- @param self View instance (needs monitor, peripheralName)
--- @param resource Resource data
--- @param config Factory config
 function ResourceDetailOverlay.show(self, resource, config)
-    local monitor = self.monitor
-    local width, height = monitor.getSize()
+    local state = {
+        craftAmount = config.craftAmounts[1],
+        statusMessage = nil,
+        statusColor = colors.gray,
+        craftLabels = config.craftLabels or generateCraftLabels(config.craftAmounts, config.unitDivisor, config.unitLabel)
+    }
 
-    -- Calculate overlay bounds
-    local overlayWidth = math.min(width - 2, 30)
-    local overlayHeight = math.min(height - 2, 10)
-    local x1 = math.floor((width - overlayWidth) / 2) + 1
-    local y1 = math.floor((height - overlayHeight) / 2) + 1
-    local x2 = x1 + overlayWidth - 1
-    local y2 = y1 + overlayHeight - 1
+    ModalOverlay.show(self, {
+        maxWidth = 30,
+        maxHeight = 10,
+        title = resource.displayName or Text.prettifyName(resource[config.idField] or "Unknown"),
+        titleBackgroundColor = config.titleColor,
+        titleTextColor = colors.black,
+        closeOnOutside = true,
+        state = state,
+        render = function(monitor, frame, state, addAction)
+            local contentY = frame.y1 + 2
+            local rawAmount = resource[config.amountField] or 0
+            local displayAmount = rawAmount / config.unitDivisor
+            local amountColor = config.highlightColor
+            if displayAmount == 0 then
+                amountColor = colors.red
+            elseif displayAmount < config.lowThreshold then
+                amountColor = colors.orange
+            end
 
-    local monitorName = self.peripheralName
-    local craftAmountIndex = 1
-    local craftAmount = config.craftAmounts[1]
-    local statusMessage = nil
-    local statusColor = colors.gray
-
-    -- Get labels
-    local craftLabels = config.craftLabels or
-        generateCraftLabels(config.craftAmounts, config.unitDivisor, config.unitLabel)
-
-    while true do
-        -- Draw background
-        monitor.setBackgroundColor(colors.gray)
-        for y = y1, y2 do
-            monitor.setCursorPos(x1, y)
-            monitor.write(string.rep(" ", overlayWidth))
-        end
-
-        -- Title bar
-        local displayName = resource.displayName or Text.prettifyName(resource[config.idField] or "Unknown")
-        monitor.setBackgroundColor(config.titleColor)
-        monitor.setTextColor(colors.black)
-        monitor.setCursorPos(x1, y1)
-        monitor.write(string.rep(" ", overlayWidth))
-        monitor.setCursorPos(x1 + 1, y1)
-        monitor.write(Core.truncate(displayName, overlayWidth - 2))
-
-        -- Content
-        monitor.setBackgroundColor(colors.gray)
-        local contentY = y1 + 2
-
-        -- Current amount
-        local rawAmount = resource[config.amountField] or 0
-        local displayAmount = rawAmount / config.unitDivisor
-        local amountColor = config.highlightColor
-        if displayAmount == 0 then
-            amountColor = colors.red
-        elseif displayAmount < config.lowThreshold then
-            amountColor = colors.orange
-        end
-
-        monitor.setTextColor(colors.white)
-        monitor.setCursorPos(x1 + 1, contentY)
-        monitor.write(config.amountLabel or "Stock: ")
-        monitor.setTextColor(amountColor)
-        local amountStr = Text.formatNumber(displayAmount, 0)
-        if config.unitLabel ~= "" then
-            amountStr = amountStr .. " " .. config.unitLabel
-        end
-        monitor.write(amountStr)
-        contentY = contentY + 1
-
-        -- Registry name
-        local registryName = resource[config.idField]
-        if registryName then
-            monitor.setTextColor(colors.lightGray)
-            monitor.setCursorPos(x1 + 1, contentY)
-            monitor.write(Core.truncate(registryName, overlayWidth - 2))
-            contentY = contentY + 1
-        end
-
-        -- Craftable indicator and amount selector
-        local isCraftable = resource.isCraftable or config.alwaysCraftable
-        local amountSelectorY = contentY
-        if isCraftable then
-            contentY = contentY + 1
-            amountSelectorY = contentY
             monitor.setTextColor(colors.white)
-            monitor.setCursorPos(x1 + 1, contentY)
-            monitor.write("Craft: ")
+            monitor.setCursorPos(frame.x1 + 1, contentY)
+            monitor.write(config.amountLabel or "Stock: ")
+            monitor.setTextColor(amountColor)
+            local amountStr = Text.formatNumber(displayAmount, 0)
+            if config.unitLabel ~= "" then amountStr = amountStr .. " " .. config.unitLabel end
+            monitor.write(amountStr)
+            contentY = contentY + 1
 
-            -- Amount buttons
-            local buttonX = x1 + 8
-            for i, amt in ipairs(config.craftAmounts) do
-                local label = craftLabels[i]
-                if amt == craftAmount then
-                    monitor.setBackgroundColor(colors.cyan)
-                    monitor.setTextColor(colors.black)
-                else
-                    monitor.setBackgroundColor(colors.lightGray)
-                    monitor.setTextColor(colors.gray)
+            local registryName = resource[config.idField]
+            if registryName then
+                monitor.setTextColor(colors.lightGray)
+                monitor.setCursorPos(frame.x1 + 1, contentY)
+                monitor.write(Core.truncate(registryName, frame.width - 2))
+                contentY = contentY + 1
+            end
+
+            local isCraftable = resource.isCraftable or config.alwaysCraftable
+            if isCraftable then
+                contentY = contentY + 1
+                monitor.setTextColor(colors.white)
+                monitor.setCursorPos(frame.x1 + 1, contentY)
+                monitor.write("Craft: ")
+
+                local buttonX = frame.x1 + 8
+                for i, amt in ipairs(config.craftAmounts) do
+                    local label = state.craftLabels[i]
+                    if amt == state.craftAmount then
+                        monitor.setBackgroundColor(colors.cyan)
+                        monitor.setTextColor(colors.black)
+                    else
+                        monitor.setBackgroundColor(colors.lightGray)
+                        monitor.setTextColor(colors.gray)
+                    end
+                    monitor.setCursorPos(buttonX, contentY)
+                    monitor.write(" " .. label .. " ")
+                    addAction("amt:" .. i, buttonX, contentY, buttonX + #label + 1, contentY)
+                    buttonX = buttonX + #label + 3
                 end
-                monitor.setCursorPos(buttonX, contentY)
-                monitor.write(" " .. label .. " ")
-                buttonX = buttonX + #label + 3
-            end
-        end
-
-        -- Status message
-        if statusMessage then
-            monitor.setBackgroundColor(colors.gray)
-            monitor.setTextColor(statusColor)
-            monitor.setCursorPos(x1 + 1, y2 - 2)
-            monitor.write(Core.truncate(statusMessage, overlayWidth - 2))
-        end
-
-        -- Action buttons
-        local buttonY = y2 - 1
-        monitor.setBackgroundColor(colors.gray)
-
-        -- Craft button (only if craftable)
-        if isCraftable then
-            monitor.setTextColor(colors.lime)
-            monitor.setCursorPos(x1 + 2, buttonY)
-            monitor.write("[Craft]")
-        end
-
-        -- Close button
-        monitor.setTextColor(colors.red)
-        monitor.setCursorPos(x2 - 7, buttonY)
-        monitor.write("[Close]")
-
-        Core.resetColors(monitor)
-
-        -- Wait for touch
-        local event, side, tx, ty = os.pullEvent("monitor_touch")
-
-        if side == monitorName then
-            -- Close button or outside overlay
-            if (ty == buttonY and tx >= x2 - 7 and tx <= x2 - 1) or
-               tx < x1 or tx > x2 or ty < y1 or ty > y2 then
-                return
+                monitor.setBackgroundColor(colors.gray)
             end
 
-            -- Craft button
-            if isCraftable and ty == buttonY and tx >= x1 + 2 and tx <= x1 + 8 then
+            if state.statusMessage then
+                monitor.setTextColor(state.statusColor)
+                monitor.setCursorPos(frame.x1 + 1, frame.y2 - 2)
+                monitor.write(Core.truncate(state.statusMessage, frame.width - 2))
+            end
+
+            local buttonY = frame.y2 - 1
+            if isCraftable then
+                local craftX = frame.x1 + 2
+                monitor.setTextColor(colors.lime)
+                monitor.setCursorPos(craftX, buttonY)
+                monitor.write("[Craft]")
+                addAction("craft", craftX, buttonY, craftX + 6, buttonY)
+            end
+
+            local closeX = frame.x2 - 7
+            monitor.setTextColor(colors.red)
+            monitor.setCursorPos(closeX, buttonY)
+            monitor.write("[Close]")
+            addAction("close", closeX, buttonY, closeX + 6, buttonY)
+        end,
+        onTouch = function(monitor, frame, state, tx, ty, action)
+            if action == "close" then
+                return true
+            end
+
+            if action and action:sub(1, 4) == "amt:" then
+                local idx = tonumber(action:sub(5))
+                if idx and config.craftAmounts[idx] then
+                    state.craftAmount = config.craftAmounts[idx]
+                end
+                return false
+            end
+
+            if action == "craft" then
                 local craftFn = config.getCraftFunction(self, resource)
                 if craftFn then
                     local ok, result = pcall(function()
-                        return craftFn({name = resource[config.idField], count = craftAmount})
+                        return craftFn({ name = resource[config.idField], count = state.craftAmount })
                     end)
-
                     if ok and result then
-                        local displayCraftAmount = craftAmount / config.unitDivisor
-                        statusMessage = "Crafting " .. displayCraftAmount .. config.unitLabel .. " started"
-                        statusColor = colors.lime
+                        local displayCraftAmount = state.craftAmount / config.unitDivisor
+                        state.statusMessage = "Crafting " .. displayCraftAmount .. config.unitLabel .. " started"
+                        state.statusColor = colors.lime
                     else
-                        statusMessage = "Craft failed"
-                        statusColor = colors.red
+                        state.statusMessage = "Craft failed"
+                        state.statusColor = colors.red
                     end
                 else
-                    statusMessage = config.craftUnavailableMessage or "Crafting unavailable"
-                    statusColor = colors.red
+                    state.statusMessage = config.craftUnavailableMessage or "Crafting unavailable"
+                    state.statusColor = colors.red
                 end
             end
 
-            -- Amount selection (if craftable)
-            if isCraftable and ty == amountSelectorY then
-                local buttonX = x1 + 8
-                for i, amt in ipairs(config.craftAmounts) do
-                    local label = craftLabels[i]
-                    if tx >= buttonX and tx < buttonX + #label + 2 then
-                        craftAmount = amt
-                        craftAmountIndex = i
-                        break
-                    end
-                    buttonX = buttonX + #label + 3
-                end
-            end
+            return false
         end
-    end
+    })
 end
 
 return ResourceDetailOverlay

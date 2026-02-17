@@ -10,7 +10,7 @@ local AEInterface = mpm('peripherals/AEInterface')
 local Peripherals = mpm('utils/Peripherals')
 local Text = mpm('utils/Text')
 local Core = mpm('ui/Core')
-local List = mpm('ui/List')
+local ScrollableList = mpm('ui/ScrollableList')
 local Inputs = mpm('shelfos/core/ConfigUIInputs')
 -- Note: Uses os.pullEvent directly - each monitor runs in its own coroutine with parallel API
 
@@ -74,12 +74,26 @@ end
 -- Draw a picker list using ui/List widget
 -- Returns selected value or nil if cancelled
 function ConfigUI.drawPicker(monitor, title, options, currentValue, formatFn)
-    return List.new(monitor, options, {
+    local function getValue(opt)
+        if type(opt) == "table" then
+            return opt.value or opt.name or opt
+        end
+        return opt
+    end
+
+    local selectedItem = ScrollableList.new(monitor, options, {
         title = title,
         selected = currentValue,
         formatFn = formatFn,
-        cancelText = "Cancel"
+        valueFn = getValue,
+        cancelText = "Cancel",
+        showPageIndicator = false
     }):show()
+
+    if selectedItem == nil then
+        return nil
+    end
+    return getValue(selectedItem)
 end
 
 -- Delegate to ConfigUIInputs for number input

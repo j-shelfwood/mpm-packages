@@ -18,7 +18,6 @@
     "core/Identity.lua",
     "core/Terminal.lua",
     "input/Menu.lua",
-    "input/MenuViewSelector.lua",
     "input/MenuStatus.lua",
     "ui/PairingScreen.lua",
     "modes/headless.lua",

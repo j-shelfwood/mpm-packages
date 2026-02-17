@@ -5,7 +5,10 @@
   "files": [
     "BaseView.lua",
     "BaseViewRenderers.lua",
+    "AEViewSupport.lua",
     "Manager.lua",
+    "factories/SchemaFragments.lua",
+    "factories/DataOps.lua",
     "factories/ChangesFactory.lua",
     "factories/ChangesOverlay.lua",
     "factories/ChangesDataHandler.lua",

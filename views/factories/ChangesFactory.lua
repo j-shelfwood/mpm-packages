@@ -4,12 +4,13 @@
 -- Split: ChangesOverlay.lua, ChangesDataHandler.lua, ChangesRenderer.lua
 
 local BaseView = mpm('views/BaseView')
-local AEInterface = mpm('peripherals/AEInterface')
+local AEViewSupport = mpm('views/AEViewSupport')
 local GridDisplay = mpm('utils/GridDisplay')
 local Text = mpm('utils/Text')
 local ChangesOverlay = mpm('views/factories/ChangesOverlay')
 local DataHandler = mpm('views/factories/ChangesDataHandler')
 local Renderer = mpm('views/factories/ChangesRenderer')
+local SchemaFragments = mpm('views/factories/SchemaFragments')
 
 local ChangesFactory = {}
 
@@ -58,60 +59,14 @@ function ChangesFactory.create(config)
     return BaseView.custom({
         sleepTime = 3,
 
-        configSchema = {
-            {
-                key = "periodSeconds",
-                type = "number",
-                label = "Reset Period (sec)",
-                default = 60,
-                min = 10,
-                max = 86400,
-                presets = {30, 60, 300, 600, 1800}
-            },
-            {
-                key = "sampleSeconds",
-                type = "number",
-                label = "Sample Every (sec)",
-                default = 5,
-                min = 1,
-                max = 60,
-                presets = {1, 3, 5, 10, 30}
-            },
-            {
-                key = "showMode",
-                type = "select",
-                label = "Show Changes",
-                options = {
-                    { value = "both", label = "Gains & Losses" },
-                    { value = "gains", label = "Gains Only" },
-                    { value = "losses", label = "Losses Only" }
-                },
-                default = "both"
-            },
-            {
-                key = "minChange",
-                type = "number",
-                label = "Min Change",
-                default = config.defaultMinChange,
-                min = 1,
-                max = 100000,
-                presets = config.unitDivisor > 1 and {100, 1000, 5000, 10000} or {1, 10, 50, 100}
-            }
-        },
+        configSchema = SchemaFragments.periodSampleMinChange(config.defaultMinChange, config.unitDivisor),
 
         mount = function()
-            if config.mountCheck then
-                return config.mountCheck()
-            end
-            local ok, exists = pcall(function()
-                return AEInterface and AEInterface.exists and AEInterface.exists()
-            end)
-            return ok and exists == true
+            return AEViewSupport.mount(config.mountCheck)
         end,
 
         init = function(self, viewConfig)
-            local ok, interface = pcall(function() return AEInterface and AEInterface.new and AEInterface.new() end)
-            self.interface = ok and interface or nil
+            AEViewSupport.init(self)
 
             self.periodSeconds = viewConfig.periodSeconds or 60
             self.sampleSeconds = math.max(1, math.min(60, viewConfig.sampleSeconds or 5))
@@ -137,11 +92,7 @@ function ChangesFactory.create(config)
         getData = function(self)
             -- Lazy re-init: if interface was nil at init (host not yet discovered),
             -- retry on each render cycle until it succeeds
-            if not self.interface then
-                local ok, interface = pcall(function() return AEInterface and AEInterface.new and AEInterface.new() end)
-                self.interface = ok and interface or nil
-            end
-            if not self.interface then
+            if not AEViewSupport.ensureInterface(self) then
                 return { error = "No AE2 peripheral" }
             end
 

@@ -3,8 +3,10 @@
 -- Supports items, fluids, and chemicals with configurable display
 
 local BaseView = mpm('views/BaseView')
-local AEInterface = mpm('peripherals/AEInterface')
+local AEViewSupport = mpm('views/AEViewSupport')
 local Text = mpm('utils/Text')
+local SchemaFragments = mpm('views/factories/SchemaFragments')
+local DataOps = mpm('views/factories/DataOps')
 
 local ListFactory = {}
 
@@ -41,25 +43,8 @@ function ListFactory.create(config)
     -- Build config schema
     local sortField = config.amountField == "count" and "count" or "amount"
     local baseConfigSchema = {
-        {
-            key = "warningBelow",
-            type = "number",
-            label = "Warning Below" .. (config.unitLabel ~= "" and " (" .. config.unitLabel .. ")" or ""),
-            default = config.warningDefault,
-            min = 1,
-            max = 100000,
-            presets = config.warningPresets
-        },
-        {
-            key = "sortBy",
-            type = "select",
-            label = "Sort By",
-            options = {
-                { value = sortField, label = sortField == "count" and "Count" or "Amount" },
-                { value = "name", label = "Name" }
-            },
-            default = sortField
-        }
+        SchemaFragments.warningBelow(config.warningDefault, config.unitLabel, config.warningPresets),
+        SchemaFragments.sortByAmountOrName(sortField, false)
     }
 
     -- Add craftable filter for items
@@ -90,18 +75,11 @@ function ListFactory.create(config)
         minCellWidth = config.minCellWidth or 16,
 
         mount = function()
-            if config.mountCheck then
-                return config.mountCheck()
-            end
-            local ok, exists = pcall(function()
-                return AEInterface and AEInterface.exists and AEInterface.exists()
-            end)
-            return ok and exists == true
+            return AEViewSupport.mount(config.mountCheck)
         end,
 
         init = function(self, viewConfig)
-            local ok, interface = pcall(function() return AEInterface and AEInterface.new and AEInterface.new() end)
-            self.interface = ok and interface or nil
+            AEViewSupport.init(self)
             self.warningBelow = viewConfig.warningBelow or config.warningDefault
             self.sortBy = viewConfig.sortBy or sortField
             self.showCraftable = viewConfig.showCraftable or "all"
@@ -111,11 +89,7 @@ function ListFactory.create(config)
         getData = function(self)
             -- Lazy re-init: if interface was nil at init (host not yet discovered),
             -- retry on each render cycle until it succeeds
-            if not self.interface then
-                local ok, interface = pcall(function() return AEInterface and AEInterface.new and AEInterface.new() end)
-                self.interface = ok and interface or nil
-            end
-            if not self.interface then return nil end
+            if not AEViewSupport.ensureInterface(self) then return nil end
 
             -- Check for chemical support if needed
             if config.requireChemicalSupport then
@@ -149,24 +123,8 @@ function ListFactory.create(config)
                 end
             end
 
-            -- Sort
-            if self.sortBy == sortField or self.sortBy == "amount" or self.sortBy == "count" then
-                table.sort(filtered, function(a, b)
-                    return (a[config.amountField] or 0) > (b[config.amountField] or 0)
-                end)
-            elseif self.sortBy == "name" then
-                table.sort(filtered, function(a, b)
-                    local nameA = a.displayName or a.registryName or ""
-                    local nameB = b.displayName or b.registryName or ""
-                    return nameA < nameB
-                end)
-            end
-
-            -- Calculate total
-            self.totalAmount = 0
-            for _, resource in ipairs(filtered) do
-                self.totalAmount = self.totalAmount + ((resource[config.amountField] or 0) / config.unitDivisor)
-            end
+            DataOps.sortByAmountOrName(filtered, self.sortBy, config.amountField, sortField, "registryName")
+            self.totalAmount = DataOps.totalByAmount(filtered, config.amountField, config.unitDivisor)
 
             return filtered
         end,

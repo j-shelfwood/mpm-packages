@@ -4,6 +4,7 @@
 -- Uses os.pullEvent directly - each monitor runs in its own coroutine with parallel API
 
 local Core = mpm('ui/Core')
+local EventUtils = mpm('utils/EventUtils')
 
 local ScrollableList = {}
 ScrollableList.__index = ScrollableList
@@ -36,6 +37,12 @@ function ScrollableList.new(monitor, items, opts)
     self.actions = opts.actions or {}
     self.selected = opts.selected
     self.onSelect = opts.onSelect
+    self.valueFn = opts.valueFn or function(item)
+        if type(item) == "table" then
+            return item.value or item.name or item.displayName or item
+        end
+        return item
+    end
 
     self.formatFn = opts.formatFn or function(item)
         if type(item) == "table" then
@@ -120,7 +127,7 @@ function ScrollableList:render()
             text = Core.truncate(text, self.width - 4)
 
             -- Check if this is the selected item
-            local isSelected = self.selected ~= nil and item == self.selected
+            local isSelected = self.selected ~= nil and self.valueFn(item) == self.selected
 
             if isSelected then
                 -- Highlighted row
@@ -289,7 +296,7 @@ function ScrollableList:show()
     while true do
         self:render()
 
-        local event, side, x, y = os.pullEvent("monitor_touch")
+        local side, x, y = EventUtils.waitForTouch(monitorName)
 
         if side == monitorName then
             local result = self:handleTouch(x, y)

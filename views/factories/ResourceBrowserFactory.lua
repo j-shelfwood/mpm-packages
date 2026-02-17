@@ -7,10 +7,12 @@
 --   ResourceDetailOverlay.lua - Resource detail overlay with crafting
 
 local BaseView = mpm('views/BaseView')
-local AEInterface = mpm('peripherals/AEInterface')
+local AEViewSupport = mpm('views/AEViewSupport')
 local Text = mpm('utils/Text')
 local Yield = mpm('utils/Yield')
 local ResourceDetailOverlay = mpm('views/factories/ResourceDetailOverlay')
+local SchemaFragments = mpm('views/factories/SchemaFragments')
+local DataOps = mpm('views/factories/DataOps')
 
 local ResourceBrowserFactory = {}
 
@@ -96,39 +98,16 @@ function ResourceBrowserFactory.create(config)
 
     -- Sort options (skip if using custom config schema)
     local sortField = config.amountField == "count" and "count" or "amount"
-    local defaultSort = config.sortAscending and (sortField .. "_asc") or sortField
-
     if not config.skipDefaultConfig then
-        table.insert(baseConfigSchema, {
-            key = "sortBy",
-            type = "select",
-            label = "Sort By",
-            options = {
-                { value = sortField, label = (sortField == "count" and "Count" or "Amount") .. " (High)" },
-                { value = sortField .. "_asc", label = (sortField == "count" and "Count" or "Amount") .. " (Low)" },
-                { value = "name", label = "Name (A-Z)" }
-            },
-            default = defaultSort
-        })
+        local sortSchema = SchemaFragments.sortByAmountOrName(sortField, true)
+        sortSchema.default = config.sortAscending and (sortField .. "_asc") or sortField
+        table.insert(baseConfigSchema, sortSchema)
     end
 
     -- Min filter option (skip if using custom config schema)
-    local minKey = config.unitLabel == "B" and "minBuckets" or "minCount"
-    local minLabel = config.unitLabel == "B" and "Min Buckets" or "Min Count"
-    local minPresets = config.unitLabel == "B"
-        and {0, 1, 10, 100, 1000}
-        or {0, 1, 64, 1000}
-
+    local minSchema, minKey = SchemaFragments.minFilter(config.unitLabel)
     if not config.skipDefaultConfig then
-        table.insert(baseConfigSchema, {
-            key = minKey,
-            type = "number",
-            label = minLabel,
-            default = 0,
-            min = 0,
-            max = 100000,
-            presets = minPresets
-        })
+        table.insert(baseConfigSchema, minSchema)
     end
 
     -- Merge additional config schema
@@ -143,18 +122,11 @@ function ResourceBrowserFactory.create(config)
         configSchema = baseConfigSchema,
 
         mount = function()
-            if config.mountCheck then
-                return config.mountCheck()
-            end
-            local ok, exists = pcall(function()
-                return AEInterface and AEInterface.exists and AEInterface.exists()
-            end)
-            return ok and exists == true
+            return AEViewSupport.mount(config.mountCheck)
         end,
 
         init = function(self, viewConfig)
-            local ok, interface = pcall(function() return AEInterface and AEInterface.new and AEInterface.new() end)
-            self.interface = ok and interface or nil
+            AEViewSupport.init(self)
             self.sortBy = viewConfig.sortBy or sortField
             self.minFilter = viewConfig[minKey] or 0
             self.totalCount = 0
@@ -171,11 +143,7 @@ function ResourceBrowserFactory.create(config)
         getData = function(self)
             -- Lazy re-init: if interface was nil at init (host not yet discovered),
             -- retry on each render cycle until it succeeds
-            if not self.interface then
-                local ok, interface = pcall(function() return AEInterface and AEInterface.new and AEInterface.new() end)
-                self.interface = ok and interface or nil
-            end
-            if not self.interface then return nil end
+            if not AEViewSupport.ensureInterface(self) then return nil end
 
             local resources
 
@@ -258,20 +226,11 @@ function ResourceBrowserFactory.create(config)
 
             Yield.yield()
 
-            -- Calculate total amount
-            self.totalAmount = 0
-            for _, resource in ipairs(resources) do
-                self.totalAmount = self.totalAmount + ((resource[config.amountField] or 0) / config.unitDivisor)
-            end
+            self.totalAmount = DataOps.totalByAmount(resources, config.amountField, config.unitDivisor)
 
             -- Filter by minimum (if minFilter is set)
-            local filtered = {}
             local minRaw = (self.minFilter or 0) * config.unitDivisor
-            for _, resource in ipairs(resources) do
-                if (resource[config.amountField] or 0) >= minRaw then
-                    table.insert(filtered, resource)
-                end
-            end
+            local filtered = DataOps.filterByMin(resources, config.amountField, minRaw)
 
             -- Apply custom filter if provided
             if config.filterData then
@@ -280,22 +239,7 @@ function ResourceBrowserFactory.create(config)
 
             Yield.yield()
 
-            -- Sort
-            if self.sortBy == sortField or self.sortBy == "amount" or self.sortBy == "count" then
-                table.sort(filtered, function(a, b)
-                    return (a[config.amountField] or 0) > (b[config.amountField] or 0)
-                end)
-            elseif self.sortBy == sortField .. "_asc" or self.sortBy == "amount_asc" or self.sortBy == "count_asc" then
-                table.sort(filtered, function(a, b)
-                    return (a[config.amountField] or 0) < (b[config.amountField] or 0)
-                end)
-            elseif self.sortBy == "name" then
-                table.sort(filtered, function(a, b)
-                    local nameA = a.displayName or a[config.idField] or ""
-                    local nameB = b.displayName or b[config.idField] or ""
-                    return nameA < nameB
-                end)
-            end
+            DataOps.sortByAmountOrName(filtered, self.sortBy, config.amountField, sortField, config.idField)
 
             -- Custom transform if provided
             if config.transformData then

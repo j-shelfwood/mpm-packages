@@ -3,142 +3,106 @@
 -- Touch a job to see details and cancel if desired
 
 local BaseView = mpm('views/BaseView')
-local AEInterface = mpm('peripherals/AEInterface')
+local AEViewSupport = mpm('views/AEViewSupport')
 local Text = mpm('utils/Text')
 local Core = mpm('ui/Core')
 local Yield = mpm('utils/Yield')
+local ModalOverlay = mpm('ui/ModalOverlay')
 
 -- Task detail overlay with cancel button (blocking)
 local function showTaskDetail(self, task)
-    local monitor = self.monitor
-    local width, height = monitor.getSize()
+    local itemName = "Unknown"
+    if task.resource and task.resource.displayName then
+        itemName = task.resource.displayName
+    elseif task.resource and task.resource.name then
+        itemName = Text.prettifyName(task.resource.name)
+    end
 
-    -- Calculate overlay bounds
-    local overlayWidth = math.min(width - 2, 32)
-    local overlayHeight = math.min(height - 2, 10)
-    local x1 = math.floor((width - overlayWidth) / 2) + 1
-    local y1 = math.floor((height - overlayHeight) / 2) + 1
-    local x2 = x1 + overlayWidth - 1
-    local y2 = y1 + overlayHeight - 1
+    ModalOverlay.show(self, {
+        maxWidth = 32,
+        maxHeight = 10,
+        title = itemName,
+        titleBackgroundColor = colors.orange,
+        titleTextColor = colors.black,
+        closeOnOutside = true,
+        state = {
+            statusMessage = nil,
+            statusColor = colors.gray
+        },
+        render = function(monitor, frame, state, addAction)
+            local contentY = frame.y1 + 2
+            local quantity = task.quantity or (task.resource and task.resource.count) or 0
 
-    local monitorName = self.peripheralName
-    local statusMessage = nil
-    local statusColor = colors.gray
-
-    while true do
-        -- Draw background
-        monitor.setBackgroundColor(colors.gray)
-        for y = y1, y2 do
-            monitor.setCursorPos(x1, y)
-            monitor.write(string.rep(" ", overlayWidth))
-        end
-
-        -- Title bar
-        local itemName = "Unknown"
-        if task.resource and task.resource.displayName then
-            itemName = task.resource.displayName
-        elseif task.resource and task.resource.name then
-            itemName = Text.prettifyName(task.resource.name)
-        end
-
-        monitor.setBackgroundColor(colors.orange)
-        monitor.setTextColor(colors.black)
-        monitor.setCursorPos(x1, y1)
-        monitor.write(string.rep(" ", overlayWidth))
-        monitor.setCursorPos(x1 + 1, y1)
-        monitor.write(Core.truncate(itemName, overlayWidth - 2))
-
-        -- Content
-        monitor.setBackgroundColor(colors.gray)
-        local contentY = y1 + 2
-
-        -- Quantity
-        local quantity = task.quantity or (task.resource and task.resource.count) or 0
-        monitor.setTextColor(colors.white)
-        monitor.setCursorPos(x1 + 1, contentY)
-        monitor.write("Quantity: ")
-        monitor.setTextColor(colors.yellow)
-        monitor.write(Text.formatNumber(quantity, 0))
-        contentY = contentY + 1
-
-        -- Progress
-        if type(task.completion) == "number" then
-            local percent = math.floor(task.completion * 100 + 0.5)
             monitor.setTextColor(colors.white)
-            monitor.setCursorPos(x1 + 1, contentY)
-            monitor.write("Progress: ")
-
-            local progressColor = colors.orange
-            if percent >= 75 then
-                progressColor = colors.lime
-            elseif percent >= 50 then
-                progressColor = colors.yellow
-            end
-            monitor.setTextColor(progressColor)
-            monitor.write(percent .. "%")
+            monitor.setCursorPos(frame.x1 + 1, contentY)
+            monitor.write("Quantity: ")
+            monitor.setTextColor(colors.yellow)
+            monitor.write(Text.formatNumber(quantity, 0))
             contentY = contentY + 1
 
-            -- Progress bar
-            if overlayWidth >= 15 then
+            if type(task.completion) == "number" then
+                local percent = math.floor(task.completion * 100 + 0.5)
+                monitor.setTextColor(colors.white)
+                monitor.setCursorPos(frame.x1 + 1, contentY)
+                monitor.write("Progress: ")
+
+                local progressColor = colors.orange
+                if percent >= 75 then
+                    progressColor = colors.lime
+                elseif percent >= 50 then
+                    progressColor = colors.yellow
+                end
+                monitor.setTextColor(progressColor)
+                monitor.write(percent .. "%")
                 contentY = contentY + 1
-                local barWidth = overlayWidth - 4
-                local filled = math.floor(barWidth * task.completion)
-                monitor.setCursorPos(x1 + 2, contentY)
-                monitor.setBackgroundColor(progressColor)
-                monitor.write(string.rep(" ", filled))
-                monitor.setBackgroundColor(colors.lightGray)
-                monitor.write(string.rep(" ", barWidth - filled))
-                monitor.setBackgroundColor(colors.gray)
+
+                if frame.width >= 15 then
+                    contentY = contentY + 1
+                    local barWidth = frame.width - 4
+                    local filled = math.floor(barWidth * task.completion)
+                    monitor.setCursorPos(frame.x1 + 2, contentY)
+                    monitor.setBackgroundColor(progressColor)
+                    monitor.write(string.rep(" ", filled))
+                    monitor.setBackgroundColor(colors.lightGray)
+                    monitor.write(string.rep(" ", barWidth - filled))
+                    monitor.setBackgroundColor(colors.gray)
+                end
             end
-        end
-        contentY = contentY + 1
+            contentY = contentY + 1
 
-        -- CPU name
-        if task.cpu then
-            local cpuName = type(task.cpu) == "table" and task.cpu.name or tostring(task.cpu)
-            monitor.setTextColor(colors.lightGray)
-            monitor.setCursorPos(x1 + 1, contentY)
-            monitor.write("CPU: " .. Core.truncate(cpuName, overlayWidth - 6))
-        end
-
-        -- Status message
-        if statusMessage then
-            monitor.setBackgroundColor(colors.gray)
-            monitor.setTextColor(statusColor)
-            monitor.setCursorPos(x1 + 1, y2 - 2)
-            monitor.write(Core.truncate(statusMessage, overlayWidth - 2))
-        end
-
-        -- Action buttons
-        local buttonY = y2 - 1
-        monitor.setBackgroundColor(colors.gray)
-
-        -- Cancel button
-        monitor.setTextColor(colors.red)
-        monitor.setCursorPos(x1 + 2, buttonY)
-        monitor.write("[Cancel]")
-
-        -- Close button
-        monitor.setTextColor(colors.white)
-        monitor.setCursorPos(x2 - 7, buttonY)
-        monitor.write("[Close]")
-
-        Core.resetColors(monitor)
-
-        -- Wait for touch
-        local event, side, tx, ty = os.pullEvent("monitor_touch")
-
-        if side == monitorName then
-            -- Close button or outside overlay
-            if (ty == buttonY and tx >= x2 - 7 and tx <= x2 - 1) or
-               tx < x1 or tx > x2 or ty < y1 or ty > y2 then
-                return
+            if task.cpu then
+                local cpuName = type(task.cpu) == "table" and task.cpu.name or tostring(task.cpu)
+                monitor.setTextColor(colors.lightGray)
+                monitor.setCursorPos(frame.x1 + 1, contentY)
+                monitor.write("CPU: " .. Core.truncate(cpuName, frame.width - 6))
             end
 
-            -- Cancel button
-            if ty == buttonY and tx >= x1 + 2 and tx <= x1 + 9 then
+            if state.statusMessage then
+                monitor.setTextColor(state.statusColor)
+                monitor.setCursorPos(frame.x1 + 1, frame.y2 - 2)
+                monitor.write(Core.truncate(state.statusMessage, frame.width - 2))
+            end
+
+            local buttonY = frame.y2 - 1
+            local cancelX = frame.x1 + 2
+            monitor.setTextColor(colors.red)
+            monitor.setCursorPos(cancelX, buttonY)
+            monitor.write("[Cancel]")
+            addAction("cancel", cancelX, buttonY, cancelX + 7, buttonY)
+
+            local closeX = frame.x2 - 7
+            monitor.setTextColor(colors.white)
+            monitor.setCursorPos(closeX, buttonY)
+            monitor.write("[Close]")
+            addAction("close", closeX, buttonY, closeX + 6, buttonY)
+        end,
+        onTouch = function(monitor, frame, state, tx, ty, action)
+            if action == "close" then
+                return true
+            end
+
+            if action == "cancel" then
                 if self.interface then
-                    -- Build filter for cancellation
                     local filter = {}
                     if task.resource and task.resource.name then
                         filter.name = task.resource.name
@@ -151,23 +115,24 @@ local function showTaskDetail(self, task)
                     if ok then
                         local cancelled = result or 0
                         if cancelled > 0 then
-                            statusMessage = "Cancelled " .. cancelled .. " task(s)"
-                            statusColor = colors.lime
+                            state.statusMessage = "Cancelled " .. cancelled .. " task(s)"
+                            state.statusColor = colors.lime
                         else
-                            statusMessage = "No tasks cancelled"
-                            statusColor = colors.orange
+                            state.statusMessage = "No tasks cancelled"
+                            state.statusColor = colors.orange
                         end
                     else
-                        statusMessage = "Cancel failed"
-                        statusColor = colors.red
+                        state.statusMessage = "Cancel failed"
+                        state.statusColor = colors.red
                     end
                 else
-                    statusMessage = "No ME Bridge"
-                    statusColor = colors.red
+                    state.statusMessage = "No ME Bridge"
+                    state.statusColor = colors.red
                 end
             end
+            return false
         end
-    end
+    })
 end
 
 return BaseView.interactive({
@@ -187,15 +152,11 @@ return BaseView.interactive({
     },
 
     mount = function()
-        local ok, exists = pcall(function()
-            return AEInterface and AEInterface.exists and AEInterface.exists()
-        end)
-        return ok and exists == true
-    end,
+            return AEViewSupport.mount()
+        end,
 
     init = function(self, config)
-        local ok, interface = pcall(function() return AEInterface and AEInterface.new and AEInterface.new() end)
-        self.interface = ok and interface or nil
+        AEViewSupport.init(self)
         self.showCompleted = config.showCompleted or false
         self.busyCount = 0
         self.totalCPUs = 0
@@ -203,11 +164,7 @@ return BaseView.interactive({
 
     getData = function(self)
         -- Lazy re-init: retry if host not yet discovered at init time
-        if not self.interface then
-            local ok, interface = pcall(function() return AEInterface and AEInterface.new and AEInterface.new() end)
-            self.interface = ok and interface or nil
-        end
-        if not self.interface then return nil end
+        if not AEViewSupport.ensureInterface(self) then return nil end
 
         -- Get all crafting tasks
         local tasks = self.interface:getCraftingTasks()

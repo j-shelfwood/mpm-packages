@@ -40,7 +40,7 @@ function Manager.getAvailableViews()
         -- 1. Utility files: Manager.lua, BaseView.lua
         -- 2. Renderer helpers: *Renderers.lua (e.g., BaseViewRenderers.lua)
         -- 3. Factories: anything in subdirectories (contains '/')
-        local isUtility = filename == "Manager.lua" or filename == "BaseView.lua"
+        local isUtility = filename == "Manager.lua" or filename == "BaseView.lua" or filename == "AEViewSupport.lua"
         local isRenderer = filename:match("Renderers%.lua$") ~= nil
         local isSubdirectory = filename:find("/") ~= nil
 

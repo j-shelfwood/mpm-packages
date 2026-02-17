@@ -5,7 +5,7 @@
 
 local ViewManager = mpm('views/Manager')
 local ConfigUI = mpm('shelfos/core/ConfigUI')
-local List = mpm('ui/List')
+local ScrollableList = mpm('ui/ScrollableList')
 
 local MonitorConfigMenu = {}
 
@@ -16,10 +16,11 @@ local MonitorConfigMenu = {}
 -- @param currentViewName Currently selected view name
 -- @return selected view name or nil if cancelled
 function MonitorConfigMenu.showViewSelector(peripheral, availableViews, currentViewName)
-    local selected = List.new(peripheral, availableViews, {
+    local selected = ScrollableList.new(peripheral, availableViews, {
         title = "Select View",
         selected = currentViewName,
         cancelText = "Cancel",
+        showPageIndicator = false,
         formatFn = function(viewName)
             return viewName
         end
