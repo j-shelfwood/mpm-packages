@@ -8,6 +8,32 @@ local AESnapshotBus = mpm('peripherals/AESnapshotBus')
 local hasRenderContext, RenderContext = pcall(mpm, 'net/RenderContext')
 local hasDepStatus, DependencyStatus = pcall(mpm, 'net/DependencyStatus')
 
+local function findBridgeLocalFirst()
+    -- Prefer directly-attached peripherals to avoid remote proxy edge-cases
+    -- on the host computer that physically owns the ME bridge.
+    local okLocal, localBridge = pcall(function()
+        if peripheral and type(peripheral.find) == "function" then
+            return peripheral.find("me_bridge")
+        end
+        return nil
+    end)
+    if okLocal and localBridge then
+        return localBridge
+    end
+
+    -- Fallback to unified peripheral layer (local + remote)
+    if not Peripherals or type(Peripherals.find) ~= "function" then
+        return nil
+    end
+    local ok, bridge = pcall(function()
+        return Peripherals.find("me_bridge")
+    end)
+    if ok then
+        return bridge
+    end
+    return nil
+end
+
 local function nowMs()
     return os.epoch("utc")
 end
@@ -56,24 +82,14 @@ AEInterface.__index = AEInterface
 -- Check if ME Bridge peripheral exists (local or remote)
 -- @return boolean, peripheral|nil
 function AEInterface.exists()
-    if not Peripherals or type(Peripherals.find) ~= "function" then
-        return false, nil
-    end
-
-    local ok, p = pcall(function()
-        return Peripherals.find("me_bridge")
-    end)
-    if not ok then
-        return false, nil
-    end
-
+    local p = findBridgeLocalFirst()
     return p ~= nil, p
 end
 
 -- Find ME Bridge peripheral (local or remote)
 -- @return peripheral|nil
 function AEInterface.find()
-    return Peripherals.find("me_bridge")
+    return findBridgeLocalFirst()
 end
 
 -- Create new AEInterface instance
@@ -81,7 +97,7 @@ end
 -- @return AEInterface instance
 -- @throws error if no ME Bridge found
 function AEInterface.new(p)
-    p = p or Peripherals.find("me_bridge")
+    p = p or findBridgeLocalFirst()
 
     if not p then
         error("No ME Bridge found")

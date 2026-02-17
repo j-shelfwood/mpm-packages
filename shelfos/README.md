@@ -128,6 +128,7 @@ When computers join the same swarm:
 - **Peripheral Sharing** - ME Bridges, energy storage, and other peripherals are accessible from any computer in the swarm
 - **Remote Views** - A computer without a local ME Bridge can display AE2 views using a remote bridge
 - **Distributed Monitoring** - Place monitors anywhere in your base, connected to any swarm computer
+- **Local-First Access** - If a computer has a directly attached peripheral (for example `me_bridge` next to the computer or on a wired modem side), ShelfOS prefers that local peripheral before using a remote proxy
 
 ### Pocket Computer as Controller
 
