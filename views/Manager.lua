@@ -9,6 +9,9 @@ local Manager = {}
 -- Cache of loaded views
 local viewCache = {}
 local mountErrorCache = {}
+local mountableCache = nil
+local mountableCacheAt = 0
+local MOUNTABLE_CACHE_TTL_MS = 5000
 
 -- Get list of all available views from manifest
 function Manager.getAvailableViews()
@@ -108,7 +111,16 @@ function Manager.canMount(viewName)
 end
 
 -- Get list of views that can mount (with yields for responsiveness)
-function Manager.getMountableViews()
+function Manager.getMountableViews(forceRefresh)
+    local now = os.epoch("utc")
+    if not forceRefresh and mountableCache and (now - mountableCacheAt) < MOUNTABLE_CACHE_TTL_MS then
+        local copy = {}
+        for i, v in ipairs(mountableCache) do
+            copy[i] = v
+        end
+        return copy
+    end
+
     local available = Manager.getAvailableViews()
     local mountable = {}
 
@@ -120,7 +132,14 @@ function Manager.getMountableViews()
         Yield.check(idx, 5)  -- Lower interval since each check can be slow
     end
 
-    return mountable
+    mountableCache = mountable
+    mountableCacheAt = now
+
+    local copy = {}
+    for i, v in ipairs(mountable) do
+        copy[i] = v
+    end
+    return copy
 end
 
 -- Get view info
@@ -144,6 +163,8 @@ end
 function Manager.clearCache()
     viewCache = {}
     mountErrorCache = {}
+    mountableCache = nil
+    mountableCacheAt = 0
 end
 
 -- Create a view instance
