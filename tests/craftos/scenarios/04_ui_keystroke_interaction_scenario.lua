@@ -52,12 +52,12 @@ return function(h)
 
             press(manager, driver, "c")
             h:assert_screen_contains(driver, "Computer Registry", "Should navigate to ViewComputers screen")
-            h:assert_screen_contains(driver, "Page 1/3", "Initial page indicator should render")
+            h:assert_screen_contains(driver, "Page 1/2", "Initial page indicator should render")
 
             for _ = 1, 6 do
                 press(manager, driver, "down")
             end
-            h:assert_screen_contains(driver, "Page 2/3", "Down key should scroll into next page")
+            h:assert_screen_contains(driver, "Page 2/2", "Down key should scroll into next page")
 
             press(manager, driver, "b")
             h:assert_screen_contains(driver, "[A] Add Computer", "Back should return to main menu")

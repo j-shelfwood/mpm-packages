@@ -87,6 +87,25 @@ function Harness:read_file(path)
     return content
 end
 
+function Harness:with_overrides(target, overrides, fn)
+    local original = {}
+    for key, value in pairs(overrides) do
+        original[key] = target[key]
+        target[key] = value
+    end
+
+    local ok, result_or_err = pcall(fn)
+
+    for key, _ in pairs(overrides) do
+        target[key] = original[key]
+    end
+
+    if not ok then
+        error(result_or_err)
+    end
+    return result_or_err
+end
+
 function Harness:with_ui_driver(width, height, fn)
     local UIDriver = dofile(self.workspace .. "/tests/craftos/lib/ui_driver.lua")
     local driver = UIDriver.new(width, height)

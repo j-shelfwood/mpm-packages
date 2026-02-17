@@ -200,7 +200,23 @@ function Pairing.deliverToPending(secret, computerId, callbacks, timeout)
     local success = false
     local pairedComputer = nil
 
+    local function cleanupStalePending()
+        local cleanTime = os.epoch("utc") - 15000
+        for i = #pendingPairs, 1, -1 do
+            if pendingPairs[i].timestamp < cleanTime then
+                table.remove(pendingPairs, i)
+                if selectedIndex > #pendingPairs then
+                    selectedIndex = math.max(0, #pendingPairs)
+                end
+            end
+        end
+    end
+
     while os.epoch("utc") < deadline do
+        -- Clean stale entries before handling input so expired computers
+        -- cannot be selected in the current iteration.
+        cleanupStalePending()
+
         local timer = os.startTimer(0.3)
         local event, p1, p2, p3 = os.pullEvent()
 
@@ -329,16 +345,9 @@ function Pairing.deliverToPending(secret, computerId, callbacks, timeout)
             end
         end
 
-        -- Clean up stale entries (older than 15 seconds)
-        local cleanTime = os.epoch("utc") - 15000
-        for i = #pendingPairs, 1, -1 do
-            if pendingPairs[i].timestamp < cleanTime then
-                table.remove(pendingPairs, i)
-                if selectedIndex > #pendingPairs then
-                    selectedIndex = math.max(0, #pendingPairs)
-                end
-            end
-        end
+        -- Clean up again after handling event in case this iteration took
+        -- long enough for additional entries to expire.
+        cleanupStalePending()
     end
 
     -- Note: Leave modem open - caller's App keeps it open

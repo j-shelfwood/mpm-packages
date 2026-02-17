@@ -19,7 +19,7 @@ function ViewComputers.onEnter(ctx, args)
     state.computers = ctx.app.authority:getComputers()
     state.scrollOffset = 0
     -- Each computer takes 2 rows + 1 spacing, header=2, footer=2
-    state.pageSize = math.floor((ctx.height - 4) / 3)
+    state.pageSize = math.max(1, math.floor((ctx.height - 4) / 3))
 end
 
 function ViewComputers.draw(ctx)
@@ -89,8 +89,10 @@ function ViewComputers.draw(ctx)
             TermUI.drawText(ctx.width, y - 1, "v", colors.yellow)
         end
 
-        -- Page indicator
-        local totalPages = math.max(1, math.ceil(#computers / state.pageSize))
+        -- Page indicator should reflect reachable positions with the current
+        -- item-wise scroll model.
+        local maxOffset = math.max(0, #computers - state.pageSize)
+        local totalPages = math.floor(maxOffset / state.pageSize) + 1
         local currentPage = math.floor(state.scrollOffset / state.pageSize) + 1
         local pageText = "Page " .. currentPage .. "/" .. totalPages
         TermUI.drawCentered(ctx.height - 1, pageText, colors.lightGray)
