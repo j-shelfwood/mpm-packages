@@ -49,6 +49,69 @@ local function getTimeOfDay(time)
     end
 end
 
+local function callFirst(target, methods, ...)
+    if not target then return nil end
+    for _, methodName in ipairs(methods) do
+        local fn = target[methodName]
+        if type(fn) == "function" then
+            local ok, a, b = pcall(fn, ...)
+            if ok then
+                return a, b
+            end
+        end
+    end
+    return nil
+end
+
+local function normalizeName(value, fallback)
+    if type(value) == "table" then
+        value = value.name or value.id or value.biome or value.dimension
+    end
+    if type(value) ~= "string" or value == "" then
+        return fallback
+    end
+    return Text.prettifyName(value)
+end
+
+local function toClockHours(ticks)
+    if type(ticks) ~= "number" then return nil end
+    return ((ticks / 1000) + 6) % 24
+end
+
+local function buildRadarLines(width, radius, entities)
+    local mapWidth = math.max(9, math.min(width - 2, 19))
+    if mapWidth % 2 == 0 then
+        mapWidth = mapWidth - 1
+    end
+    local mapHeight = 5
+    local centerX = math.floor((mapWidth + 1) / 2)
+    local centerY = math.floor((mapHeight + 1) / 2)
+    local lines = {}
+
+    for y = 1, mapHeight do
+        lines[y] = string.rep(".", mapWidth)
+    end
+
+    local function writeChar(line, x, ch)
+        if x < 1 or x > #line then return line end
+        return line:sub(1, x - 1) .. ch .. line:sub(x + 1)
+    end
+
+    lines[centerY] = writeChar(lines[centerY], centerX, "@")
+
+    for _, e in ipairs(entities or {}) do
+        if type(e) == "table" and type(e.x) == "number" and type(e.z) == "number" then
+            local px = math.floor(((e.x / radius) * ((mapWidth - 1) / 2)) + centerX + 0.5)
+            local py = math.floor(((e.z / radius) * ((mapHeight - 1) / 2)) + centerY + 0.5)
+            px = math.max(1, math.min(mapWidth, px))
+            py = math.max(1, math.min(mapHeight, py))
+            lines[py] = writeChar(lines[py], px, "*")
+        end
+    end
+
+    return lines
+end
+
 return BaseView.custom({
     sleepTime = 1,
 
@@ -72,6 +135,34 @@ return BaseView.custom({
                 { value = false, label = "No" }
             },
             default = true
+        },
+        {
+            key = "showRadar",
+            type = "select",
+            label = "Show Radar",
+            options = {
+                { value = true, label = "Yes" },
+                { value = false, label = "No" }
+            },
+            default = false
+        },
+        {
+            key = "radarRadius",
+            type = "number",
+            label = "Radar Radius",
+            default = 8,
+            min = 4,
+            max = 32,
+            presets = {8, 12, 16}
+        },
+        {
+            key = "radarInterval",
+            type = "number",
+            label = "Radar Interval (s)",
+            default = 5,
+            min = 2,
+            max = 30,
+            presets = {3, 5, 10}
         }
     },
 
@@ -83,9 +174,20 @@ return BaseView.custom({
         self.detector = Peripherals.find("environment_detector")
         self.use24h = config.timeFormat == "24h"
         self.showBiome = config.showBiome ~= false
+        self.showRadar = config.showRadar == true
+        self.radarRadius = tonumber(config.radarRadius) or 8
+        self.radarInterval = tonumber(config.radarInterval) or 5
+        self._radarAt = 0
+        self._radarEntities = {}
+        self._radarError = nil
+        self._radarCost = nil
     end,
 
     getData = function(self)
+        if not self.detector then
+            self.detector = Peripherals.find("environment_detector")
+        end
+
         local time = 12
         local weather = "clear"
         local isRaining = false
@@ -93,21 +195,24 @@ return BaseView.custom({
         local moonPhase = 0
         local biome = "Unknown"
         local dimension = "Overworld"
+        local radarEntities = self._radarEntities or {}
+        local radarError = self._radarError
+        local radarCost = self._radarCost
+        local radarSupported = false
 
         if self.detector then
             -- Time
-            local ok, t = pcall(self.detector.getTime)
-            if ok and t then
-                time = t / 1000
-                if time > 24 then time = time - 24 end
+            local t = callFirst(self.detector, {"getTime"})
+            local h = toClockHours(t)
+            if h then
+                time = h
             end
 
             -- Weather
-            local rainOk, rain = pcall(self.detector.isRaining)
-            if rainOk then isRaining = rain end
-
-            local thunderOk, thunder = pcall(self.detector.isThundering)
-            if thunderOk then isThundering = thunder end
+            local rain = callFirst(self.detector, {"isRaining"})
+            if type(rain) == "boolean" then isRaining = rain end
+            local thunder = callFirst(self.detector, {"isThunder", "isThundering"})
+            if type(thunder) == "boolean" then isThundering = thunder end
 
             if isThundering then
                 weather = "thunder"
@@ -116,19 +221,40 @@ return BaseView.custom({
             end
 
             -- Moon
-            local moonOk, moon = pcall(self.detector.getMoonPhase)
-            if moonOk and moon then moonPhase = moon end
+            local moon = callFirst(self.detector, {"getMoonId", "getMoonPhase"})
+            if type(moon) == "number" then moonPhase = moon end
 
             -- Biome
-            local biomeOk, b = pcall(self.detector.getBiome)
-            if biomeOk and b then
-                biome = Text.prettifyName(b)
-            end
+            biome = normalizeName(callFirst(self.detector, {"getBiome", "getBiomeName"}), biome)
 
             -- Dimension
-            local dimOk, d = pcall(self.detector.getDimensionName)
-            if dimOk and d then
-                dimension = Text.prettifyName(d)
+            dimension = normalizeName(callFirst(self.detector, {"getDimension", "getDimensionName"}), dimension)
+
+            -- Optional entity radar (rate-limited due scan fuel/time cost)
+            local scanFn = self.detector.scanEntities
+            if self.showRadar and type(scanFn) == "function" then
+                radarSupported = true
+                local now = os.epoch("utc")
+                if now - self._radarAt >= (self.radarInterval * 1000) then
+                    self._radarAt = now
+                    local cost, costErr = callFirst(self.detector, {"scanCost"}, self.radarRadius)
+                    if type(cost) == "number" then
+                        self._radarCost = cost
+                    elseif costErr then
+                        self._radarCost = nil
+                    end
+
+                    local ok, entities, err = pcall(scanFn, self.radarRadius)
+                    if ok and type(entities) == "table" then
+                        self._radarEntities = entities
+                        self._radarError = nil
+                    else
+                        self._radarError = tostring(err or entities or "scan_failed")
+                    end
+                end
+                radarEntities = self._radarEntities or {}
+                radarError = self._radarError
+                radarCost = self._radarCost
             end
 
             Yield.yield()
@@ -142,7 +268,11 @@ return BaseView.custom({
             moonPhase = moonPhase,
             biome = biome,
             dimension = dimension,
-            hasDetector = self.detector ~= nil
+            hasDetector = self.detector ~= nil,
+            radarEntities = radarEntities,
+            radarError = radarError,
+            radarCost = radarCost,
+            radarSupported = radarSupported
         }
     end,
 
@@ -205,6 +335,34 @@ return BaseView.custom({
             self.monitor.write("Dim: ")
             self.monitor.setTextColor(colors.purple)
             self.monitor.write(Text.truncateMiddle(data.dimension, self.width - 5))
+            row = row + 1
+        end
+
+        -- Optional mini radar map (entities around detector)
+        if self.showRadar and data.hasDetector and data.radarSupported and row <= self.height - 2 then
+            self.monitor.setTextColor(colors.white)
+            self.monitor.setCursorPos(1, row)
+            local count = #data.radarEntities
+            local costText = data.radarCost and (" c:" .. tostring(data.radarCost)) or ""
+            self.monitor.write(Text.truncateMiddle("Radar r=" .. self.radarRadius .. " n=" .. count .. costText, self.width))
+            row = row + 1
+
+            if row <= self.height - 2 then
+                local lines = buildRadarLines(self.width, self.radarRadius, data.radarEntities)
+                for i = 1, #lines do
+                    if row > self.height - 1 then break end
+                    self.monitor.setCursorPos(1, row)
+                    self.monitor.setTextColor(colors.gray)
+                    self.monitor.write(Text.truncateMiddle(lines[i], self.width))
+                    row = row + 1
+                end
+            end
+
+            if data.radarError and row <= self.height - 1 then
+                self.monitor.setCursorPos(1, row)
+                self.monitor.setTextColor(colors.orange)
+                self.monitor.write(Text.truncateMiddle("Radar: " .. data.radarError, self.width))
+            end
         end
 
         -- Bottom: Detector status
