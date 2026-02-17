@@ -43,6 +43,8 @@ local MonitorConfigMenu = mpm('shelfos/core/MonitorConfigMenu')
 local Theme = mpm('utils/Theme')
 local Core = mpm('ui/Core')
 local Button = mpm('ui/Button')
+local RenderContext = mpm('net/RenderContext')
+local DependencyStatus = mpm('net/DependencyStatus')
 
 local Monitor = {}
 Monitor.__index = Monitor
@@ -315,12 +317,15 @@ function Monitor:render()
     -- Yields in getData() won't cause other monitors to see a blank screen.
     local data, dataErr
     local getDataOk = true
+    local contextKey = (self.peripheralName or "unknown") .. "|" .. (self.viewName or "unknown")
 
     if self.view.getData then
         -- New two-phase API
+        RenderContext.set(contextKey)
         getDataOk, dataErr = pcall(function()
             data = self.view.getData(self.viewInstance)
         end)
+        RenderContext.clear()
     end
 
     -- ========================================================================
@@ -388,8 +393,52 @@ function Monitor:render()
         self:drawSettingsButton()
     end
 
+    -- Dependency health dots (remote peripheral status per view context)
+    self:drawDependencyStatus(contextKey)
+
     -- Atomic flip: show buffer (instant, no flicker)
     self.buffer.setVisible(true)
+end
+
+-- Draw remote dependency status dots on the bottom row
+-- One dot per remote peripheral touched by this monitor/view context:
+--   green=healthy, orange=refreshing/stale, red=error/disconnected
+function Monitor:drawDependencyStatus(contextKey)
+    if not self.buffer or not contextKey then
+        return
+    end
+
+    local deps = DependencyStatus.getContext(contextKey)
+    if not deps or #deps == 0 then
+        return
+    end
+
+    local y = self.bufferHeight
+    local maxDots = math.max(1, self.bufferWidth - 1)
+    local count = math.min(#deps, maxDots)
+
+    self.buffer.setBackgroundColor(colors.black)
+    for i = 1, count do
+        local dep = deps[i]
+        local color = colors.lime
+        if dep.state == "pending" then
+            color = colors.orange
+        elseif dep.state == "error" then
+            color = colors.red
+        end
+
+        self.buffer.setCursorPos(i, y)
+        self.buffer.setTextColor(color)
+        self.buffer.write(".")
+    end
+
+    if #deps > count then
+        self.buffer.setCursorPos(math.min(self.bufferWidth, count + 1), y)
+        self.buffer.setTextColor(colors.lightGray)
+        self.buffer.write("+")
+    end
+
+    self.buffer.setTextColor(colors.white)
 end
 
 -- Schedule next render

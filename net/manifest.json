@@ -11,6 +11,8 @@
     "PeripheralHost.lua",
     "PeripheralClient.lua",
     "RemoteProxy.lua",
-    "RemotePeripheral.lua"
+    "RemotePeripheral.lua",
+    "RenderContext.lua",
+    "DependencyStatus.lua"
   ]
 }

@@ -316,6 +316,26 @@ Views are provided by the `views` package:
 | `MachineGrid` | Machine activity grid |
 | `MachineList` | Machine activity list + details |
 
+### Changes View Data Model
+
+`ItemChanges`, `FluidChanges`, and `ChemicalChanges` are **snapshot delta** views:
+
+- A baseline snapshot is captured at period start.
+- Current totals are sampled repeatedly during the period.
+- Displayed change is `current - baseline` for each resource key.
+- At period end, baseline resets to the latest snapshot.
+
+This means the view shows net change over the configured window, not per-tick throughput.
+
+Config options for these views:
+
+| Config | Meaning |
+|--------|---------|
+| `periodSeconds` | Baseline reset interval (window size) |
+| `sampleSeconds` | How often to resample data inside the window |
+| `showMode` | Show gains, losses, or both |
+| `minChange` | Ignore small deltas below threshold |
+
 ### General
 
 | View | Description |

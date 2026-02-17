@@ -19,7 +19,7 @@ function ChangesDataHandler.takeSnapshot(interface, dataMethod, idField, amountF
     end
 
     local ok, resources = pcall(function() return interface[dataMethod](interface) end)
-    if not ok or not resources or #resources == 0 then
+    if not ok or not resources then
         return {}, 0, false
     end
 
@@ -28,7 +28,7 @@ function ChangesDataHandler.takeSnapshot(interface, dataMethod, idField, amountF
     local snapshot = {}
     local count = 0
 
-    for _, resource in ipairs(resources) do
+    for idx, resource in ipairs(resources) do
         local id = resource[idField]
         if id then
             local amount = resource[amountField] or resource.count or resource.amount or 0
@@ -37,7 +37,7 @@ function ChangesDataHandler.takeSnapshot(interface, dataMethod, idField, amountF
                 count = count + 1
             end
         end
-        if count % 100 == 0 then
+        if idx % 100 == 0 then
             Yield.yield()
         end
     end

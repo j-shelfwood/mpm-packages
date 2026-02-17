@@ -13,6 +13,7 @@ local Identity = mpm('shelfos/core/Identity')
 local Terminal = mpm('shelfos/core/Terminal')
 local KernelNetwork = mpm('shelfos/core/KernelNetwork')
 local KernelMenu = mpm('shelfos/core/KernelMenu')
+local AESnapshotBus = mpm('peripherals/AESnapshotBus')
 -- Note: TimerDispatch no longer needed - parallel API gives each coroutine its own event queue
 
 local Kernel = {}
@@ -174,6 +175,11 @@ function Kernel:run()
             KernelNetwork.loop(self, runningRef)
         end)
     end
+
+    -- Shared AE snapshot poller (decouples heavy peripheral reads from view renders)
+    table.insert(tasks, function()
+        AESnapshotBus.runLoop(runningRef)
+    end)
 
     -- Run all tasks in parallel - each gets own event queue copy
     parallel.waitForAny(table.unpack(tasks))

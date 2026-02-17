@@ -69,6 +69,15 @@ function ChangesFactory.create(config)
                 presets = {30, 60, 300, 600, 1800}
             },
             {
+                key = "sampleSeconds",
+                type = "number",
+                label = "Sample Every (sec)",
+                default = 5,
+                min = 1,
+                max = 60,
+                presets = {1, 3, 5, 10, 30}
+            },
+            {
                 key = "showMode",
                 type = "select",
                 label = "Show Changes",
@@ -102,6 +111,7 @@ function ChangesFactory.create(config)
             self.interface = ok and interface or nil
 
             self.periodSeconds = viewConfig.periodSeconds or 60
+            self.sampleSeconds = math.max(1, math.min(60, viewConfig.sampleSeconds or 5))
             self.showMode = viewConfig.showMode or "both"
             self.minChange = viewConfig.minChange or config.defaultMinChange
 
@@ -141,7 +151,7 @@ function ChangesFactory.create(config)
             -- State: init
             if self.state == "init" then
                 local snapshot, count, ok = DataHandler.takeSnapshot(self.interface, config.dataMethod, config.idField, config.amountField)
-                if ok and count > 0 then
+                if ok then
                     self.baseline = DataHandler.copySnapshot(snapshot)
                     self.baselineCount = count
                     self.periodStart = now
@@ -167,7 +177,7 @@ function ChangesFactory.create(config)
             -- Period reset
             if elapsed >= self.periodSeconds then
                 local snapshot, count, ok = DataHandler.takeSnapshot(self.interface, config.dataMethod, config.idField, config.amountField)
-                if ok and count > 0 then
+                if ok then
                     self.baseline = DataHandler.copySnapshot(snapshot)
                     self.baselineCount = count
                     self.periodStart = now
@@ -182,7 +192,7 @@ function ChangesFactory.create(config)
             end
 
             -- Use cached data
-            if self.cachedData and self.lastUpdate >= self.periodStart then
+            if self.cachedData and self.lastUpdate >= self.periodStart and (now - self.lastUpdate) < (self.sampleSeconds * 1000) then
                 return {
                     status = "tracking",
                     changes = self.cachedData.changes,
