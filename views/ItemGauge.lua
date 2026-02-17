@@ -39,7 +39,7 @@ return BaseView.custom({
     end,
 
     init = function(self, config)
-        local ok, interface = pcall(AEInterface.new)
+        local ok, interface = pcall(function() return AEInterface and AEInterface.new and AEInterface.new() end)
         self.interface = ok and interface or nil
         self.itemId = config.item
         self.warningBelow = config.warningBelow or 100
@@ -51,7 +51,7 @@ return BaseView.custom({
     getData = function(self)
         -- Lazy re-init: retry if host not yet discovered at init time
         if not self.interface then
-            local ok, interface = pcall(AEInterface.new)
+            local ok, interface = pcall(function() return AEInterface and AEInterface.new and AEInterface.new() end)
             self.interface = ok and interface or nil
         end
         if not self.interface then return nil end

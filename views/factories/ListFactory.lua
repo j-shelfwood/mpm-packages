@@ -100,7 +100,7 @@ function ListFactory.create(config)
         end,
 
         init = function(self, viewConfig)
-            local ok, interface = pcall(AEInterface.new)
+            local ok, interface = pcall(function() return AEInterface and AEInterface.new and AEInterface.new() end)
             self.interface = ok and interface or nil
             self.warningBelow = viewConfig.warningBelow or config.warningDefault
             self.sortBy = viewConfig.sortBy or sortField
@@ -112,7 +112,7 @@ function ListFactory.create(config)
             -- Lazy re-init: if interface was nil at init (host not yet discovered),
             -- retry on each render cycle until it succeeds
             if not self.interface then
-                local ok, interface = pcall(AEInterface.new)
+                local ok, interface = pcall(function() return AEInterface and AEInterface.new and AEInterface.new() end)
                 self.interface = ok and interface or nil
             end
             if not self.interface then return nil end
