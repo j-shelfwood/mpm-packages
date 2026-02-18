@@ -110,51 +110,55 @@ local function getEnergyPercent(peripheral)
     return nil
 end
 
-local function buildCraftingSummary(machines)
-    local entries = {}
-    for _, machine in ipairs(machines) do
-        if machine.isActive and machine.crafting then
-            table.insert(entries, machine.label .. ":" .. machine.crafting)
-        end
-    end
-
-    if #entries == 0 then
-        return nil
-    end
-
-    table.sort(entries)
-    return table.concat(entries, ", ")
-end
-
--- Draw a single machine cell as a 4-segment mini bar.
-local function drawCell(monitor, x, y, machine)
+-- Draw a larger machine card:
+-- - Top row: compact power fill
+-- - Middle: centered machine ID (#n)
+-- - Bottom: current crafted/processed item when active
+local function drawMachineCard(monitor, x, y, cardWidth, cardHeight, machine)
     local isActive = machine and machine.isActive
     local energyPct = machine and machine.energyPct
-    local segments = 4
-    local filled = (energyPct and math.floor(energyPct * segments + 0.5)) or (isActive and segments or 0)
-    if isActive and filled < 1 then
-        filled = 1
-    end
-    if filled > segments then
-        filled = segments
-    end
-    local fillColor = isActive and colors.lime or colors.lightGray
-    local emptyColor = colors.gray
 
-    for i = 1, segments do
-        monitor.setBackgroundColor(i <= filled and fillColor or emptyColor)
-        monitor.setCursorPos(x + i - 1, y)
-        monitor.write(" ")
+    local baseBg = isActive and colors.green or colors.gray
+    for row = 0, cardHeight - 1 do
+        monitor.setBackgroundColor(baseBg)
+        monitor.setCursorPos(x, y + row)
+        monitor.write(string.rep(" ", cardWidth))
     end
 
-    -- Idle machines without energy info stay dark.
-    if not isActive and energyPct == nil then
-        monitor.setBackgroundColor(colors.gray)
+    local fill = 0
+    if type(energyPct) == "number" then
+        fill = math.floor(energyPct * cardWidth + 0.5)
+    elseif isActive then
+        fill = math.max(1, math.floor(cardWidth * 0.5))
+    end
+    if fill > 0 then
+        monitor.setBackgroundColor(colors.lime)
         monitor.setCursorPos(x, y)
-        monitor.write("    ")
+        monitor.write(string.rep(" ", math.min(cardWidth, fill)))
     end
 
-    monitor.setCursorPos(x, y)
+    local idText = "#" .. tostring(machine.label or "?")
+    local idX = x + math.max(0, math.floor((cardWidth - #idText) / 2))
+    local idY = y + 1
+    monitor.setBackgroundColor(baseBg)
+    monitor.setTextColor(colors.black)
+    monitor.setCursorPos(idX, idY)
+    monitor.write(idText)
+
+    local craftText = ""
+    if isActive and machine.crafting then
+        craftText = Text.truncateMiddle(machine.crafting, cardWidth)
+    elseif isActive then
+        craftText = "Active"
+    else
+        craftText = "Idle"
+    end
+
+    local craftX = x + math.max(0, math.floor((cardWidth - #craftText) / 2))
+    local craftY = y + 2
+    monitor.setCursorPos(craftX, craftY)
+    monitor.write(craftText)
+
     monitor.setBackgroundColor(colors.black)
 end
 
@@ -234,8 +238,7 @@ return BaseView.custom({
                 color = typeData.classification.color or colors.white,
                 active = activeCount,
                 total = #machines,
-                machines = machines,
-                craftingSummary = buildCraftingSummary(machines)
+                machines = machines
             })
             totalActive = activeCount
             totalMachines = #machines
@@ -266,8 +269,7 @@ return BaseView.custom({
                     color = typeData.classification.color or colors.white,
                     active = activeCount,
                     total = #machines,
-                    machines = machines,
-                    craftingSummary = buildCraftingSummary(machines)
+                    machines = machines
                 })
                 totalActive = totalActive + activeCount
                 totalMachines = totalMachines + #machines
@@ -296,66 +298,58 @@ return BaseView.custom({
         self.monitor.setCursorPos(1, 1)
 
         local title = self.machineType and data.sections[1].label or "Machines"
-        self.monitor.write(Text.truncateMiddle(title, width - 8))
-
-        local countStr = string.format("%d/%d", data.totalActive, data.totalMachines)
-        self.monitor.setTextColor(data.totalActive > 0 and colors.lime or colors.gray)
+        local countStr = string.format("%d/%d active", data.totalActive, data.totalMachines)
+        local titleMax = math.max(1, width - #countStr - 1)
+        self.monitor.write(Text.truncateMiddle(title, titleMax))
+        self.monitor.setTextColor(colors.lightGray)
         self.monitor.setCursorPos(math.max(1, width - #countStr + 1), 1)
         self.monitor.write(countStr)
 
         -- Render sections flowing top-to-bottom
-        -- Each section: header line + optional crafting line + ceil(machines/cellsPerRow) cell rows
-        local cellWidth = 4   -- 4-char mini bar per machine
-        local cellGap = 1     -- 1 char gap between cells
-        local cellStep = cellWidth + cellGap
-        local cellsPerRow = math.max(1, math.floor((width + cellGap) / cellStep))
+        -- Each section: header line + rows of large machine cards
+        local cardGap = 1
+        local cardHeight = 4
+        local cardWidth = 12
+        local cardStep = cardWidth + cardGap
+        local cardsPerRow = math.max(1, math.floor((width + cardGap) / cardStep))
+        if cardsPerRow == 1 then
+            cardWidth = width
+            cardStep = cardWidth + cardGap
+        end
 
         local currentY = 3  -- Start after title + blank line
 
         for _, section in ipairs(data.sections) do
             if currentY > height then break end
 
-            -- Section header: "Type Name       3/5"
-            local countText = string.format("%d/%d", section.active, section.total)
-            local labelWidth = width - #countText - 1
-            local label = Text.truncateMiddle(section.label, math.max(1, labelWidth))
+            -- Section header
+            local label = Text.truncateMiddle(section.label, width)
 
             self.monitor.setTextColor(section.color or colors.white)
             self.monitor.setCursorPos(1, currentY)
             self.monitor.write(label)
 
-            self.monitor.setTextColor(section.active > 0 and colors.lime or colors.gray)
-            self.monitor.setCursorPos(math.max(1, width - #countText + 1), currentY)
-            self.monitor.write(countText)
-
             currentY = currentY + 1
 
-            if section.craftingSummary and currentY <= height then
-                self.monitor.setTextColor(colors.lightGray)
-                self.monitor.setCursorPos(1, currentY)
-                self.monitor.write(Text.truncateMiddle("Now: " .. section.craftingSummary, width))
-                currentY = currentY + 1
-            end
-
-            -- Draw machine cells in rows
+            -- Draw machine cards in rows
             for idx, machine in ipairs(section.machines) do
-                if currentY > height then break end
+                if currentY + cardHeight - 1 > height - 1 then break end
 
-                local col = (idx - 1) % cellsPerRow
-                local x = 1 + col * cellStep
+                local col = (idx - 1) % cardsPerRow
+                local x = 1 + col * cardStep
 
-                drawCell(self.monitor, x, currentY, machine)
+                drawMachineCard(self.monitor, x, currentY, cardWidth, cardHeight, machine)
 
                 -- Move to next row after filling this one
-                if col == cellsPerRow - 1 or idx == #section.machines then
+                if col == cardsPerRow - 1 or idx == #section.machines then
                     if idx < #section.machines then
-                        currentY = currentY + 1
+                        currentY = currentY + cardHeight
                     end
                 end
             end
 
-            -- Advance past the last cell row + gap
-            currentY = currentY + 2  -- 1 for current row + 1 gap
+            -- Advance past the last card row + gap
+            currentY = currentY + cardHeight + 1
         end
 
         -- Status bar at bottom
