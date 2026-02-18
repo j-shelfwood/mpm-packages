@@ -7,6 +7,7 @@ local BaseView = mpm('views/BaseView')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Text = mpm('utils/Text')
 local Activity = mpm('peripherals/MachineActivity')
+local Yield = mpm('utils/Yield')
 
 local MACHINE_POLL_ACTIVE_MS = 1000
 local MACHINE_POLL_IDLE_MS = 5000
@@ -34,7 +35,17 @@ local function getSharedFilterState(modFilter)
             dueEntries = {},
             lastTypesAt = 0,
             lastSweepAt = 0,
-            pollCursor = 0
+            pollCursor = 0,
+            refreshingTypes = false,
+            sweeping = false,
+            stats = {
+                getDataCalls = 0,
+                lastGetDataMs = 0,
+                maxGetDataMs = 0,
+                typeRefreshes = 0,
+                sweepRuns = 0,
+                sweepPolls = 0
+            }
         }
         store.byFilter[key] = state
     end
@@ -372,6 +383,7 @@ local function collectSectionMachines(self, typeData, nowMs, doSweep)
             seen[key] = true
         end
         table.insert(machines, entry)
+        Yield.check(idx, 25)
     end
 
     return machines, activeCount
@@ -386,15 +398,18 @@ local function pollDueEntries(shared, nowMs, budget)
 
     local cursor = shared.pollCursor or 0
     local limit = math.min(budget, totalDue)
+    local polled = 0
     for i = 1, limit do
         cursor = (cursor % totalDue) + 1
         local entry = due[cursor]
         if entry then
             pollMachineEntry(entry, nowMs)
+            polled = polled + 1
         end
     end
 
     shared.pollCursor = cursor
+    return polled
 end
 
 -- Draw a larger machine card:
@@ -499,20 +514,31 @@ return BaseView.custom({
     end,
 
     getData = function(self)
+        local startedAt = os.epoch("utc")
         if not self.sharedState then
             self.sharedState = getSharedFilterState(self.modFilter)
         end
 
         local shared = self.sharedState
+        shared.stats.getDataCalls = (shared.stats.getDataCalls or 0) + 1
         local nowMs = os.epoch("utc")
-        if (nowMs - (shared.lastTypesAt or 0)) >= TYPELIST_REFRESH_MS then
-            local types = Activity.buildTypeList(self.modFilter)
-            shared.types = types
-            shared.typeByName = {}
-            for _, info in ipairs(types) do
-                shared.typeByName[info.type] = info
-            end
+        if (nowMs - (shared.lastTypesAt or 0)) >= TYPELIST_REFRESH_MS and not shared.refreshingTypes then
+            -- Claim refresh window first to avoid multi-monitor cold-refresh storms.
+            shared.refreshingTypes = true
             shared.lastTypesAt = nowMs
+            local ok, types = pcall(Activity.buildTypeList, self.modFilter)
+            if ok and type(types) == "table" then
+                shared.types = types
+                shared.typeByName = {}
+                for _, info in ipairs(types) do
+                    shared.typeByName[info.type] = info
+                end
+                shared.stats.typeRefreshes = (shared.stats.typeRefreshes or 0) + 1
+            else
+                -- Retry soon if refresh fails, without immediate herd retries.
+                shared.lastTypesAt = nowMs - (TYPELIST_REFRESH_MS - 1000)
+            end
+            shared.refreshingTypes = false
         end
 
         local types = shared.types or {}
@@ -520,18 +546,28 @@ return BaseView.custom({
         local totalActive = 0
         local totalMachines = 0
 
-        local doSweep = (nowMs - (shared.lastSweepAt or 0)) >= SHARED_SWEEP_INTERVAL_MS
+        local doSweep = (nowMs - (shared.lastSweepAt or 0)) >= SHARED_SWEEP_INTERVAL_MS and not shared.sweeping
         if doSweep then
+            shared.sweeping = true
             shared.lastSweepAt = nowMs
             shared.machineSeen = {}
             shared.dueEntries = {}
+            shared.stats.sweepRuns = (shared.stats.sweepRuns or 0) + 1
         end
 
         if self.machineType then
             -- Single type mode
             local typeData = shared.typeByName and shared.typeByName[self.machineType] or nil
             if not typeData then
-                return { sections = {}, totalActive = 0, totalMachines = 0 }
+                if doSweep then
+                    shared.sweeping = false
+                end
+                local elapsed = os.epoch("utc") - startedAt
+                shared.stats.lastGetDataMs = elapsed
+                if elapsed > (shared.stats.maxGetDataMs or 0) then
+                    shared.stats.maxGetDataMs = elapsed
+                end
+                return { sections = {}, totalActive = 0, totalMachines = 0, profile = shared.stats }
             end
 
             local machines, activeCount
@@ -566,7 +602,8 @@ return BaseView.custom({
 
         if doSweep then
             local budget = self.machineType and MAX_POLLS_PER_SWEEP_SINGLE or MAX_POLLS_PER_SWEEP_ALL
-            pollDueEntries(shared, nowMs, budget)
+            local polled = pollDueEntries(shared, nowMs, budget) or 0
+            shared.stats.sweepPolls = (shared.stats.sweepPolls or 0) + polled
         end
 
         -- Drop entries for machines that no longer exist.
@@ -576,12 +613,20 @@ return BaseView.custom({
                     shared.machineEntries[name] = nil
                 end
             end
+            shared.sweeping = false
+        end
+
+        local elapsed = os.epoch("utc") - startedAt
+        shared.stats.lastGetDataMs = elapsed
+        if elapsed > (shared.stats.maxGetDataMs or 0) then
+            shared.stats.maxGetDataMs = elapsed
         end
 
         return {
             sections = sections,
             totalActive = totalActive,
-            totalMachines = totalMachines
+            totalMachines = totalMachines,
+            profile = shared.stats
         }
     end,
 

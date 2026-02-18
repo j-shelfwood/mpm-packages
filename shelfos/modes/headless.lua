@@ -11,6 +11,7 @@ local Pairing = mpm('net/Pairing')
 local Crypto = mpm('net/Crypto')
 local ModemUtils = mpm('utils/ModemUtils')
 local TermUI = mpm('ui/TermUI')
+local KernelNetwork = mpm('shelfos/core/KernelNetwork')
 
 local headless = {}
 
@@ -304,16 +305,16 @@ function headless.run()
     end
 
     local hasMonitor = peripheral.find("monitor") ~= nil
-    local hasEnder = ModemUtils.hasEnder()
-    if not hasMonitor and not hasEnder then
+    local hasModem = ModemUtils.hasAny()
+    if not hasMonitor and not hasModem then
         TermUI.clear()
         TermUI.drawTitleBar("Headless Mode")
         local y = 4
-        TermUI.drawText(2, y, "No monitors or ender modem detected.", colors.orange)
+        TermUI.drawText(2, y, "No monitor or modem detected.", colors.orange)
         y = y + 2
         TermUI.drawWrapped(
             y,
-            "Headless mode requires an ender modem to share peripherals, or a monitor to display network data.",
+            "Headless mode requires a modem to share peripherals, or a monitor to display network data.",
             colors.lightGray,
             2,
             3
@@ -470,7 +471,11 @@ function headless.run()
                 lastAnnounce = os.epoch("utc")
             end
 
-            channel:poll(0)
+            local drained = KernelNetwork.drainChannel(channel, 0, 50)
+            if drained > 0 then
+                state.stats.rx = state.stats.rx + drained
+                state.needsRedraw = true
+            end
 
         elseif event == "key" then
             local key = p1
@@ -502,7 +507,10 @@ function headless.run()
 
         elseif event == "rednet_message" then
             markActivity(state, "rx", "Inbound network traffic", colors.lightBlue)
-            channel:poll(0)
+            local drained = KernelNetwork.drainChannel(channel, 0, 50)
+            if drained > 0 then
+                state.stats.rx = state.stats.rx + (drained - 1)
+            end
 
         elseif event == "term_resize" then
             TermUI.refreshSize()

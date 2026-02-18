@@ -94,6 +94,7 @@ function Monitor.new(config, onViewChange, settings, index)
     self.onViewChange = onViewChange
     self.themeName = (settings and settings.theme) or "default"
     self.index = index or 0  -- Used for staggering render timers
+    self.renderPhase = self.index * 0.05
 
     -- Try to connect
     self.peripheral = peripheral.wrap(self.peripheralName)
@@ -218,7 +219,7 @@ function Monitor:loadView(viewName)
 
     -- Initial render (buffer handles flicker prevention)
     self:render()
-    self:scheduleRender(self.index * 0.05)  -- 50ms stagger per monitor
+    self:scheduleRender(self.renderPhase)  -- 50ms stagger per monitor
 
     return true
 end
@@ -465,7 +466,11 @@ function Monitor:scheduleRender(offset)
         os.cancelTimer(self.renderTimer)
     end
     local sleepTime = (self.view and self.view.sleepTime) or 1
-    self.renderTimer = os.startTimer(sleepTime + (offset or 0))
+    local phase = offset
+    if phase == nil then
+        phase = self.renderPhase or 0
+    end
+    self.renderTimer = os.startTimer(sleepTime + phase)
 end
 
 -- Handle touch event

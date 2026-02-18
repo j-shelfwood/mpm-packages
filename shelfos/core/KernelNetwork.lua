@@ -4,6 +4,29 @@
 
 local KernelNetwork = {}
 
+-- Drain pending channel messages with bounded work per tick.
+-- @param channel Channel instance
+-- @param blockTimeout Timeout (seconds) for first poll attempt
+-- @param maxDrain Maximum messages to process this tick
+-- @return drainedCount
+function KernelNetwork.drainChannel(channel, blockTimeout, maxDrain)
+    if not channel then
+        return 0
+    end
+
+    local timeout = blockTimeout or 0
+    local limit = maxDrain or 50
+    local drained = 0
+
+    while drained < limit do
+        local handled = channel:poll(drained == 0 and timeout or 0)
+        if not handled then break end
+        drained = drained + 1
+    end
+
+    return drained
+end
+
 -- Initialize networking (if modem available and paired with swarm)
 -- @param kernel Kernel instance
 -- @param config Current config
@@ -134,18 +157,8 @@ function KernelNetwork.loop(kernel, runningRef)
 
     while runningRef.value do
         if kernel.channel then
-            -- Drain ALL pending messages per iteration (up to safety limit)
-            -- Single poll() only processes one message, causing response backlog
-            -- when multiple monitors make concurrent RPC calls
-            local maxDrain = 50
-            local drained = 0
-            while drained < maxDrain do
-                -- First iteration: block up to 0.5s waiting for a message
-                -- Subsequent: non-blocking (timeout=0) to drain queued messages
-                local handled = kernel.channel:poll(drained == 0 and 0.5 or 0)
-                if not handled then break end
-                drained = drained + 1
-            end
+            -- First poll blocks briefly, then drain burst without blocking.
+            local drained = KernelNetwork.drainChannel(kernel.channel, 0.5, 50)
             if drained > 0 and kernel.dashboard then
                 kernel.dashboard:recordNetworkDrain(drained)
             end

@@ -16,6 +16,7 @@
 local Protocol = mpm('net/Protocol')
 local RenderContext = mpm('net/RenderContext')
 local DependencyStatus = mpm('net/DependencyStatus')
+local EventUtils = mpm('utils/EventUtils')
 
 local RemoteProxy = {}
 
@@ -27,6 +28,7 @@ local RECONNECT_COOLDOWN_MS = 10000  -- Wait 10 seconds before auto-reconnect at
 local CACHE_TTL_MS = 2000            -- Return cache if fresher than 2s (covers 2 render cycles)
 local CACHE_STALE_MS = 5000          -- Fire async refresh after 5s staleness
 local CACHE_EXPIRE_MS = 30000        -- Discard cache after 30s (peripheral may be gone)
+local ASYNC_RETRY_MS = 1000          -- Avoid burst retries when refresh fails/lag spikes
 
 -- Default RPC timeout in seconds (only used for initial blocking call)
 -- 3s allows time for host to process if busy with another heavy request
@@ -83,6 +85,7 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
     proxy._cache = {}
     -- Track in-flight async requests to avoid duplicate sends
     proxy._pending = {}
+    proxy._nextRefreshAt = {}
 
     -- Auto-reconnect if disconnected and cooldown has elapsed
     local function ensureConnected()
@@ -170,11 +173,12 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
             local key = cacheKey(methodName, args)
             local now = os.epoch("utc")
             local cached = proxy._cache[key]
+            local age = cached and (now - cached.timestamp) or nil
 
             -- Return cached value if fresh enough
-            if cached and (now - cached.timestamp) < CACHE_TTL_MS then
+            if cached and age < CACHE_TTL_MS then
                 if contextKey then
-                    DependencyStatus.markCached(contextKey, name, now - cached.timestamp, false)
+                    DependencyStatus.markCached(contextKey, name, age, false)
                 end
                 if cached.results and #cached.results > 0 then
                     return table.unpack(cached.results)
@@ -183,13 +187,15 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
             end
 
             -- Cache exists but stale: return stale value, fire async refresh
-            if cached and (now - cached.timestamp) < CACHE_EXPIRE_MS then
+            if cached and age < CACHE_EXPIRE_MS then
                 if contextKey then
-                    DependencyStatus.markCached(contextKey, name, now - cached.timestamp, true)
+                    DependencyStatus.markCached(contextKey, name, age, age >= CACHE_STALE_MS)
                 end
                 -- Fire async refresh if not already in-flight
-                if not proxy._pending[key] then
+                local shouldRefresh = age >= CACHE_STALE_MS and now >= (proxy._nextRefreshAt[key] or 0)
+                if shouldRefresh and not proxy._pending[key] then
                     proxy._pending[key] = true
+                    proxy._nextRefreshAt[key] = now + ASYNC_RETRY_MS
                     local callbackContext = contextKey
                     if callbackContext then
                         DependencyStatus.markPending(callbackContext, name)
@@ -206,6 +212,7 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
                             return
                         end
                         proxy._failureCount = 0
+                        proxy._nextRefreshAt[key] = 0
                         proxy._cache[key] = {
                             results = results,
                             timestamp = os.epoch("utc")
@@ -225,10 +232,26 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
 
             -- No cache or expired: blocking call to populate initial cache
             -- This only happens on the very first call per method
+            if proxy._pending[key] then
+                local waitDeadline = os.epoch("utc") + (timeout * 1000)
+                while proxy._pending[key] and os.epoch("utc") < waitDeadline do
+                    EventUtils.sleep(0.05)
+                end
+                local warmed = proxy._cache[key]
+                if warmed and warmed.results then
+                    if warmed.results and #warmed.results > 0 then
+                        return table.unpack(warmed.results)
+                    end
+                    return nil
+                end
+            end
+
+            proxy._pending[key] = true
             local startedAt = now
             local results, err = client:call(proxy._hostId, name, methodName, args, timeout)
 
             if err then
+                proxy._pending[key] = nil
                 proxy._failureCount = proxy._failureCount + 1
                 proxy._lastFailureTime = os.epoch("utc")
                 if proxy._failureCount >= MAX_CONSECUTIVE_FAILURES then
@@ -247,6 +270,7 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
                 results = results,
                 timestamp = now
             }
+            proxy._pending[key] = nil
             if contextKey then
                 DependencyStatus.markSuccess(contextKey, name, os.epoch("utc") - startedAt)
             end
@@ -262,6 +286,7 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
     proxy.clearCache = function()
         proxy._cache = {}
         proxy._pending = {}
+        proxy._nextRefreshAt = {}
     end
 
     -- Add peripheral-like helper methods

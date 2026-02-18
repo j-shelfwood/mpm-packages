@@ -95,7 +95,7 @@ return function(h)
         h:assert_true(rebooted, "Reset path should reboot")
     end)
 
-    h:test("headless runtime: exits early when no monitor and no ender modem", function()
+    h:test("headless runtime: exits early when no monitor and no modem", function()
         local headless = mpm("shelfos/modes/headless")
         local Config = mpm("shelfos/core/Config")
         local ModemUtils = mpm("utils/ModemUtils")
@@ -103,7 +103,7 @@ return function(h)
         local originalLoad = Config.load
         local originalCreate = Config.create
         local originalSave = Config.save
-        local originalHasEnder = ModemUtils.hasEnder
+        local originalHasAny = ModemUtils.hasAny
         local originalPeripheral = _G.peripheral
         local originalPullEvent = os.pullEvent
 
@@ -120,7 +120,7 @@ return function(h)
             return true
         end
 
-        ModemUtils.hasEnder = function()
+        ModemUtils.hasAny = function()
             return false
         end
         _G.peripheral = {
@@ -142,11 +142,11 @@ return function(h)
         Config.load = originalLoad
         Config.create = originalCreate
         Config.save = originalSave
-        ModemUtils.hasEnder = originalHasEnder
+        ModemUtils.hasAny = originalHasAny
         _G.peripheral = originalPeripheral
         os.pullEvent = originalPullEvent
 
-        h:assert_true(ok, "headless.run should return cleanly in no-monitor/no-ender guard path: " .. tostring(err))
+        h:assert_true(ok, "headless.run should return cleanly in no-monitor/no-modem guard path: " .. tostring(err))
         h:assert_true(pullCount >= 1, "Expected key wait before exiting guard path")
     end)
 
@@ -159,7 +159,7 @@ return function(h)
         local originalCreate = Config.create
         local originalSave = Config.save
         local originalSetNetworkSecret = Config.setNetworkSecret
-        local originalHasEnder = ModemUtils.hasEnder
+        local originalHasAny = ModemUtils.hasAny
         local originalPeripheral = _G.peripheral
         local originalPullEvent = os.pullEvent
         local originalReboot = os.reboot
@@ -188,7 +188,7 @@ return function(h)
             return true
         end
 
-        ModemUtils.hasEnder = function()
+        ModemUtils.hasAny = function()
             return true
         end
         _G.peripheral = {
@@ -228,7 +228,7 @@ return function(h)
         Config.create = originalCreate
         Config.save = originalSave
         Config.setNetworkSecret = originalSetNetworkSecret
-        ModemUtils.hasEnder = originalHasEnder
+        ModemUtils.hasAny = originalHasAny
         _G.peripheral = originalPeripheral
         os.pullEvent = originalPullEvent
         os.reboot = originalReboot
