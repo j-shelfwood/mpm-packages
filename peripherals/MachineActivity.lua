@@ -7,7 +7,7 @@ local Peripherals = mpm('utils/Peripherals')
 local MachineActivity = {}
 local discoveryCache = nil
 local discoveryCacheAt = 0
-local DISCOVERY_CACHE_TTL_MS = 1000
+local DISCOVERY_CACHE_TTL_MS = 5000
 
 -- Activity detection strategies by method availability
 local ACTIVITY_STRATEGIES = {

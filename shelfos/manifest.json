@@ -17,6 +17,7 @@
     "core/Paths.lua",
     "core/Identity.lua",
     "core/Terminal.lua",
+    "core/TerminalDashboard.lua",
     "input/Menu.lua",
     "input/MenuStatus.lua",
     "ui/PairingScreen.lua",

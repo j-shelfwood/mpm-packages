@@ -9,6 +9,32 @@ local Text = mpm('utils/Text')
 local Yield = mpm('utils/Yield')
 local Activity = mpm('peripherals/MachineActivity')
 
+local MACHINE_POLL_ACTIVE_MS = 1000
+local MACHINE_POLL_IDLE_MS = 3000
+local MACHINE_IDLE_CRAFT_POLL_MS = 6000
+local TYPELIST_REFRESH_MS = 1000
+
+_G._shelfos_machineGridShared = _G._shelfos_machineGridShared or {
+    byFilter = {}
+}
+
+local function getSharedFilterState(modFilter)
+    local store = _G._shelfos_machineGridShared
+    local key = modFilter or "all"
+    local state = store.byFilter[key]
+    if not state then
+        state = {
+            types = {},
+            typeByName = {},
+            machineEntries = {},
+            machineSeen = {},
+            lastTypesAt = 0
+        }
+        store.byFilter[key] = state
+    end
+    return state
+end
+
 local function clamp01(value)
     if type(value) ~= "number" then return nil end
     if value < 0 then return 0 end
@@ -127,6 +153,118 @@ local function getEnergyPercent(peripheral)
     return nil
 end
 
+local function buildMachineEntry(machine, idx, pType)
+    local shortName = Activity.getShortName and Activity.getShortName(pType or machine.name) or (pType or machine.name)
+    local shortLabel = machine.name:match("_(%d+)$") or (idx and tostring(idx)) or machine.name
+    local fullLabel = shortName
+    local idSuffix = machine.name:match("_(%d+)$")
+    if idSuffix then
+        fullLabel = shortName .. " #" .. idSuffix
+    end
+
+    return {
+        label = shortLabel,
+        shortName = shortName,
+        fullLabel = fullLabel,
+        name = machine.name,
+        type = pType or machine.name,
+        peripheral = machine.peripheral,
+        isActive = false,
+        energyPct = nil,
+        crafting = nil,
+        polledAt = 0,
+        craftPolledAt = 0
+    }
+end
+
+local function shouldPollMachine(entry, nowMs)
+    if not entry then return true end
+    local interval = entry.isActive and MACHINE_POLL_ACTIVE_MS or MACHINE_POLL_IDLE_MS
+    return (nowMs - (entry.polledAt or 0)) >= interval
+end
+
+local function pollMachineEntry(entry, nowMs)
+    local isActive = false
+    local p = entry.peripheral
+    if p then
+        local active = Activity.getActivity(p)
+        isActive = active and true or false
+    end
+
+    entry.isActive = isActive
+    entry.energyPct = getEnergyPercent(p)
+
+    if entry.isActive then
+        local detectedCraft, progressActive = getCraftingTarget(p)
+        if progressActive then
+            entry.isActive = true
+        end
+        if detectedCraft then
+            entry.crafting = detectedCraft
+        end
+        entry.craftPolledAt = nowMs
+    else
+        local craftAge = nowMs - (entry.craftPolledAt or 0)
+        if entry.crafting == nil or craftAge >= MACHINE_IDLE_CRAFT_POLL_MS then
+            local detectedCraft = getCraftingTarget(p)
+            if detectedCraft then
+                entry.crafting = detectedCraft
+            end
+            entry.craftPolledAt = nowMs
+        end
+    end
+
+    entry.polledAt = nowMs
+    return entry
+end
+
+local function collectSectionMachines(self, typeData, nowMs, pollIdx)
+    local machines = {}
+    local activeCount = 0
+    local shared = self.sharedState
+    local seen = shared.machineSeen
+
+    for idx, machine in ipairs(typeData.machines) do
+        local key = machine.name
+        local entry = shared.machineEntries[key]
+
+        if not entry then
+            entry = buildMachineEntry(machine, idx, typeData.type)
+            shared.machineEntries[key] = entry
+        else
+            entry.type = typeData.type
+            entry.peripheral = machine.peripheral
+            entry.label = machine.name:match("_(%d+)$") or entry.label
+            if not entry.shortName then
+                entry.shortName = Activity.getShortName and Activity.getShortName(typeData.type) or typeData.type
+            end
+            if not entry.fullLabel then
+                entry.fullLabel = entry.shortName
+                local idSuffix = machine.name:match("_(%d+)$")
+                if idSuffix then
+                    entry.fullLabel = entry.shortName .. " #" .. idSuffix
+                end
+            end
+        end
+
+        if shouldPollMachine(entry, nowMs) then
+            entry = pollMachineEntry(entry, nowMs)
+            shared.machineEntries[key] = entry
+        end
+
+        if entry.isActive then
+            activeCount = activeCount + 1
+        end
+
+        seen[key] = true
+        table.insert(machines, entry)
+        pollIdx = pollIdx + 1
+        Yield.check(pollIdx, 24)
+    end
+
+    return machines, activeCount, pollIdx
+end
+
 -- Draw a larger machine card:
 -- - Left column: vertical power fill
 -- - Middle: centered machine ID (#n)
@@ -225,47 +363,43 @@ return BaseView.custom({
     init = function(self, config)
         self.modFilter = config.mod_filter or "all"
         self.machineType = Activity.normalizeMachineType(config.machine_type)
-        self.craftingCache = {}
+        self.sharedState = getSharedFilterState(self.modFilter)
     end,
 
     getData = function(self)
-        local types = Activity.buildTypeList(self.modFilter)
+        if not self.sharedState then
+            self.sharedState = getSharedFilterState(self.modFilter)
+        end
+
+        local shared = self.sharedState
+        local nowMs = os.epoch("utc")
+        if (nowMs - (shared.lastTypesAt or 0)) >= TYPELIST_REFRESH_MS then
+            local types = Activity.buildTypeList(self.modFilter)
+            shared.types = types
+            shared.typeByName = {}
+            for _, info in ipairs(types) do
+                shared.typeByName[info.type] = info
+            end
+            shared.lastTypesAt = nowMs
+        end
+
+        local types = shared.types or {}
         local sections = {}
         local totalActive = 0
         local totalMachines = 0
         local pollIdx = 0
 
+        shared.machineSeen = {}
+
         if self.machineType then
             -- Single type mode
-            local typeData = nil
-            for _, info in ipairs(types) do
-                if info.type == self.machineType then
-                    typeData = info
-                    break
-                end
-            end
+            local typeData = shared.typeByName and shared.typeByName[self.machineType] or nil
             if not typeData then
                 return { sections = {}, totalActive = 0, totalMachines = 0 }
             end
 
-            local machines = {}
-            local activeCount = 0
-            for idx, machine in ipairs(typeData.machines) do
-                pollIdx = pollIdx + 1
-                local entry = Activity.buildMachineEntry(machine, idx, typeData.type)
-                entry.energyPct = getEnergyPercent(machine.peripheral)
-                local detectedCraft, progressActive = getCraftingTarget(machine.peripheral)
-                if progressActive then
-                    entry.isActive = true
-                end
-                if detectedCraft then
-                    self.craftingCache[entry.name] = detectedCraft
-                end
-                entry.crafting = detectedCraft or self.craftingCache[entry.name]
-                if entry.isActive then activeCount = activeCount + 1 end
-                table.insert(machines, entry)
-                Yield.check(pollIdx, 6)
-            end
+            local machines, activeCount
+            machines, activeCount, pollIdx = collectSectionMachines(self, typeData, nowMs, pollIdx)
 
             table.insert(sections, {
                 label = typeData.label,
@@ -279,24 +413,8 @@ return BaseView.custom({
         else
             -- All types mode: one section per type
             for _, typeData in ipairs(types) do
-                local machines = {}
-                local activeCount = 0
-                for idx, machine in ipairs(typeData.machines) do
-                    pollIdx = pollIdx + 1
-                    local entry = Activity.buildMachineEntry(machine, idx, typeData.type)
-                    entry.energyPct = getEnergyPercent(machine.peripheral)
-                    local detectedCraft, progressActive = getCraftingTarget(machine.peripheral)
-                    if progressActive then
-                        entry.isActive = true
-                    end
-                    if detectedCraft then
-                        self.craftingCache[entry.name] = detectedCraft
-                    end
-                    entry.crafting = detectedCraft or self.craftingCache[entry.name]
-                    if entry.isActive then activeCount = activeCount + 1 end
-                    table.insert(machines, entry)
-                    Yield.check(pollIdx, 8)
-                end
+                local machines, activeCount
+                machines, activeCount, pollIdx = collectSectionMachines(self, typeData, nowMs, pollIdx)
 
                 table.insert(sections, {
                     label = typeData.label,
@@ -307,6 +425,13 @@ return BaseView.custom({
                 })
                 totalActive = totalActive + activeCount
                 totalMachines = totalMachines + #machines
+            end
+        end
+
+        -- Drop entries for machines that no longer exist.
+        for name in pairs(shared.machineEntries) do
+            if not shared.machineSeen[name] then
+                shared.machineEntries[name] = nil
             end
         end
 

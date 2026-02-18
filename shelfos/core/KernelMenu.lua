@@ -86,7 +86,11 @@ function KernelMenu.handleKey(kernel, key, runningRef)
             if monitor then
                 monitor:loadView(newView)
                 kernel:persistViewChange(monitor:getPeripheralName(), newView)
-                print("[ShelfOS] " .. monitor:getName() .. " -> " .. newView)
+                if kernel.dashboard then
+                    kernel.dashboard:setMessage("View changed: " .. monitor:getName() .. " -> " .. newView, colors.lime)
+                else
+                    print("[ShelfOS] " .. monitor:getName() .. " -> " .. newView)
+                end
             end
         end
 

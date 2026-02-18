@@ -19,8 +19,13 @@ function KernelNetwork.initialize(kernel, config, identity)
         -- CRITICAL: Clear any stale secret from previous session
         -- _G persists across program restarts in CC:Tweaked
         Crypto.clearSecret()
-        print("[ShelfOS] Network: not in swarm")
-        print("          Press L -> Accept from pocket to join")
+        if kernel.dashboard then
+            kernel.dashboard:setNetwork("Not in swarm", colors.orange, "n/a")
+            kernel.dashboard:setMessage("Press L -> Accept from pocket to join", colors.orange)
+        else
+            print("[ShelfOS] Network: not in swarm")
+            print("          Press L -> Accept from pocket to join")
+        end
         return nil, nil, nil, nil
     end
 
@@ -30,12 +35,22 @@ function KernelNetwork.initialize(kernel, config, identity)
     local ok, modemType = channel:open(true)
 
     if not ok then
-        print("[ShelfOS] Network: no modem found")
+        if kernel.dashboard then
+            kernel.dashboard:setNetwork("No modem found", colors.red, "n/a")
+            kernel.dashboard:setMessage("Network unavailable: no modem found", colors.red)
+        else
+            print("[ShelfOS] Network: no modem found")
+        end
         return nil, nil, nil, nil
     end
 
     -- ModemUtils now returns "ender" for isWireless()=true modems
-    print("[ShelfOS] Network: " .. modemType .. " modem")
+    if kernel.dashboard then
+        kernel.dashboard:setNetwork("Connected", colors.lime, modemType)
+        kernel.dashboard:setMessage("Network online via " .. modemType .. " modem", colors.lime)
+    else
+        print("[ShelfOS] Network: " .. modemType .. " modem")
+    end
 
     -- Register with native CC:Tweaked service discovery
     -- Note: rednet.host() requires string hostname, identity:getId() may be number
@@ -50,8 +65,15 @@ function KernelNetwork.initialize(kernel, config, identity)
     -- Set up peripheral host to share local peripherals
     local PeripheralHost = mpm('net/PeripheralHost')
     local peripheralHost = PeripheralHost.new(channel, identity:getId(), identity:getName())
+    if kernel.dashboard then
+        peripheralHost:setActivityListener(function(activity, data)
+            kernel.dashboard:onHostActivity(activity, data)
+        end)
+    end
     local hostCount = peripheralHost:start()
-    if hostCount > 0 then
+    if kernel.dashboard then
+        kernel.dashboard:setSharedCount(hostCount)
+    elseif hostCount > 0 then
         print("[ShelfOS] Sharing " .. hostCount .. " local peripheral(s)")
     end
 
@@ -67,13 +89,23 @@ function KernelNetwork.initialize(kernel, config, identity)
 
     -- Register REBOOT handler - reboots this computer on command from pocket
     channel:on(Protocol.MessageType.REBOOT, function(senderId, msg)
-        print("[ShelfOS] Reboot command received from #" .. senderId)
+        if kernel.dashboard then
+            kernel.dashboard:markActivity("call_error", "Reboot command received from #" .. senderId, colors.red)
+            kernel.dashboard:render(kernel)
+        else
+            print("[ShelfOS] Reboot command received from #" .. senderId)
+        end
         os.reboot()
     end)
 
     -- Discover remote peripherals (non-blocking, short timeout)
     local count = peripheralClient:discover(2)
-    if count > 0 then
+    if kernel.dashboard then
+        kernel.dashboard:setRemoteCount(count)
+        if count > 0 then
+            kernel.dashboard:setMessage("Found " .. count .. " remote peripheral(s)", colors.cyan)
+        end
+    elseif count > 0 then
         print("[ShelfOS] Found " .. count .. " remote peripheral(s)")
     end
 
@@ -108,6 +140,9 @@ function KernelNetwork.loop(kernel, runningRef)
                 if not handled then break end
                 drained = drained + 1
             end
+            if drained > 0 and kernel.dashboard then
+                kernel.dashboard:recordNetworkDrain(drained)
+            end
 
             -- Periodic computer announce
             if kernel.discovery and kernel.discovery:shouldAnnounce() then
@@ -119,6 +154,9 @@ function KernelNetwork.loop(kernel, runningRef)
                     })
                 end
                 kernel.discovery:announce(monitorInfo)
+                if kernel.dashboard then
+                    kernel.dashboard:markActivity("announce", "Swarm metadata announce", colors.cyan)
+                end
             end
 
             -- Periodic peripheral host announce
@@ -138,6 +176,9 @@ function KernelNetwork.loop(kernel, runningRef)
                 if now - lastPeriphDiscovery > periphDiscoveryInterval then
                     kernel.peripheralClient:discoverAsync()
                     lastPeriphDiscovery = now
+                    if kernel.dashboard then
+                        kernel.dashboard:markActivity("discover", "Remote peripheral discovery", colors.yellow)
+                    end
 
                     -- Back off once we have peripherals
                     if kernel.peripheralClient:getCount() > 0 then
@@ -149,6 +190,9 @@ function KernelNetwork.loop(kernel, runningRef)
                 if now - lastCleanup > cleanupInterval then
                     kernel.peripheralClient:cleanupExpired()
                     lastCleanup = now
+                end
+                if kernel.dashboard then
+                    kernel.dashboard:setRemoteCount(kernel.peripheralClient:getCount())
                 end
             end
 

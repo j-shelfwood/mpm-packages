@@ -11,6 +11,7 @@ local Config = mpm('shelfos/core/Config')
 local Monitor = mpm('shelfos/core/Monitor')
 local Identity = mpm('shelfos/core/Identity')
 local Terminal = mpm('shelfos/core/Terminal')
+local TerminalDashboard = mpm('shelfos/core/TerminalDashboard')
 local KernelNetwork = mpm('shelfos/core/KernelNetwork')
 local KernelMenu = mpm('shelfos/core/KernelMenu')
 local AESnapshotBus = mpm('peripherals/AESnapshotBus')
@@ -32,6 +33,7 @@ function Kernel.new()
     self.discovery = nil
     self.peripheralHost = nil
     self.peripheralClient = nil
+    self.dashboard = nil
 
     return self
 end
@@ -41,45 +43,47 @@ function Kernel:boot()
     -- Initialize terminal windows (log area + menu bar)
     Terminal.init()
     Terminal.clearAll()
+    self.dashboard = TerminalDashboard.new()
+    self.dashboard:setMessage("Booting ShelfOS...", colors.lightGray)
+    self.dashboard:render(self)
 
     -- Clear any stale crypto state from previous session FIRST
     -- _G persists across program restarts in CC:Tweaked
     local Crypto = mpm('net/Crypto')
     Crypto.clearSecret()
 
-    print("[ShelfOS] Booting...")
-
     -- Load configuration
     self.config = Config.load()
 
     if not self.config then
         -- Auto-discovery mode: create config automatically
-        print("[ShelfOS] First boot - auto-discovering...")
+        self.dashboard:setMessage("First boot: auto-discovering monitors...", colors.yellow)
         self.config, self.discoveredCount = Config.autoCreate()
 
         if self.discoveredCount == 0 then
-            print("[ShelfOS] No monitors found.")
-            print("[ShelfOS] Connect monitors and restart.")
+            self.dashboard:setNetwork("No monitors", colors.red)
+            self.dashboard:setMessage("No monitors found. Connect monitors and restart.", colors.red)
+            self.dashboard:render(self)
             return false
         end
 
         -- Save the auto-generated config (no network secret yet)
         Config.save(self.config)
-        print("[ShelfOS] Auto-configured " .. self.discoveredCount .. " monitor(s)")
-        -- Note: "Not in swarm" message is printed by KernelNetwork.initialize()
+        self.dashboard:setMessage("Auto-configured " .. self.discoveredCount .. " monitor(s)", colors.lime)
     else
         -- Reconcile existing config against actual hardware
         -- Fixes duplicate entries, remaps aliased names, adds new monitors
         local reconciled, summary = Config.reconcile(self.config)
         if reconciled then
             Config.save(self.config)
-            print("[ShelfOS] Config healed: " .. summary)
+            self.dashboard:setMessage("Config healed: " .. summary, colors.yellow)
         end
     end
 
     -- Initialize computer identity
     self.identity = Identity.new(self.config.computer)
-    print("[ShelfOS] Computer: " .. self.identity:getName())
+    self.dashboard:setIdentity(self.identity:getName(), self.identity:getId())
+    self.dashboard:setMessage("Initializing network...", colors.lightGray)
 
     -- Initialize networking FIRST (so RemotePeripheral is available for view mounting)
     self:initializeNetwork()
@@ -88,13 +92,16 @@ function Kernel:boot()
     self:initializeMonitors()
 
     if #self.monitors == 0 then
-        print("[ShelfOS] No monitors connected.")
-        print("[ShelfOS] Check peripheral connections and restart.")
+        self.dashboard:setNetwork("No monitors connected", colors.red)
+        self.dashboard:setMessage("Check peripheral connections and restart.", colors.red)
+        self.dashboard:render(self)
         return false
     end
 
     -- Draw menu bar
     KernelMenu.draw()
+    self.dashboard:setMessage("Dashboard online. Monitors active.", colors.lime)
+    self.dashboard:render(self)
 
     return true
 end
@@ -117,10 +124,15 @@ function Kernel:initializeMonitors()
 
         if monitor:isConnected() then
             table.insert(self.monitors, monitor)
-            print("  [+] " .. monitor:getName() .. " -> " .. monitor:getViewName())
         else
-            print("  [-] " .. monitorConfig.peripheral .. " (not connected)")
+            if self.dashboard then
+                self.dashboard:setMessage("Monitor not connected: " .. monitorConfig.peripheral, colors.orange)
+            end
         end
+    end
+
+    if self.dashboard then
+        self.dashboard:requestRedraw()
     end
 end
 
@@ -171,6 +183,10 @@ function Kernel:run()
         self:keyboardLoop(runningRef)
     end)
 
+    table.insert(tasks, function()
+        self:dashboardLoop(runningRef)
+    end)
+
     -- Network loop if channel exists
     if self.channel then
         table.insert(tasks, function()
@@ -193,12 +209,16 @@ end
 -- Runs in parallel with monitor loops (each has own event queue)
 function Kernel:keyboardLoop(runningRef)
     while runningRef.value do
+        local loopStart = os.epoch("utc")
         local event, p1 = os.pullEvent()
 
         if event == "key" then
             -- Handle menu keys - may block for dialogs
             -- Other monitors continue rendering (they have own event queues)
             KernelMenu.handleKey(self, p1, runningRef)
+            if self.dashboard then
+                self.dashboard:requestRedraw()
+            end
 
         elseif event == "peripheral" or event == "peripheral_detach" then
             ViewManager.invalidateMountableCache()
@@ -207,11 +227,43 @@ function Kernel:keyboardLoop(runningRef)
             -- Rescan shared peripherals when hardware changes
             if self.peripheralHost then
                 local count = self.peripheralHost:rescan()
-                print("[ShelfOS] Peripheral " .. (event == "peripheral" and "attached" or "detached") .. ": " .. p1)
-                print("[ShelfOS] Now sharing " .. count .. " peripheral(s)")
+                if self.dashboard then
+                    local action = (event == "peripheral") and "attached" or "detached"
+                    self.dashboard:setSharedCount(count)
+                    self.dashboard:setMessage("Peripheral " .. action .. ": " .. tostring(p1), colors.lightBlue)
+                end
             end
         end
+
+        if self.dashboard then
+            self.dashboard:recordLoopMs(os.epoch("utc") - loopStart)
+        end
         -- Timer and monitor events are handled by monitor coroutines
+    end
+end
+
+-- Dashboard rendering loop for display mode terminal UI
+function Kernel:dashboardLoop(runningRef)
+    while runningRef.value do
+        local timer = os.startTimer(0.25)
+        local event, p1 = os.pullEvent()
+
+        if event == "timer" and p1 == timer then
+            if self.dashboard then
+                if self.peripheralClient then
+                    self.dashboard:setRemoteCount(self.peripheralClient:getCount())
+                end
+                self.dashboard:tick()
+                self.dashboard:render(self)
+            end
+        elseif event == "term_resize" then
+            Terminal.resize()
+            KernelMenu.draw()
+            if self.dashboard then
+                self.dashboard:requestRedraw()
+                self.dashboard:render(self)
+            end
+        end
     end
 end
 
@@ -242,8 +294,6 @@ function Kernel:shutdown()
     term.clear()
     term.setCursorPos(1, 1)
 
-    print("[ShelfOS] Shutting down...")
-
     -- Save config
     Config.save(self.config)
 
@@ -255,12 +305,14 @@ function Kernel:shutdown()
         monitor:clear()
     end
 
-    print("[ShelfOS] Goodbye!")
+    print("[ShelfOS] Shutdown complete.")
 end
 
 -- Reload configuration
 function Kernel:reload()
-    print("[ShelfOS] Reloading configuration...")
+    if self.dashboard then
+        self.dashboard:setMessage("Reloading configuration...", colors.lightGray)
+    end
     self.config = Config.load()
     self:initializeMonitors()
 end

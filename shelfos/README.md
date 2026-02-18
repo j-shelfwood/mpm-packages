@@ -18,6 +18,7 @@ That's it. ShelfOS auto-discovers connected monitors and assigns appropriate vie
 - **Smart view assignment** - Assigns relevant views based on connected peripherals
 - **Network swarm** - Link multiple computers to share peripherals across your base
 - **Secure networking** - HMAC-signed messages for multiplayer servers
+- **Live terminal dashboard** - Default mode now shows activity lights and runtime metrics instead of raw boot logs
 - **Headless activity dashboard** - Live terminal indicators for discovery, RPC calls, rescans, and network throughput
 
 ## Terminal Menu
@@ -181,6 +182,17 @@ When a computer runs in headless peripheral-host mode, ShelfOS now renders a liv
 - **Live inventory** lists currently shared peripherals and updates after attach/detach or manual rescan
 
 The status line above the key hints always shows the most recent background action (for example: discovery request sender, RPC target/method, or rescan result).
+
+### Default Mode Terminal Dashboard
+
+In normal ShelfOS mode (`mpm run shelfos` on a monitor computer), the terminal log area is now a dashboard instead of boot spam:
+
+- Activity lights for swarm discovery, RPC calls, announces, network RX, rescans, and errors
+- Runtime metrics (message rate, loop timing, remote call latency)
+- Live monitor/view summary (`monitor -> current view`)
+- Shared-local and remote peripheral counts
+
+Bottom-row menu controls remain the same: `[M] [S] [L] [R] [Q]`.
 
 ### Modem Requirements
 
