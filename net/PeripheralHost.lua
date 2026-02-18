@@ -75,8 +75,25 @@ function PeripheralHost.new(channel, computerId, computerName)
     self.peripherals = {}  -- {name -> {type, methods, peripheral}}
     self.lastAnnounce = 0
     self.announceInterval = 10000  -- 10 seconds
+    self.activityListener = nil
 
     return self
+end
+
+-- Set activity listener for telemetry hooks
+-- @param listener Function(activity, data)
+function PeripheralHost:setActivityListener(listener)
+    if type(listener) == "function" then
+        self.activityListener = listener
+    else
+        self.activityListener = nil
+    end
+end
+
+-- Emit host activity event (best-effort, non-fatal)
+function PeripheralHost:emitActivity(activity, data)
+    if not self.activityListener then return end
+    pcall(self.activityListener, activity, data or {})
 end
 
 -- Check if a peripheral type should be shared
@@ -110,6 +127,10 @@ function PeripheralHost:scan()
             }
         end
     end
+
+    self:emitActivity("scan", {
+        peripheralCount = self:getPeripheralCount()
+    })
 
     return self:getPeripheralCount()
 end
@@ -148,6 +169,9 @@ function PeripheralHost:announce()
 
     self.channel:broadcast(msg)
     self.lastAnnounce = os.epoch("utc")
+    self:emitActivity("announce", {
+        peripheralCount = #msg.data.peripherals
+    })
     return true
 end
 
@@ -160,17 +184,20 @@ end
 -- @param senderId Requesting computer ID
 -- @param msg The discover message
 function PeripheralHost:handleDiscover(senderId, msg)
-    print("[PeripheralHost] Discovery request from #" .. senderId)
     local peripherals = self:getPeripheralList()
-    print("[PeripheralHost] Responding with " .. #peripherals .. " peripheral(s)")
     local response = Protocol.createPeriphList(msg, peripherals)
     self.channel:send(senderId, response)
+    self:emitActivity("discover", {
+        senderId = senderId,
+        peripheralCount = #peripherals
+    })
 end
 
 -- Handle peripheral method call
 -- @param senderId Requesting computer ID
 -- @param msg The call message
 function PeripheralHost:handleCall(senderId, msg)
+    local startedAt = os.epoch("utc")
     local peripheralName = msg.data.peripheral
     local methodName = msg.data.method
     local args = msg.data.args or {}
@@ -180,6 +207,12 @@ function PeripheralHost:handleCall(senderId, msg)
     if not info then
         local errResponse = Protocol.createPeriphError(msg, "Peripheral not found: " .. peripheralName)
         self.channel:send(senderId, errResponse)
+        self:emitActivity("call_error", {
+            senderId = senderId,
+            peripheral = peripheralName,
+            method = methodName,
+            error = "Peripheral not found"
+        })
         return
     end
 
@@ -195,6 +228,12 @@ function PeripheralHost:handleCall(senderId, msg)
     if not methodExists then
         local errResponse = Protocol.createPeriphError(msg, "Method not found: " .. methodName)
         self.channel:send(senderId, errResponse)
+        self:emitActivity("call_error", {
+            senderId = senderId,
+            peripheral = peripheralName,
+            method = methodName,
+            error = "Method not found"
+        })
         return
     end
 
@@ -205,6 +244,12 @@ function PeripheralHost:handleCall(senderId, msg)
     if not method then
         local errResponse = Protocol.createPeriphError(msg, "Method unavailable: " .. methodName)
         self.channel:send(senderId, errResponse)
+        self:emitActivity("call_error", {
+            senderId = senderId,
+            peripheral = peripheralName,
+            method = methodName,
+            error = "Method unavailable"
+        })
         return
     end
 
@@ -222,9 +267,22 @@ function PeripheralHost:handleCall(senderId, msg)
 
         local response = Protocol.createPeriphResult(msg, results)
         self.channel:send(senderId, response)
+        self:emitActivity("call", {
+            senderId = senderId,
+            peripheral = peripheralName,
+            method = methodName,
+            durationMs = os.epoch("utc") - startedAt
+        })
     else
         local errResponse = Protocol.createPeriphError(msg, results[1] or "Unknown error")
         self.channel:send(senderId, errResponse)
+        self:emitActivity("call_error", {
+            senderId = senderId,
+            peripheral = peripheralName,
+            method = methodName,
+            error = results[1] or "Unknown error",
+            durationMs = os.epoch("utc") - startedAt
+        })
     end
 end
 
@@ -246,6 +304,9 @@ function PeripheralHost:start()
     self:scan()
     self:registerHandlers()
     self:announce()
+    self:emitActivity("start", {
+        peripheralCount = self:getPeripheralCount()
+    })
     return self:getPeripheralCount()
 end
 
@@ -258,6 +319,12 @@ function PeripheralHost:rescan()
     if newCount ~= oldCount then
         self:announce()
     end
+
+    self:emitActivity("rescan", {
+        oldCount = oldCount,
+        newCount = newCount,
+        changed = newCount ~= oldCount
+    })
 
     return newCount
 end

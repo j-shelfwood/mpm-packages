@@ -18,6 +18,7 @@ That's it. ShelfOS auto-discovers connected monitors and assigns appropriate vie
 - **Smart view assignment** - Assigns relevant views based on connected peripherals
 - **Network swarm** - Link multiple computers to share peripherals across your base
 - **Secure networking** - HMAC-signed messages for multiplayer servers
+- **Headless activity dashboard** - Live terminal indicators for discovery, RPC calls, rescans, and network throughput
 
 ## Terminal Menu
 
@@ -169,6 +170,17 @@ After pairing, the zone should show:
 - "Network: wireless/ender modem"
 - Swarm peer count
 - Remote peripherals discovered
+
+### Headless Dashboard (Peripheral Host Nodes)
+
+When a computer runs in headless peripheral-host mode, ShelfOS now renders a live dashboard instead of raw host log spam.
+
+- **Activity lights** flash for `DISCOVER`, `CALL`, `ANNOUNCE`, `RX`, `RESCAN`, and `ERROR`
+- **Performance panel** tracks loop timing and average remote call latency
+- **Network throughput** shows inbound message rate (`messages/s`)
+- **Live inventory** lists currently shared peripherals and updates after attach/detach or manual rescan
+
+The status line above the key hints always shows the most recent background action (for example: discovery request sender, RPC target/method, or rescan result).
 
 ### Modem Requirements
 

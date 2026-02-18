@@ -275,6 +275,7 @@ function Monitor:openConfigMenu()
 
     -- Show view selection + optional config flow
     local selectedView, newConfig = MonitorConfigMenu.openConfigFlow(self)
+    local didLoadView = false
 
     if selectedView then
         self.viewConfig = newConfig or {}
@@ -282,18 +283,21 @@ function Monitor:openConfigMenu()
             self.onViewChange(self.peripheralName, selectedView, self.viewConfig)
         end
         self:loadView(selectedView)
+        didLoadView = true
     end
 
-    self:closeConfigMenu()
+    self:closeConfigMenu(didLoadView)
 end
 
 -- Close config menu
-function Monitor:closeConfigMenu()
+function Monitor:closeConfigMenu(skipImmediateRender)
     self.inConfigMenu = false
-    -- Clear peripheral and trigger immediate buffered render
+    -- Clear peripheral and trigger immediate buffered render when view wasn't reloaded.
     self.peripheral.clear()
-    self:render()
-    self:scheduleRender()
+    if not skipImmediateRender then
+        self:render()
+        self:scheduleRender()
+    end
 end
 
 -- Render the view using window buffering for flicker-free updates

@@ -278,7 +278,7 @@ function ConfigUI.drawConfigMenu(monitor, viewName, schema, currentConfig)
                 elseif field.type == "select" then
                     local options = field.options
                     if type(options) == "function" then
-                        options = options()
+                        options = options(config)
                     end
                     -- Handle empty options with informative message
                     if not options or #options == 0 then

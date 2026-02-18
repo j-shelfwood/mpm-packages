@@ -9,27 +9,183 @@ local Protocol = mpm('net/Protocol')
 local PeripheralHost = mpm('net/PeripheralHost')
 local Pairing = mpm('net/Pairing')
 local Crypto = mpm('net/Crypto')
-local PairingScreen = mpm('shelfos/ui/PairingScreen')
 local ModemUtils = mpm('utils/ModemUtils')
 local TermUI = mpm('ui/TermUI')
 
 local headless = {}
 
--- Draw status to terminal
-local function drawStatus(host, channel, config)
+local function appendSample(samples, value, maxSamples)
+    table.insert(samples, value)
+    if #samples > maxSamples then
+        table.remove(samples, 1)
+    end
+end
+
+local function average(samples)
+    if #samples == 0 then return 0 end
+    local total = 0
+    for _, value in ipairs(samples) do
+        total = total + value
+    end
+    return total / #samples
+end
+
+local function maxValue(samples)
+    local max = 0
+    for _, value in ipairs(samples) do
+        if value > max then
+            max = value
+        end
+    end
+    return max
+end
+
+local function truncateText(text, maxLen)
+    text = tostring(text or "")
+    if #text <= maxLen then return text end
+    if maxLen <= 3 then return text:sub(1, maxLen) end
+    return text:sub(1, maxLen - 3) .. "..."
+end
+
+local function formatUptime(ms)
+    local seconds = math.floor((ms or 0) / 1000)
+    local hours = math.floor(seconds / 3600)
+    local minutes = math.floor((seconds % 3600) / 60)
+    local secs = seconds % 60
+
+    if hours > 0 then
+        return string.format("%dh %02dm %02ds", hours, minutes, secs)
+    end
+    if minutes > 0 then
+        return string.format("%dm %02ds", minutes, secs)
+    end
+    return string.format("%ds", secs)
+end
+
+local function newDashboardState()
+    return {
+        startedAt = os.epoch("utc"),
+        lastActivity = {},
+        stats = {
+            announce = 0,
+            discover = 0,
+            call = 0,
+            call_error = 0,
+            rescan = 0,
+            attach = 0,
+            detach = 0,
+            rx = 0,
+            reboot = 0
+        },
+        rate = {
+            msgPerSec = 0
+        },
+        prevRxCount = 0,
+        lastRateSampleAt = os.epoch("utc"),
+        loopMsSamples = {},
+        callDurationSamples = {},
+        message = "Waiting for activity...",
+        messageColor = colors.lightGray,
+        messageAt = os.epoch("utc"),
+        needsRedraw = true
+    }
+end
+
+local function setMessage(state, message, color)
+    state.message = message or state.message
+    state.messageColor = color or colors.lightGray
+    state.messageAt = os.epoch("utc")
+    state.needsRedraw = true
+end
+
+local function markActivity(state, key, message, color)
+    local now = os.epoch("utc")
+    state.lastActivity[key] = now
+    if state.stats[key] ~= nil then
+        state.stats[key] = state.stats[key] + 1
+    end
+    setMessage(state, message, color)
+end
+
+local function updateRates(state)
+    local now = os.epoch("utc")
+    local elapsed = now - state.lastRateSampleAt
+    if elapsed < 1000 then return end
+
+    local rxDelta = state.stats.rx - state.prevRxCount
+    state.rate.msgPerSec = (rxDelta * 1000) / elapsed
+    state.prevRxCount = state.stats.rx
+    state.lastRateSampleAt = now
+end
+
+local function drawDashboard(host, channel, config, modemType, state)
     TermUI.clear()
-    TermUI.drawTitleBar("ShelfOS Headless")
+    TermUI.drawTitleBar("ShelfOS Headless Dashboard")
+
+    local w, h = TermUI.getSize()
+    local now = os.epoch("utc")
+    local rightCol = math.max(2, math.floor(w / 2))
 
     local y = 3
-    TermUI.drawInfoLine(y, "Computer", config.computer.name or "Unknown", colors.white)
+    TermUI.drawMetric(2, y, "Computer", config.computer.name or "Unknown", colors.white)
+    TermUI.drawMetric(rightCol, y, "Uptime", formatUptime(now - state.startedAt), colors.white)
     y = y + 1
-    TermUI.drawInfoLine(y, "Computer ID", os.getComputerID(), colors.lightGray)
-    y = y + 2
+
+    TermUI.drawMetric(2, y, "Computer ID", os.getComputerID(), colors.lightGray)
+    TermUI.drawMetric(rightCol, y, "Modem", modemType or "unknown", colors.lightGray)
+    y = y + 1
 
     local netConnected = channel and channel:isOpen()
     local netLabel = netConnected and "Connected" or "Disconnected"
     local netColor = netConnected and colors.lime or colors.orange
-    TermUI.drawInfoLine(y, "Network", netLabel, netColor)
+    TermUI.drawMetric(2, y, "Network", netLabel, netColor)
+    TermUI.drawMetric(rightCol, y, "Messages/s", string.format("%.1f", state.rate.msgPerSec), colors.cyan)
+    y = y + 2
+
+    TermUI.drawSeparator(y, colors.gray)
+    y = y + 1
+    TermUI.drawText(2, y, "Activity Lights", colors.lightGray)
+    y = y + 1
+
+    local col2 = math.max(2, math.floor(w / 3) + 1)
+    local col3 = math.max(col2 + 1, math.floor((w * 2) / 3) + 1)
+
+    TermUI.drawActivityLight(2, y, "DISCOVER", state.lastActivity.discover, state.stats.discover, { activeColor = colors.yellow })
+    TermUI.drawActivityLight(col2, y, "CALL", state.lastActivity.call, state.stats.call, { activeColor = colors.lime })
+    TermUI.drawActivityLight(col3, y, "ANNOUNCE", state.lastActivity.announce, state.stats.announce, { activeColor = colors.cyan })
+    y = y + 1
+
+    TermUI.drawActivityLight(2, y, "RX", state.lastActivity.rx, state.stats.rx, { activeColor = colors.lightBlue })
+    TermUI.drawActivityLight(col2, y, "RESCAN", state.lastActivity.rescan, state.stats.rescan, { activeColor = colors.orange })
+    TermUI.drawActivityLight(col3, y, "ERROR", state.lastActivity.call_error, state.stats.call_error, { activeColor = colors.red })
+    y = y + 2
+
+    TermUI.drawSeparator(y, colors.gray)
+    y = y + 1
+    TermUI.drawText(2, y, "Performance", colors.lightGray)
+    y = y + 1
+
+    local avgLoopMs = average(state.loopMsSamples)
+    local peakLoopMs = maxValue(state.loopMsSamples)
+    local avgCallMs = average(state.callDurationSamples)
+
+    local loopColor = colors.lime
+    if avgLoopMs > 120 then
+        loopColor = colors.red
+    elseif avgLoopMs > 60 then
+        loopColor = colors.orange
+    end
+
+    TermUI.drawMetric(2, y, "Loop avg/peak", string.format("%.0f/%.0f ms", avgLoopMs, peakLoopMs), loopColor)
+    TermUI.drawMetric(rightCol, y, "Call avg", string.format("%.0f ms", avgCallMs), colors.white)
+    y = y + 1
+
+    TermUI.drawMetric(2, y, "Attach/Detach", state.stats.attach .. "/" .. state.stats.detach, colors.white)
+    TermUI.drawMetric(rightCol, y, "Reboots", state.stats.reboot, colors.lightGray)
+    y = y + 1
+
+    local loopLoad = math.min(100, math.floor((avgLoopMs / 200) * 100))
+    TermUI.drawProgress(y, "Loop Load", loopLoad, { fillColor = loopColor, emptyColor = colors.gray, indent = 2 })
     y = y + 2
 
     TermUI.drawSeparator(y, colors.gray)
@@ -38,17 +194,25 @@ local function drawStatus(host, channel, config)
     y = y + 1
 
     local peripherals = host:getPeripheralList()
-    local _, h = TermUI.getSize()
     if #peripherals == 0 then
         TermUI.drawText(4, y, "(none)", colors.gray)
         y = y + 1
     else
         for _, p in ipairs(peripherals) do
-            if y >= h - 1 then break end
-            TermUI.drawText(4, y, "[" .. p.type .. "] " .. p.name, colors.white)
+            if y >= h - 2 then break end
+            local rowText = "[" .. p.type .. "] " .. p.name
+            TermUI.drawText(4, y, truncateText(rowText, math.max(1, w - 5)), colors.white)
             y = y + 1
         end
     end
+
+    local statusY = h - 1
+    TermUI.clearLine(statusY)
+    local statusColor = state.messageColor
+    if now - state.messageAt > 4000 then
+        statusColor = colors.gray
+    end
+    TermUI.drawText(2, statusY, truncateText(state.message, math.max(1, w - 2)), statusColor)
 
     TermUI.drawStatusBar({
         { key = "Q", label = "Quit" },
@@ -74,11 +238,8 @@ function headless.acceptPairing(config)
     end
     local computerLabel = os.getComputerLabel() or ("Computer #" .. os.getComputerID())
 
-    local displayCode = nil
-
     local callbacks = {
         onDisplayCode = function(code)
-            displayCode = code
             TermUI.clear()
             TermUI.drawTitleBar("Pairing")
 
@@ -89,7 +250,7 @@ function headless.acceptPairing(config)
             y = y + 2
 
             TermUI.drawCentered(y, "PAIRING CODE", colors.yellow)
-            local w, h = TermUI.getSize()
+            local w = TermUI.getSize()
             local codeY = y + 2
             term.setCursorPos(math.floor((w - #code) / 2) + 1, codeY)
             term.setBackgroundColor(colors.white)
@@ -176,7 +337,7 @@ function headless.run()
 
         -- Wait for pairing or quit
         while true do
-            local event, key = os.pullEvent("key")
+            local _, key = os.pullEvent("key")
             if key == keys.q then
                 return
             elseif key == keys.l then
@@ -227,41 +388,88 @@ function headless.run()
         return
     end
 
-    TermUI.drawText(2, 7, "Network: " .. modemType .. " modem", colors.lightGray)
-
     -- Create peripheral host
     local host = PeripheralHost.new(channel, config.computer.id, config.computer.name)
-    local count = host:start()
+    local state = newDashboardState()
 
-    TermUI.drawText(2, 8, "Sharing " .. count .. " peripheral(s)", colors.lightGray)
+    host:setActivityListener(function(activity, data)
+        if activity == "discover" then
+            markActivity(
+                state,
+                "discover",
+                "Discovery request from #" .. tostring(data.senderId or "?"),
+                colors.yellow
+            )
+        elseif activity == "call" then
+            markActivity(
+                state,
+                "call",
+                tostring(data.method or "call") .. " on " .. tostring(data.peripheral or "unknown"),
+                colors.lime
+            )
+            appendSample(state.callDurationSamples, data.durationMs or 0, 60)
+        elseif activity == "call_error" then
+            markActivity(
+                state,
+                "call_error",
+                "Call error: " .. tostring(data.error or "unknown"),
+                colors.red
+            )
+            appendSample(state.callDurationSamples, data.durationMs or 0, 60)
+        elseif activity == "announce" then
+            markActivity(
+                state,
+                "announce",
+                "Announced " .. tostring(data.peripheralCount or 0) .. " peripheral(s)",
+                colors.cyan
+            )
+        elseif activity == "rescan" then
+            markActivity(
+                state,
+                "rescan",
+                "Rescan " .. tostring(data.oldCount or 0) .. " -> " .. tostring(data.newCount or 0),
+                colors.orange
+            )
+        elseif activity == "start" then
+            setMessage(
+                state,
+                "Host started with " .. tostring(data.peripheralCount or 0) .. " peripheral(s)",
+                colors.lightGray
+            )
+        end
+    end)
+
+    local count = host:start()
+    setMessage(state, "Sharing " .. count .. " peripheral(s)", colors.lightGray)
 
     -- Register REBOOT handler
     channel:on(Protocol.MessageType.REBOOT, function(senderId, msg)
-        TermUI.drawStatusBar("Reboot command received from #" .. senderId)
+        markActivity(state, "reboot", "Reboot command from #" .. tostring(senderId), colors.red)
+        drawDashboard(host, channel, config, modemType, state)
+        sleep(0.5)
         os.reboot()
     end)
 
-    -- Draw initial status
-    drawStatus(host, channel, config)
+    drawDashboard(host, channel, config, modemType, state)
 
     -- Event loop
     local running = true
     local lastAnnounce = os.epoch("utc")
     local announceInterval = 10000  -- 10 seconds
+    local redrawInterval = 250
+    local nextRedrawAt = os.epoch("utc")
 
     while running do
-        -- Poll network with short timeout
-        local timer = os.startTimer(0.5)
+        local loopStart = os.epoch("utc")
+        local timer = os.startTimer(0.25)
         local event, p1 = os.pullEvent()
 
         if event == "timer" and p1 == timer then
-            -- Check if should announce
             if os.epoch("utc") - lastAnnounce > announceInterval then
                 host:announce()
                 lastAnnounce = os.epoch("utc")
             end
 
-            -- Poll for network messages
             channel:poll(0)
 
         elseif event == "key" then
@@ -269,12 +477,9 @@ function headless.run()
             if key == keys.q then
                 running = false
             elseif key == keys.r then
-                -- Rescan peripherals
                 local newCount = host:rescan()
-                drawStatus(host, channel, config)
-                TermUI.drawStatusBar("Rescanned: " .. newCount .. " peripheral(s)")
+                setMessage(state, "Rescanned: " .. newCount .. " peripheral(s)", colors.orange)
             elseif key == keys.x then
-                -- Factory reset
                 channel:close()
                 Crypto.clearSecret()
                 Paths.deleteFiles()
@@ -288,18 +493,31 @@ function headless.run()
             end
 
         elseif event == "peripheral" then
-            -- New peripheral attached
+            markActivity(state, "attach", "Peripheral attached: " .. tostring(p1), colors.lightBlue)
             host:rescan()
-            drawStatus(host, channel, config)
 
         elseif event == "peripheral_detach" then
-            -- Peripheral removed
+            markActivity(state, "detach", "Peripheral detached: " .. tostring(p1), colors.orange)
             host:rescan()
-            drawStatus(host, channel, config)
 
         elseif event == "rednet_message" then
-            -- Handle via channel poll
+            markActivity(state, "rx", "Inbound network traffic", colors.lightBlue)
             channel:poll(0)
+
+        elseif event == "term_resize" then
+            TermUI.refreshSize()
+            state.needsRedraw = true
+        end
+
+        local loopDuration = os.epoch("utc") - loopStart
+        appendSample(state.loopMsSamples, loopDuration, 80)
+        updateRates(state)
+
+        local now = os.epoch("utc")
+        if state.needsRedraw or now >= nextRedrawAt then
+            drawDashboard(host, channel, config, modemType, state)
+            state.needsRedraw = false
+            nextRedrawAt = now + redrawInterval
         end
     end
 

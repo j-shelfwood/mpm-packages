@@ -14,6 +14,8 @@ local Terminal = mpm('shelfos/core/Terminal')
 local KernelNetwork = mpm('shelfos/core/KernelNetwork')
 local KernelMenu = mpm('shelfos/core/KernelMenu')
 local AESnapshotBus = mpm('peripherals/AESnapshotBus')
+local ViewManager = mpm('views/Manager')
+local MachineActivity = mpm('peripherals/MachineActivity')
 -- Note: TimerDispatch no longer needed - parallel API gives each coroutine its own event queue
 
 local Kernel = {}
@@ -199,6 +201,9 @@ function Kernel:keyboardLoop(runningRef)
             KernelMenu.handleKey(self, p1, runningRef)
 
         elseif event == "peripheral" or event == "peripheral_detach" then
+            ViewManager.invalidateMountableCache()
+            MachineActivity.invalidateCache()
+
             -- Rescan shared peripherals when hardware changes
             if self.peripheralHost then
                 local count = self.peripheralHost:rescan()

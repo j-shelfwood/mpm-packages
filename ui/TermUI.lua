@@ -261,6 +261,60 @@ function TermUI.drawWrapped(y, text, fg, indent, maxLines)
     return lines
 end
 
+-- Draw a compact metric line with fixed label color
+-- @param x Column
+-- @param y Row
+-- @param label Metric label
+-- @param value Metric value
+-- @param valueColor Optional value color
+function TermUI.drawMetric(x, y, label, value, valueColor)
+    term.setCursorPos(x, y)
+    term.setBackgroundColor(colors.black)
+    term.setTextColor(colors.lightGray)
+    term.write((label or "") .. ": ")
+    term.setTextColor(valueColor or colors.white)
+    term.write(tostring(value or ""))
+    term.setTextColor(colors.white)
+end
+
+-- Draw an activity light indicator with optional count
+-- @param x Column
+-- @param y Row
+-- @param label Activity label
+-- @param lastActivityTs Last activity timestamp in ms
+-- @param count Optional cumulative count
+-- @param opts Optional: { flashMs, activeColor, idleColor, labelColor, countColor }
+function TermUI.drawActivityLight(x, y, label, lastActivityTs, count, opts)
+    opts = opts or {}
+    local flashMs = opts.flashMs or 700
+    local activeColor = opts.activeColor or colors.lime
+    local idleColor = opts.idleColor or colors.gray
+    local labelColor = opts.labelColor or colors.lightGray
+    local countColor = opts.countColor or colors.white
+
+    local now = os.epoch("utc")
+    local isActive = lastActivityTs and ((now - lastActivityTs) <= flashMs) or false
+
+    term.setCursorPos(x, y)
+    term.setBackgroundColor(colors.black)
+    term.setTextColor(colors.white)
+    term.write("[")
+    term.setBackgroundColor(isActive and activeColor or idleColor)
+    term.write(" ")
+    term.setBackgroundColor(colors.black)
+    term.setTextColor(colors.white)
+    term.write("] ")
+    term.setTextColor(labelColor)
+    term.write(label or "")
+
+    if count ~= nil then
+        term.setTextColor(countColor)
+        term.write(" " .. tostring(count))
+    end
+
+    term.setTextColor(colors.white)
+end
+
 -- Clear a single row
 -- @param y Row number
 function TermUI.clearLine(y)

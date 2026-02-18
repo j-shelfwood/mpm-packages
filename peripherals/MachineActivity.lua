@@ -5,6 +5,9 @@ local Yield = mpm('utils/Yield')
 local Peripherals = mpm('utils/Peripherals')
 
 local MachineActivity = {}
+local discoveryCache = nil
+local discoveryCacheAt = 0
+local DISCOVERY_CACHE_TTL_MS = 1000
 
 -- Activity detection strategies by method availability
 local ACTIVITY_STRATEGIES = {
@@ -220,7 +223,12 @@ end
 
 -- Discover all machines with activity support
 -- Returns: { [peripheralType] = { machines = {peripheral...}, classification = {...} } }
-function MachineActivity.discoverAll()
+function MachineActivity.discoverAll(forceRefresh)
+    local now = os.epoch("utc")
+    if not forceRefresh and discoveryCache and (now - discoveryCacheAt) < DISCOVERY_CACHE_TTL_MS then
+        return discoveryCache
+    end
+
     local result = {}
     local names = {}
     local ok, fetched = pcall(Peripherals.getNames)
@@ -251,13 +259,15 @@ function MachineActivity.discoverAll()
         Yield.check(idx, 10)
     end
 
+    discoveryCache = result
+    discoveryCacheAt = now
     return result
 end
 
 -- Discover machines filtered by mod
 -- modFilter: "all", "mekanism", "mi"
-function MachineActivity.discover(modFilter)
-    local all = MachineActivity.discoverAll()
+function MachineActivity.discover(modFilter, forceRefresh)
+    local all = MachineActivity.discoverAll(forceRefresh)
 
     if modFilter == "all" then
         return all
@@ -271,6 +281,11 @@ function MachineActivity.discover(modFilter)
     end
 
     return filtered
+end
+
+function MachineActivity.invalidateCache()
+    discoveryCache = nil
+    discoveryCacheAt = 0
 end
 
 -- Get available machine types as config options

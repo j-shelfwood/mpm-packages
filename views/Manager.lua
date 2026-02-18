@@ -167,6 +167,11 @@ function Manager.clearCache()
     mountableCacheAt = 0
 end
 
+function Manager.invalidateMountableCache()
+    mountableCache = nil
+    mountableCacheAt = 0
+end
+
 -- Create a view instance
 -- @param viewName View name
 -- @param monitor Monitor peripheral

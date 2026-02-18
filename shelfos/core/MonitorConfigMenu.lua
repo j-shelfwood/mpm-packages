@@ -58,8 +58,8 @@ end
 function MonitorConfigMenu.openConfigFlow(monitor)
     local peripheral = monitor.peripheral
 
-    -- Refresh available views (peripherals may have been discovered since boot)
-    local availableViews = ViewManager.getMountableViews(true)
+    -- Use cached mountability checks when valid; cache is invalidated on hardware events.
+    local availableViews = ViewManager.getMountableViews()
     monitor.availableViews = availableViews
 
     local currentViewName = monitor.viewName
