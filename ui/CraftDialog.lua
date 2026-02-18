@@ -3,7 +3,6 @@
 -- Provides amount selection and craft action with status feedback
 
 local Core = mpm('ui/Core')
-local EventUtils = mpm('utils/EventUtils')
 
 local CraftDialog = {}
 
@@ -188,7 +187,11 @@ function CraftDialog.show(monitor, peripheralName, opts)
         Core.resetColors(monitor)
 
         -- Wait for touch
-        local side, tx, ty = EventUtils.waitForTouch(peripheralName)
+        local side, tx, ty
+        repeat
+            local _, touchSide, x, y = os.pullEvent("monitor_touch")
+            side, tx, ty = touchSide, x, y
+        until side == peripheralName
 
         if side == peripheralName then
             -- Close button or outside overlay

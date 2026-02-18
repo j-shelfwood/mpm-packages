@@ -13,6 +13,14 @@ local mountableCache = nil
 local mountableCacheAt = 0
 local MOUNTABLE_CACHE_TTL_MS = 5000
 
+local function copyArray(arr)
+    local copy = {}
+    for i, v in ipairs(arr or {}) do
+        copy[i] = v
+    end
+    return copy
+end
+
 -- Get list of all available views from manifest
 function Manager.getAvailableViews()
     local manifestPath = "/mpm/Packages/views/manifest.json"
@@ -114,11 +122,7 @@ end
 function Manager.getMountableViews(forceRefresh)
     local now = os.epoch("utc")
     if not forceRefresh and mountableCache and (now - mountableCacheAt) < MOUNTABLE_CACHE_TTL_MS then
-        local copy = {}
-        for i, v in ipairs(mountableCache) do
-            copy[i] = v
-        end
-        return copy
+        return copyArray(mountableCache)
     end
 
     local available = Manager.getAvailableViews()
@@ -135,11 +139,16 @@ function Manager.getMountableViews(forceRefresh)
     mountableCache = mountable
     mountableCacheAt = now
 
-    local copy = {}
-    for i, v in ipairs(mountable) do
-        copy[i] = v
+    return copyArray(mountable)
+end
+
+-- Get mountable views with stale-cache preference for UI responsiveness.
+-- If stale cache exists, returns it immediately and avoids a refresh on touch paths.
+function Manager.getMountableViewsFast()
+    if mountableCache and #mountableCache > 0 then
+        return copyArray(mountableCache)
     end
-    return copy
+    return Manager.getMountableViews()
 end
 
 -- Get view info

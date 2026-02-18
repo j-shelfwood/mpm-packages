@@ -62,7 +62,7 @@ function MonitorConfigMenu.openConfigFlow(monitor)
     -- Recomputing mountability can be expensive on touch path.
     local availableViews = monitor.availableViews
     if not availableViews or #availableViews == 0 then
-        availableViews = ViewManager.getMountableViews()
+        availableViews = ViewManager.getMountableViewsFast()
     end
     monitor.availableViews = availableViews
 

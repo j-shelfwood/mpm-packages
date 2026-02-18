@@ -2,7 +2,6 @@
 -- Shared blocking modal helper for monitor touch interactions
 
 local Core = mpm('ui/Core')
-local EventUtils = mpm('utils/EventUtils')
 
 local ModalOverlay = {}
 
@@ -74,7 +73,11 @@ function ModalOverlay.show(target, opts)
 
         Core.resetColors(monitor)
 
-        local _, tx, ty = EventUtils.waitForTouch(monitorName)
+        local side, tx, ty
+        repeat
+            local _, touchSide, x, y = os.pullEvent("monitor_touch")
+            side, tx, ty = touchSide, x, y
+        until monitorName == nil or side == monitorName
 
         if not inBounds(tx, ty, frame.x1, frame.y1, frame.x2, frame.y2) then
             if opts.closeOnOutside ~= false then
