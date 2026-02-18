@@ -27,15 +27,6 @@ function KernelNetwork.drainChannel(channel, blockTimeout, maxDrain)
     return drained
 end
 
--- Open a network channel using the provided swarm secret.
--- @param secret Shared network secret
--- @param preferEnder Prefer wireless/ender modem first
--- @return channel|nil, modemType|nil
-function KernelNetwork.openChannelWithSecret(secret, preferEnder)
-    local Channel = mpm('net/Channel')
-    return Channel.openWithSecret(secret, preferEnder ~= false)
-end
-
 -- Register reboot message handler for a channel.
 -- @param channel Channel instance
 -- @param onReboot Function(senderId, msg)
@@ -50,6 +41,7 @@ end
 -- @param identity Identity instance
 -- @return channel, discovery, peripheralHost, peripheralClient (or nils)
 function KernelNetwork.initialize(kernel, config, identity)
+    local Channel = mpm('net/Channel')
     local Crypto = mpm('net/Crypto')
     local RemotePeripheral = mpm('net/RemotePeripheral')
 
@@ -71,7 +63,7 @@ function KernelNetwork.initialize(kernel, config, identity)
         return nil, nil, nil, nil
     end
 
-    local channel, modemType = KernelNetwork.openChannelWithSecret(config.network.secret, true)
+    local channel, modemType = Channel.openWithSecret(config.network.secret, true)
     if not channel then
         RemotePeripheral.setClient(nil)
         if kernel.dashboard then

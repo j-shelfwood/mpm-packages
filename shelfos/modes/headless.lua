@@ -4,6 +4,7 @@
 
 local Config = mpm('shelfos/core/Config')
 local Paths = mpm('shelfos/core/Paths')
+local Channel = mpm('net/Channel')
 local PeripheralHost = mpm('net/PeripheralHost')
 local Pairing = mpm('net/Pairing')
 local Crypto = mpm('net/Crypto')
@@ -331,7 +332,7 @@ function headless.run()
         end
     end
 
-    local channel, modemType = KernelNetwork.openChannelWithSecret(config.network.secret, true)
+    local channel, modemType = Channel.openWithSecret(config.network.secret, true)
     if not channel then
         TermUI.clear()
         TermUI.drawTitleBar("Headless Mode")
