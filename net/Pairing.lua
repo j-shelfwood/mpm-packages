@@ -11,7 +11,6 @@
 local Protocol = mpm('net/Protocol')
 local Crypto = mpm('net/Crypto')
 local ModemUtils = mpm('utils/ModemUtils')
-local EventUtils = mpm('utils/EventUtils')
 
 local Pairing = {}
 
@@ -139,7 +138,7 @@ function Pairing.acceptFromPocket(callbacks)
         end
 
         local timer = os.startTimer(0.5)
-        local event, p1, p2, p3 = EventUtils.pullEvent()
+        local event, p1, p2, p3 = os.pullEvent()
 
         if event == "rednet_message" then
             local senderId = p1
@@ -255,7 +254,7 @@ function Pairing.deliverToPending(secret, computerId, callbacks, timeout)
         cleanupStalePending()
 
         local timer = os.startTimer(0.3)
-        local event, p1, p2, p3 = EventUtils.pullEvent()
+        local event, p1, p2, p3 = os.pullEvent()
 
         if event == "rednet_message" then
             local senderId = p1
@@ -358,7 +357,7 @@ function Pairing.deliverToPending(secret, computerId, callbacks, timeout)
                         local confirmDeadline = os.epoch("utc") + 5000
                         while os.epoch("utc") < confirmDeadline do
                             local cTimer = os.startTimer(0.5)
-                            local cEvent, cp1, cp2, cp3 = EventUtils.pullEvent()
+                            local cEvent, cp1, cp2, cp3 = os.pullEvent()
 
                             if cEvent == "rednet_message" and cp1 == pair.senderId then
                                 if cp3 == Pairing.PROTOCOL and type(cp2) == "table" then

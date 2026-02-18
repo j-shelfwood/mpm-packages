@@ -15,7 +15,7 @@
 
 local RenderContext = mpm('net/RenderContext')
 local DependencyStatus = mpm('net/DependencyStatus')
-local EventUtils = mpm('utils/EventUtils')
+local Yield = mpm('utils/Yield')
 
 local RemoteProxy = {}
 
@@ -234,7 +234,7 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
             if proxy._pending[key] then
                 local waitDeadline = os.epoch("utc") + (timeout * 1000)
                 while proxy._pending[key] and os.epoch("utc") < waitDeadline do
-                    EventUtils.sleep(0.05)
+                    Yield.yield()
                 end
                 local warmed = proxy._cache[key]
                 if warmed and warmed.results then

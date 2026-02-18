@@ -1,10 +1,9 @@
 -- ScrollableList.lua
 -- Enhanced scrollable list with pagination indicators and action buttons
 -- Extends List.lua pattern for interactive view usage
--- Uses EventUtils.pullEvent to preserve queued events in monitor coroutines
+-- Uses os.pullEvent directly; monitor-specific touch filtering happens here.
 
 local Core = mpm('ui/Core')
-local EventUtils = mpm('utils/EventUtils')
 
 local ScrollableList = {}
 ScrollableList.__index = ScrollableList
@@ -298,7 +297,7 @@ function ScrollableList:show()
 
         local side, x, y
         repeat
-            local _, touchSide, tx, ty = EventUtils.pullEvent("monitor_touch")
+            local _, touchSide, tx, ty = os.pullEvent("monitor_touch")
             side, x, y = touchSide, tx, ty
         until side == monitorName
 

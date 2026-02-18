@@ -3,12 +3,21 @@
 -- Handles display-code security model (code shown on screen, never broadcast)
 -- Extracted from Kernel.lua for maintainability
 
-local EventUtils = mpm('utils/EventUtils')
 local PairingScreen = mpm('shelfos/ui/PairingScreen')
 local Config = mpm('shelfos/core/Config')
 local ModemUtils = mpm('utils/ModemUtils')
 
 local KernelPairing = {}
+
+local function waitSeconds(seconds)
+    local timer = os.startTimer(seconds)
+    while true do
+        local event, id = os.pullEvent()
+        if event == "timer" and id == timer then
+            return
+        end
+    end
+end
 
 -- Accept pairing from a pocket computer
 -- This is how computers join the swarm - pocket delivers the secret
@@ -24,7 +33,7 @@ function KernelPairing.acceptFromPocket(kernel)
     if not modem then
         print("")
         print("[!] No modem found")
-        EventUtils.sleep(2)
+        waitSeconds(2)
         return false
     end
     local computerLabel = os.getComputerLabel() or ("Computer #" .. os.getComputerID())
@@ -143,7 +152,7 @@ function KernelPairing.acceptFromPocket(kernel)
         print("[*] Connected to swarm!")
     end
 
-    EventUtils.sleep(2)
+    waitSeconds(2)
     return success
 end
 

@@ -148,7 +148,6 @@ end
 -- @param kernel Kernel instance with channel, discovery, peripheralHost, monitors
 -- @param runningRef Shared running flag table { value = true/false }
 function KernelNetwork.loop(kernel, runningRef)
-    local EventUtils = mpm('utils/EventUtils')
     local Yield = mpm('utils/Yield')
     local lastHostAnnounce = 0
     local hostAnnounceInterval = 10000  -- 10 seconds
@@ -223,7 +222,7 @@ function KernelNetwork.loop(kernel, runningRef)
             -- work can accumulate CPU time across iterations when poll returns quickly
             Yield.yield()
         else
-            EventUtils.sleep(1)
+            Yield.yield()
         end
     end
 end

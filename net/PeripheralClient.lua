@@ -5,7 +5,6 @@
 local Protocol = mpm('net/Protocol')
 local RemoteProxy = mpm('net/RemoteProxy')
 local Yield = mpm('utils/Yield')
-local EventUtils = mpm('utils/EventUtils')
 
 local PeripheralClient = {}
 PeripheralClient.__index = PeripheralClient
@@ -292,8 +291,8 @@ function PeripheralClient:call(hostId, peripheralName, methodName, args, timeout
     -- We just need to yield to give it CPU time, then check the flag
     local deadline = os.epoch("utc") + (timeout * 1000)
     while not state.done and os.epoch("utc") < deadline do
-        -- Yield without dropping unrelated events from this coroutine's queue.
-        EventUtils.sleep(0.05)
+        -- Cooperative yield without discarding queued events.
+        Yield.yield()
     end
 
     -- Clean up if timed out
@@ -348,7 +347,7 @@ function PeripheralClient:rediscover(name)
         if self.remotePeripherals[name] then
             return self.remotePeripherals[name]
         end
-        EventUtils.sleep(0.1)
+        Yield.yield()
     end
 
     return self.remotePeripherals[name]

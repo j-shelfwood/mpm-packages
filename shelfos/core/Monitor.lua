@@ -45,7 +45,6 @@ local Core = mpm('ui/Core')
 local Button = mpm('ui/Button')
 local RenderContext = mpm('net/RenderContext')
 local DependencyStatus = mpm('net/DependencyStatus')
-local EventUtils = mpm('utils/EventUtils')
 
 local Monitor = {}
 Monitor.__index = Monitor
@@ -671,7 +670,7 @@ function Monitor:runLoop(running)
     while running.value do
         -- Wait for ANY event - we filter ourselves
         -- This is safe because parallel gives us our own event queue copy
-        local event, p1, p2, p3 = EventUtils.pullEvent()
+        local event, p1, p2, p3 = os.pullEvent()
 
         if event == "timer" then
             self:handleTimer(p1)

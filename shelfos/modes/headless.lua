@@ -12,7 +12,6 @@ local ModemUtils = mpm('utils/ModemUtils')
 local TermUI = mpm('ui/TermUI')
 local KernelNetwork = mpm('shelfos/core/KernelNetwork')
 local DashboardUtils = mpm('shelfos/core/DashboardUtils')
-local EventUtils = mpm('utils/EventUtils')
 
 local headless = {}
 
@@ -195,7 +194,7 @@ function headless.acceptPairing(config)
         TermUI.drawText(2, 4, "No modem found", colors.red)
         TermUI.drawWrapped(6, "Attach a wireless or ender modem to continue.", colors.lightGray, 2, 2)
         TermUI.drawStatusBar("Press any key to return...")
-        EventUtils.pullEvent("key")
+        os.pullEvent("key")
         return false, nil, nil
     end
     local computerLabel = os.getComputerLabel() or ("Computer #" .. os.getComputerID())
@@ -281,7 +280,7 @@ function headless.run()
             3
         )
         TermUI.drawStatusBar("Press any key to exit...")
-        EventUtils.pullEvent("key")
+        os.pullEvent("key")
         return
     end
 
@@ -299,7 +298,7 @@ function headless.run()
 
         -- Wait for pairing or quit
         while true do
-            local _, key = EventUtils.pullEvent("key")
+            local _, key = os.pullEvent("key")
             if key == keys.q then
                 return
             elseif key == keys.l then
@@ -340,7 +339,7 @@ function headless.run()
         TermUI.drawText(2, 4, "No modem found", colors.red)
         TermUI.drawWrapped(6, "Attach a wireless or ender modem to continue.", colors.lightGray, 2, 2)
         TermUI.drawStatusBar("Press any key to exit...")
-        EventUtils.pullEvent("key")
+        os.pullEvent("key")
         return
     end
 
@@ -418,7 +417,7 @@ function headless.run()
     while running do
         local loopStart = os.epoch("utc")
         local timer = os.startTimer(0.25)
-        local event, p1 = EventUtils.pullEvent()
+        local event, p1 = os.pullEvent()
 
         if event == "timer" and p1 == timer then
             if os.epoch("utc") - lastAnnounce > announceInterval then
