@@ -20,7 +20,6 @@ local TermUI = mpm('ui/TermUI')
 local ModemUtils = mpm('utils/ModemUtils')
 local Channel = mpm('net/Channel')
 local Crypto = mpm('net/Crypto')
-local EventUtils = mpm('utils/EventUtils')
 
 -- Screen modules (lazy loaded to avoid circular deps)
 local MainMenu = mpm('shelfos-swarm/screens/MainMenu')
@@ -55,7 +54,7 @@ function App:init()
         y = y + 2
         TermUI.drawWrapped(y, "Attach a wireless or ender modem to continue.", colors.lightGray, 2, 2)
         TermUI.drawStatusBar("Press any key to exit...")
-        EventUtils.pullEvent("key")
+        os.pullEvent("key")
         return false
     end
 
@@ -98,7 +97,7 @@ function App:init()
             TermUI.drawMenuItem(y, "Q", "Quit")
 
             while true do
-                local _, keyCode = EventUtils.pullEvent("key")
+                local _, keyCode = os.pullEvent("key")
                 local keyName = keys.getName(keyCode)
                 if keyName then
                     keyName = keyName:lower()
@@ -124,7 +123,7 @@ function App:init()
         TermUI.drawMenuItem(y, "Q", "Quit")
 
         while true do
-            local _, keyCode = EventUtils.pullEvent("key")
+            local _, keyCode = os.pullEvent("key")
             local keyName = keys.getName(keyCode)
             if keyName then
                 keyName = keyName:lower()

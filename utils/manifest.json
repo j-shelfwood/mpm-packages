@@ -1,6 +1,6 @@
 {
   "name": "utils",
-  "description": "Utility scripts package - Text formatting, grid display, theming, key mappings, event handling, modem utilities",
+  "description": "Utility scripts package - Text formatting, grid display, theming, key mappings, modem utilities",
   "files": [
     "GridDisplay.lua",
     "GridDisplayRenderer.lua",
@@ -10,7 +10,6 @@
     "Theme.lua",
     "Keys.lua",
     "Yield.lua",
-    "EventUtils.lua",
     "Peripherals.lua"
   ]
 }

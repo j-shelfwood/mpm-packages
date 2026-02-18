@@ -16,7 +16,6 @@
 --   nil            - No action (continue event loop)
 
 local TermUI = mpm('ui/TermUI')
-local EventUtils = mpm('utils/EventUtils')
 
 local ScreenManager = {}
 ScreenManager.__index = ScreenManager
@@ -173,7 +172,7 @@ function ScreenManager:run()
         if not screen then break end
 
         -- Wait for any event
-        local event = { EventUtils.pullEvent() }
+        local event = { os.pullEvent() }
 
         -- Route to current screen
         if screen.handleEvent then

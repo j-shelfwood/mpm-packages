@@ -10,7 +10,6 @@ local Pairing = mpm('net/Pairing')
 local ModemUtils = mpm('utils/ModemUtils')
 local Keys = mpm('utils/Keys')
 local Core = mpm('ui/Core')
-local EventUtils = mpm('utils/EventUtils')
 
 local AddComputer = {}
 
@@ -217,7 +216,7 @@ function AddComputer.drawCodeEntry(ctx)
     local deadline = os.epoch("utc") + 5000
     while os.epoch("utc") < deadline do
         local timer = os.startTimer(0.5)
-        local event, p1, p2, p3 = EventUtils.pullEvent()
+        local event, p1, p2, p3 = os.pullEvent()
 
         if event == "rednet_message" and p1 == computer.senderId then
             if p3 == PAIR_PROTOCOL and type(p2) == "table" then
