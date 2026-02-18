@@ -24,6 +24,29 @@ function Channel.new(protocol)
     return self
 end
 
+-- Create and open a new channel in one step.
+-- @param preferEnder Prefer ender modem over wired (default: true)
+-- @param protocol Optional protocol name (default: Protocol.PROTOCOL)
+-- @return channel|nil, modemType|nil
+function Channel.openNew(preferEnder, protocol)
+    local channel = Channel.new(protocol)
+    local ok, modemType = channel:open(preferEnder)
+    if not ok then
+        return nil, nil
+    end
+    return channel, modemType
+end
+
+-- Set crypto secret then create/open a new channel.
+-- @param secret Shared network secret
+-- @param preferEnder Prefer ender modem over wired (default: true)
+-- @param protocol Optional protocol name (default: Protocol.PROTOCOL)
+-- @return channel|nil, modemType|nil
+function Channel.openWithSecret(secret, preferEnder, protocol)
+    Crypto.setSecret(secret)
+    return Channel.openNew(preferEnder, protocol)
+end
+
 -- Open the channel (find and open modem)
 -- @param preferEnder Prefer ender modem over wired (default: true)
 -- @return success, modemType ("ender", "wired", or nil)

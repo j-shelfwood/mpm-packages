@@ -33,17 +33,7 @@ end
 -- @return channel|nil, modemType|nil
 function KernelNetwork.openChannelWithSecret(secret, preferEnder)
     local Channel = mpm('net/Channel')
-    local Crypto = mpm('net/Crypto')
-
-    Crypto.setSecret(secret)
-
-    local channel = Channel.new()
-    local ok, modemType = channel:open(preferEnder ~= false)
-    if not ok then
-        return nil, nil
-    end
-
-    return channel, modemType
+    return Channel.openWithSecret(secret, preferEnder ~= false)
 end
 
 -- Register reboot message handler for a channel.

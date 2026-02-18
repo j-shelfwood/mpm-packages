@@ -34,11 +34,11 @@ end
 -- Start discovery service (opens channel if needed)
 function Discovery:start()
     if not self.channel then
-        self.channel = Channel.new()
-        local ok = self.channel:open(true)  -- Prefer ender
-        if not ok then
+        local channel = Channel.openNew(true)
+        if not channel then
             return false, "No modem available"
         end
+        self.channel = channel
         self.ownsChannel = true
     end
 

@@ -152,15 +152,12 @@ function App:initNetwork()
 
     -- Initialize crypto with swarm secret for authenticated channel
     if self.authority.identity and self.authority.identity.secret then
-        Crypto.setSecret(self.authority.identity.secret)
-
         -- Create authenticated channel for swarm communication
-        self.channel = Channel.new()
-        local chanOk, chanType = self.channel:open(true)
-        if not chanOk then
-            self.channel = nil
+        local channel = Channel.openWithSecret(self.authority.identity.secret, true)
+        if not channel then
             return false, "Channel open failed"
         end
+        self.channel = channel
     end
 
     return true
