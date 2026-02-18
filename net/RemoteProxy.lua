@@ -13,7 +13,6 @@
 --   4. Cache updated when PERIPH_RESULT arrives via KernelNetwork loop
 -- Result: views always get instant responses, data is at most 1 refresh cycle stale.
 
-local Protocol = mpm('net/Protocol')
 local RenderContext = mpm('net/RenderContext')
 local DependencyStatus = mpm('net/DependencyStatus')
 local EventUtils = mpm('utils/EventUtils')

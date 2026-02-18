@@ -268,16 +268,6 @@ function Kernel:dashboardLoop(runningRef)
 end
 
 -- Get monitor by peripheral name
-function Kernel:getMonitorByPeripheral(peripheralName)
-    for _, monitor in ipairs(self.monitors) do
-        if monitor:getPeripheralName() == peripheralName then
-            return monitor
-        end
-    end
-    return nil
-end
-
--- Get a monitor by peripheral name (alias)
 function Kernel:getMonitor(peripheralName)
     for _, monitor in ipairs(self.monitors) do
         if monitor.peripheralName == peripheralName then
