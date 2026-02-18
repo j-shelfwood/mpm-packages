@@ -36,45 +36,63 @@ local function extractStackName(stack)
     return Text.prettifyName(name)
 end
 
-local function getCraftingTarget(peripheral)
-    if not peripheral then return nil end
+local function detectProgressState(peripheral)
+    if not peripheral or type(peripheral.getRecipeProgress) ~= "function" then
+        return false, nil, false
+    end
 
-    -- Factory-style API: getRecipeProgress(process) + getOutput(process)
-    if type(peripheral.getRecipeProgress) == "function" and type(peripheral.getOutput) == "function" then
-        local bestProcess = nil
-        local bestProgress = 0
-        local indexedSupported = false
+    local bestProcess = nil
+    local bestProgress = 0
+    local indexedSupported = false
 
-        for process = 0, 7 do
-            local progress = safeCall(peripheral, "getRecipeProgress", process)
-            if progress == nil then
-                if process == 0 and not indexedSupported then
-                    break
-                end
-            else
-                indexedSupported = true
-                if progress > bestProgress then
-                    bestProgress = progress
-                    bestProcess = process
-                end
+    for process = 0, 7 do
+        local progress = safeCall(peripheral, "getRecipeProgress", process)
+        if type(progress) == "number" then
+            indexedSupported = true
+            if progress > bestProgress then
+                bestProgress = progress
+                bestProcess = process
             end
-        end
-
-        if bestProcess ~= nil and bestProgress > 0 then
-            local output = safeCall(peripheral, "getOutput", bestProcess)
-            local outputName = extractStackName(output)
-            if outputName then
-                return outputName
-            end
+        elseif process == 0 and not indexedSupported then
+            break
         end
     end
 
-    -- Generic output APIs for many Mekanism machines/multiblocks
-    local outputName = extractStackName(safeCall(peripheral, "getOutput"))
-        or extractStackName(safeCall(peripheral, "getOutputItem"))
-        or extractStackName(safeCall(peripheral, "getOutputItemOutput"))
+    if indexedSupported then
+        return bestProgress > 0, bestProcess, true
+    end
 
-    return outputName
+    local progress = safeCall(peripheral, "getRecipeProgress")
+    if type(progress) == "number" then
+        return progress > 0, nil, false
+    end
+
+    return false, nil, false
+end
+
+local function getCraftingTarget(peripheral)
+    if not peripheral then return nil end
+
+    local isProgressActive, bestProcess, usesIndexedProgress = detectProgressState(peripheral)
+    local outputName = nil
+
+    -- Prefer process-specific factory slots when available.
+    if usesIndexedProgress and bestProcess ~= nil then
+        outputName = extractStackName(safeCall(peripheral, "getOutput", bestProcess))
+            or extractStackName(safeCall(peripheral, "getInput", bestProcess))
+    end
+
+    -- Generic output/input APIs for many Mekanism machines/multiblocks.
+    outputName = outputName
+        or extractStackName(safeCall(peripheral, "getOutput"))
+        or extractStackName(safeCall(peripheral, "getInput"))
+        or extractStackName(safeCall(peripheral, "getOutputItem"))
+        or extractStackName(safeCall(peripheral, "getInputItem"))
+        or extractStackName(safeCall(peripheral, "getOutputItemOutput"))
+        or extractStackName(safeCall(peripheral, "getInputItemInput"))
+
+    -- Return target even when currently idle if a slot contains a stable item; caller can decide usage.
+    return outputName, isProgressActive
 end
 
 local function getEnergyPercent(peripheral)
@@ -90,6 +108,22 @@ local function getEnergyPercent(peripheral)
     end
 
     return nil
+end
+
+local function buildCraftingSummary(machines)
+    local entries = {}
+    for _, machine in ipairs(machines) do
+        if machine.isActive and machine.crafting then
+            table.insert(entries, machine.label .. ":" .. machine.crafting)
+        end
+    end
+
+    if #entries == 0 then
+        return nil
+    end
+
+    table.sort(entries)
+    return table.concat(entries, ", ")
 end
 
 -- Draw a single machine cell as a 4-segment mini bar.
@@ -153,6 +187,7 @@ return BaseView.custom({
     init = function(self, config)
         self.modFilter = config.mod_filter or "all"
         self.machineType = Activity.normalizeMachineType(config.machine_type)
+        self.craftingCache = {}
     end,
 
     getData = function(self)
@@ -181,36 +216,17 @@ return BaseView.custom({
                 pollIdx = pollIdx + 1
                 local entry = Activity.buildMachineEntry(machine, idx, typeData.type)
                 entry.energyPct = getEnergyPercent(machine.peripheral)
-                if entry.isActive then
-                    entry.crafting = getCraftingTarget(machine.peripheral)
+                local detectedCraft, progressActive = getCraftingTarget(machine.peripheral)
+                if progressActive then
+                    entry.isActive = true
                 end
+                if detectedCraft then
+                    self.craftingCache[entry.name] = detectedCraft
+                end
+                entry.crafting = detectedCraft or self.craftingCache[entry.name]
                 if entry.isActive then activeCount = activeCount + 1 end
                 table.insert(machines, entry)
                 Yield.check(pollIdx, 6)
-            end
-
-            local craftingCounts = {}
-            for _, machine in ipairs(machines) do
-                if machine.isActive and machine.crafting then
-                    craftingCounts[machine.crafting] = (craftingCounts[machine.crafting] or 0) + 1
-                end
-            end
-            local craftingList = {}
-            for name, count in pairs(craftingCounts) do
-                table.insert(craftingList, { name = name, count = count })
-            end
-            table.sort(craftingList, function(a, b)
-                if a.count == b.count then return a.name < b.name end
-                return a.count > b.count
-            end)
-            local top = {}
-            for i = 1, math.min(2, #craftingList) do
-                local c = craftingList[i]
-                if c.count > 1 then
-                    table.insert(top, c.name .. " x" .. c.count)
-                else
-                    table.insert(top, c.name)
-                end
             end
 
             table.insert(sections, {
@@ -219,7 +235,7 @@ return BaseView.custom({
                 active = activeCount,
                 total = #machines,
                 machines = machines,
-                craftingSummary = #top > 0 and table.concat(top, ", ") or nil
+                craftingSummary = buildCraftingSummary(machines)
             })
             totalActive = activeCount
             totalMachines = #machines
@@ -232,36 +248,17 @@ return BaseView.custom({
                     pollIdx = pollIdx + 1
                     local entry = Activity.buildMachineEntry(machine, idx, typeData.type)
                     entry.energyPct = getEnergyPercent(machine.peripheral)
-                    if entry.isActive then
-                        entry.crafting = getCraftingTarget(machine.peripheral)
+                    local detectedCraft, progressActive = getCraftingTarget(machine.peripheral)
+                    if progressActive then
+                        entry.isActive = true
                     end
+                    if detectedCraft then
+                        self.craftingCache[entry.name] = detectedCraft
+                    end
+                    entry.crafting = detectedCraft or self.craftingCache[entry.name]
                     if entry.isActive then activeCount = activeCount + 1 end
                     table.insert(machines, entry)
                     Yield.check(pollIdx, 8)
-                end
-
-                local craftingCounts = {}
-                for _, machine in ipairs(machines) do
-                    if machine.isActive and machine.crafting then
-                        craftingCounts[machine.crafting] = (craftingCounts[machine.crafting] or 0) + 1
-                    end
-                end
-                local craftingList = {}
-                for name, count in pairs(craftingCounts) do
-                    table.insert(craftingList, { name = name, count = count })
-                end
-                table.sort(craftingList, function(a, b)
-                    if a.count == b.count then return a.name < b.name end
-                    return a.count > b.count
-                end)
-                local top = {}
-                for i = 1, math.min(2, #craftingList) do
-                    local c = craftingList[i]
-                    if c.count > 1 then
-                        table.insert(top, c.name .. " x" .. c.count)
-                    else
-                        table.insert(top, c.name)
-                    end
                 end
 
                 table.insert(sections, {
@@ -270,7 +267,7 @@ return BaseView.custom({
                     active = activeCount,
                     total = #machines,
                     machines = machines,
-                    craftingSummary = #top > 0 and table.concat(top, ", ") or nil
+                    craftingSummary = buildCraftingSummary(machines)
                 })
                 totalActive = totalActive + activeCount
                 totalMachines = totalMachines + #machines
