@@ -10,8 +10,8 @@ local Yield = mpm('utils/Yield')
 local Activity = mpm('peripherals/MachineActivity')
 
 local MACHINE_POLL_ACTIVE_MS = 1000
-local MACHINE_POLL_IDLE_MS = 3000
-local MACHINE_IDLE_CRAFT_POLL_MS = 6000
+local MACHINE_POLL_IDLE_MS = 1000
+local MACHINE_IDLE_CRAFT_POLL_MS = 1000
 local TYPELIST_REFRESH_MS = 1000
 
 _G._shelfos_machineGridShared = _G._shelfos_machineGridShared or {
