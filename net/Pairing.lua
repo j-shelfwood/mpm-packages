@@ -21,6 +21,37 @@ Pairing.PROTOCOL = "shelfos_pair"
 Pairing.TOKEN_VALIDITY = 60  -- seconds
 Pairing.RESPONSE_TIMEOUT = 10  -- seconds
 
+-- Build candidate signing keys from a user-entered/displayed pairing code.
+-- Accepts equivalent formats (ABCD-1234, abcd1234, with spaces) so
+-- formatting differences do not break pairing handshakes.
+-- @param code Pairing code input/display string
+-- @return array of unique candidate keys (most literal first)
+function Pairing.getCodeKeyCandidates(code)
+    local out = {}
+    local seen = {}
+
+    local function add(candidate)
+        if type(candidate) ~= "string" then return end
+        if #candidate < 4 then return end
+        if not seen[candidate] then
+            seen[candidate] = true
+            table.insert(out, candidate)
+        end
+    end
+
+    local raw = tostring(code or ""):upper():gsub("%s+", "")
+    add(raw)
+
+    local compact = raw:gsub("[^A-Z0-9]", "")
+    add(compact)
+
+    if #compact == 8 then
+        add(compact:sub(1, 4) .. "-" .. compact:sub(5, 8))
+    end
+
+    return out
+end
+
 -- Generate a random token for one-time pairing verification
 function Pairing.generateToken()
     local chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -118,7 +149,12 @@ function Pairing.acceptFromPocket(callbacks)
                 -- Check for signed PAIR_DELIVER (verify with display code)
                 if envelope.v and envelope.p and envelope.s then
                     -- This is a signed envelope, verify with our display code
-                    local data, err = Crypto.unwrapWith(envelope, displayCode)
+                    local data, err
+                    local codeKeys = Pairing.getCodeKeyCandidates(displayCode)
+                    for _, codeKey in ipairs(codeKeys) do
+                        data, err = Crypto.unwrapWith(envelope, codeKey)
+                        if data then break end
+                    end
 
                     if data and data.type == Protocol.MessageType.PAIR_DELIVER then
                         -- Signature valid - extract credentials
@@ -304,42 +340,51 @@ function Pairing.deliverToPending(secret, computerId, callbacks, timeout)
                 else
                     -- Create PAIR_DELIVER message and sign with entered code
                     local deliverMsg = Protocol.createPairDeliver(secret, computerId)
+                    local codeKeys = Pairing.getCodeKeyCandidates(enteredCode)
+                    if #codeKeys == 0 then
+                        if callbacks.onCodeInvalid then
+                            callbacks.onCodeInvalid("Code too short")
+                        end
+                    else
+                        -- Send all equivalent key-format variants (raw/compact/dashed).
+                        -- Computer accepts first valid signature and ignores invalid ones.
+                        for _, codeKey in ipairs(codeKeys) do
+                            local signedEnvelope = Crypto.wrapWith(deliverMsg, codeKey)
+                            rednet.send(pair.senderId, signedEnvelope, Pairing.PROTOCOL)
+                        end
 
-                    -- Sign the message with the entered code as ephemeral key
-                    local signedEnvelope = Crypto.wrapWith(deliverMsg, enteredCode)
-                    rednet.send(pair.senderId, signedEnvelope, Pairing.PROTOCOL)
+                        -- Wait briefly for confirmation
+                        local confirmDeadline = os.epoch("utc") + 5000
+                        while os.epoch("utc") < confirmDeadline do
+                            local cTimer = os.startTimer(0.5)
+                            local cEvent, cp1, cp2, cp3 = os.pullEvent()
 
-                    -- Wait briefly for confirmation
-                    local confirmDeadline = os.epoch("utc") + 5000
-                    while os.epoch("utc") < confirmDeadline do
-                        local cTimer = os.startTimer(0.5)
-                        local cEvent, cp1, cp2, cp3 = os.pullEvent()
-
-                        if cEvent == "rednet_message" and cp1 == pair.senderId then
-                            if cp3 == Pairing.PROTOCOL and type(cp2) == "table" then
-                                if cp2.type == Protocol.MessageType.PAIR_COMPLETE then
-                                    success = true
-                                    pairedComputer = pair.label
-                                    if callbacks.onComplete then
-                                        callbacks.onComplete(pairedComputer)
+                            if cEvent == "rednet_message" and cp1 == pair.senderId then
+                                if cp3 == Pairing.PROTOCOL and type(cp2) == "table" then
+                                    if cp2.type == Protocol.MessageType.PAIR_COMPLETE then
+                                        success = true
+                                        pairedComputer = pair.label
+                                        if callbacks.onComplete then
+                                            callbacks.onComplete(pairedComputer)
+                                        end
+                                        break
                                     end
-                                    break
                                 end
                             end
                         end
-                    end
 
-                    if success then break end
+                        if success then break end
 
-                    -- No confirmation = wrong code or network issue
-                    if callbacks.onCodeInvalid then
-                        callbacks.onCodeInvalid("No response - check code")
-                    end
+                        -- No confirmation = wrong code or network issue
+                        if callbacks.onCodeInvalid then
+                            callbacks.onCodeInvalid("No response - check code")
+                        end
 
-                    -- Remove from pending
-                    table.remove(pendingPairs, selectedIndex)
-                    if selectedIndex > #pendingPairs then
-                        selectedIndex = math.max(0, #pendingPairs)
+                        -- Remove from pending
+                        table.remove(pendingPairs, selectedIndex)
+                        if selectedIndex > #pendingPairs then
+                            selectedIndex = math.max(0, #pendingPairs)
+                        end
                     end
                 end
             end

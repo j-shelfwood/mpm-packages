@@ -39,4 +39,17 @@ return function(h)
         h:assert_contains(pairAcceptSrc, "Pairing.acceptFromPocket", "pair_accept should use Pairing module")
         h:assert_eq("shelfos_pair", Pairing.PROTOCOL, "Pairing.PROTOCOL unexpectedly changed")
     end)
+
+    h:test("pairing contract: code key candidates normalize user input formats", function()
+        local Pairing = mpm("net/Pairing")
+
+        local candidates = Pairing.getCodeKeyCandidates("  abcd 1234  ")
+        local seen = {}
+        for _, candidate in ipairs(candidates) do
+            seen[candidate] = true
+        end
+
+        h:assert_true(seen["ABCD1234"] == true, "Expected compact code candidate")
+        h:assert_true(seen["ABCD-1234"] == true, "Expected dashed code candidate")
+    end)
 end

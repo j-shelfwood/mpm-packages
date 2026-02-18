@@ -13,6 +13,7 @@ local MACHINE_POLL_ACTIVE_MS = 1000
 local MACHINE_POLL_IDLE_MS = 1000
 local MACHINE_IDLE_CRAFT_POLL_MS = 1000
 local TYPELIST_REFRESH_MS = 1000
+local SHARED_SWEEP_INTERVAL_MS = 1000
 
 _G._shelfos_machineGridShared = _G._shelfos_machineGridShared or {
     byFilter = {}
@@ -28,7 +29,8 @@ local function getSharedFilterState(modFilter)
             typeByName = {},
             machineEntries = {},
             machineSeen = {},
-            lastTypesAt = 0
+            lastTypesAt = 0,
+            lastSweepAt = 0
         }
         store.byFilter[key] = state
     end
@@ -218,7 +220,7 @@ local function pollMachineEntry(entry, nowMs)
     return entry
 end
 
-local function collectSectionMachines(self, typeData, nowMs, pollIdx)
+local function collectSectionMachines(self, typeData, nowMs, pollIdx, doSweep)
     local machines = {}
     local activeCount = 0
     local shared = self.sharedState
@@ -247,7 +249,7 @@ local function collectSectionMachines(self, typeData, nowMs, pollIdx)
             end
         end
 
-        if shouldPollMachine(entry, nowMs) then
+        if doSweep and shouldPollMachine(entry, nowMs) then
             entry = pollMachineEntry(entry, nowMs)
             shared.machineEntries[key] = entry
         end
@@ -256,10 +258,11 @@ local function collectSectionMachines(self, typeData, nowMs, pollIdx)
             activeCount = activeCount + 1
         end
 
-        seen[key] = true
+        if doSweep then
+            seen[key] = true
+        end
         table.insert(machines, entry)
         pollIdx = pollIdx + 1
-        Yield.check(pollIdx, 24)
     end
 
     return machines, activeCount, pollIdx
@@ -389,7 +392,11 @@ return BaseView.custom({
         local totalMachines = 0
         local pollIdx = 0
 
-        shared.machineSeen = {}
+        local doSweep = (nowMs - (shared.lastSweepAt or 0)) >= SHARED_SWEEP_INTERVAL_MS
+        if doSweep then
+            shared.lastSweepAt = nowMs
+            shared.machineSeen = {}
+        end
 
         if self.machineType then
             -- Single type mode
@@ -399,7 +406,7 @@ return BaseView.custom({
             end
 
             local machines, activeCount
-            machines, activeCount, pollIdx = collectSectionMachines(self, typeData, nowMs, pollIdx)
+            machines, activeCount, pollIdx = collectSectionMachines(self, typeData, nowMs, pollIdx, doSweep)
 
             table.insert(sections, {
                 label = typeData.label,
@@ -414,7 +421,7 @@ return BaseView.custom({
             -- All types mode: one section per type
             for _, typeData in ipairs(types) do
                 local machines, activeCount
-                machines, activeCount, pollIdx = collectSectionMachines(self, typeData, nowMs, pollIdx)
+                machines, activeCount, pollIdx = collectSectionMachines(self, typeData, nowMs, pollIdx, doSweep)
 
                 table.insert(sections, {
                     label = typeData.label,
@@ -429,9 +436,11 @@ return BaseView.custom({
         end
 
         -- Drop entries for machines that no longer exist.
-        for name in pairs(shared.machineEntries) do
-            if not shared.machineSeen[name] then
-                shared.machineEntries[name] = nil
+        if doSweep then
+            for name in pairs(shared.machineEntries) do
+                if not shared.machineSeen[name] then
+                    shared.machineEntries[name] = nil
+                end
             end
         end
 

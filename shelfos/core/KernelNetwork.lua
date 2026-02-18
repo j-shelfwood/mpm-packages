@@ -13,12 +13,14 @@ function KernelNetwork.initialize(kernel, config, identity)
     local Channel = mpm('net/Channel')
     local Crypto = mpm('net/Crypto')
     local Protocol = mpm('net/Protocol')
+    local RemotePeripheral = mpm('net/RemotePeripheral')
 
     -- Only init if secret is configured (paired with pocket)
     if not config.network or not config.network.secret then
         -- CRITICAL: Clear any stale secret from previous session
         -- _G persists across program restarts in CC:Tweaked
         Crypto.clearSecret()
+        RemotePeripheral.setClient(nil)
         if kernel.dashboard then
             kernel.dashboard:setNetwork("Not in swarm", colors.orange, "n/a")
             kernel.dashboard:setMessage("Press L -> Accept from pocket to join", colors.orange)
@@ -35,6 +37,7 @@ function KernelNetwork.initialize(kernel, config, identity)
     local ok, modemType = channel:open(true)
 
     if not ok then
+        RemotePeripheral.setClient(nil)
         if kernel.dashboard then
             kernel.dashboard:setNetwork("No modem found", colors.red, "n/a")
             kernel.dashboard:setMessage("Network unavailable: no modem found", colors.red)
@@ -79,7 +82,6 @@ function KernelNetwork.initialize(kernel, config, identity)
 
     -- Set up peripheral client for remote peripheral access
     local PeripheralClient = mpm('net/PeripheralClient')
-    local RemotePeripheral = mpm('net/RemotePeripheral')
 
     local peripheralClient = PeripheralClient.new(channel)
     peripheralClient:registerHandlers()
@@ -209,6 +211,8 @@ end
 -- Close network connections
 -- @param channel Channel instance
 function KernelNetwork.close(channel)
+    local RemotePeripheral = mpm('net/RemotePeripheral')
+    RemotePeripheral.setClient(nil)
     if channel then
         rednet.unhost("shelfos")
         channel:close()

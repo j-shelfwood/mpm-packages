@@ -6,6 +6,7 @@
 local TermUI = mpm('ui/TermUI')
 local Protocol = mpm('net/Protocol')
 local Crypto = mpm('net/Crypto')
+local Pairing = mpm('net/Pairing')
 local ModemUtils = mpm('utils/ModemUtils')
 local Keys = mpm('utils/Keys')
 local Core = mpm('ui/Core')
@@ -161,8 +162,9 @@ function AddComputer.drawCodeEntry(ctx)
     local input = read()
     if not input then input = "" end
     local enteredCode = input:upper():gsub("%s", "")
+    local codeKeys = Pairing.getCodeKeyCandidates(enteredCode)
 
-    if #enteredCode < 4 then
+    if #codeKeys == 0 then
         state.errorMsg = "Code too short - cancelled"
         state.phase = "error"
         AddComputer.draw(ctx)
@@ -203,8 +205,12 @@ function AddComputer.drawCodeEntry(ctx)
     local deliverMsg = Protocol.createPairDeliver(creds.swarmSecret, creds.computerId)
     deliverMsg.data.credentials = creds
 
-    local signedEnvelope = Crypto.wrapWith(deliverMsg, enteredCode)
-    rednet.send(computer.senderId, signedEnvelope, PAIR_PROTOCOL)
+    -- Send equivalent key-format variants (raw/compact/dashed) so formatting
+    -- differences in user input cannot break pairing.
+    for _, codeKey in ipairs(codeKeys) do
+        local signedEnvelope = Crypto.wrapWith(deliverMsg, codeKey)
+        rednet.send(computer.senderId, signedEnvelope, PAIR_PROTOCOL)
+    end
 
     -- Wait for PAIR_COMPLETE
     local deadline = os.epoch("utc") + 5000
