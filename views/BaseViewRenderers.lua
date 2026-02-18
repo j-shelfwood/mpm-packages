@@ -9,6 +9,23 @@ local GridDisplay = mpm('utils/GridDisplay')
 
 local BaseViewRenderers = {}
 
+local function resolveTextColor(value, fallback)
+    if type(value) == "number" then
+        return value
+    end
+
+    if type(value) == "table" then
+        if type(value.color) == "number" then
+            return value.color
+        end
+        if type(value[1]) == "number" then
+            return value[1]
+        end
+    end
+
+    return fallback or colors.white
+end
+
 -- Default empty state renderer
 function BaseViewRenderers.renderEmpty(self, message)
     message = message or "No data"
@@ -47,13 +64,13 @@ function BaseViewRenderers.renderHeader(self, header)
         self.monitor.write(Text.truncateMiddle(header, contentWidth))
     elseif type(header) == "table" then
         -- Primary text
-        self.monitor.setTextColor(header.color or colors.white)
+        self.monitor.setTextColor(resolveTextColor(header.color, colors.white))
         local text = header.text or ""
         self.monitor.write(text)
 
         -- Secondary text (count, etc.)
         if header.secondary then
-            self.monitor.setTextColor(header.secondaryColor or colors.gray)
+            self.monitor.setTextColor(resolveTextColor(header.secondaryColor, colors.gray))
             local remaining = contentWidth - #text
             if remaining > 0 then
                 self.monitor.write(Text.truncateMiddle(header.secondary, remaining))
@@ -79,7 +96,7 @@ function BaseViewRenderers.renderFooter(self, footer)
         self.monitor.setTextColor(colors.gray)
         self.monitor.write(Text.truncateMiddle(footer, self.width))
     elseif type(footer) == "table" then
-        self.monitor.setTextColor(footer.color or colors.gray)
+        self.monitor.setTextColor(resolveTextColor(footer.color, colors.gray))
         self.monitor.write(Text.truncateMiddle(footer.text or "", self.width))
     end
 end
@@ -103,8 +120,8 @@ local function renderCompactList(self, data, formatItem, startY, def)
         if formatted.lines then
             local name = formatted.lines[1] or ""
             local amount = formatted.lines[2] or ""
-            local nameColor = formatted.colors and formatted.colors[1] or colors.white
-            local amountColor = formatted.colors and formatted.colors[2] or colors.gray
+            local nameColor = resolveTextColor(formatted.colors and formatted.colors[1], colors.white)
+            local amountColor = resolveTextColor(formatted.colors and formatted.colors[2], colors.gray)
 
             -- Calculate widths: reserve space for amount + 1 gap char
             local amountWidth = #amount
@@ -185,7 +202,7 @@ function BaseViewRenderers.renderList(self, data, formatItem, startY, def)
         -- Render each line of the item
         if formatted.lines then
             local line = formatted.lines[1] or ""
-            local color = formatted.colors and formatted.colors[1] or colors.white
+            local color = resolveTextColor(formatted.colors and formatted.colors[1], colors.white)
 
             self.monitor.setCursorPos(1, y)
             self.monitor.setTextColor(color)
@@ -247,7 +264,7 @@ function BaseViewRenderers.renderInteractiveList(self, data, formatItem, startY,
             -- Render item
             if formatted.lines then
                 local line = formatted.lines[1] or ""
-                local color = formatted.colors and formatted.colors[1] or colors.white
+                local color = resolveTextColor(formatted.colors and formatted.colors[1], colors.white)
 
                 self.monitor.setCursorPos(1, y)
                 self.monitor.setTextColor(color)
@@ -257,7 +274,7 @@ function BaseViewRenderers.renderInteractiveList(self, data, formatItem, startY,
                 if formatted.lines[2] and i < visibleCount then
                     -- Compact: show on same line right-aligned
                     local line2 = formatted.lines[2]
-                    local color2 = formatted.colors and formatted.colors[2] or colors.gray
+                    local color2 = resolveTextColor(formatted.colors and formatted.colors[2], colors.gray)
                     local x = self.width - #line2
                     if x > #line + 2 then
                         self.monitor.setCursorPos(x, y)

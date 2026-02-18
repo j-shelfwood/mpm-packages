@@ -16,6 +16,23 @@ local function clamp01(value)
     return value
 end
 
+local function resolveTextColor(value, fallback)
+    if type(value) == "number" then
+        return value
+    end
+
+    if type(value) == "table" then
+        if type(value.color) == "number" then
+            return value.color
+        end
+        if type(value[1]) == "number" then
+            return value[1]
+        end
+    end
+
+    return fallback or colors.white
+end
+
 local function safeCall(p, method, ...)
     if not p or type(p[method]) ~= "function" then return nil end
     local ok, result = pcall(p[method], ...)
@@ -342,7 +359,7 @@ return BaseView.custom({
             -- Section header
             local label = Text.truncateMiddle(section.label, width)
 
-            self.monitor.setTextColor(section.color or colors.white)
+            self.monitor.setTextColor(resolveTextColor(section.color, colors.white))
             self.monitor.setCursorPos(1, currentY)
             self.monitor.write(label)
 
