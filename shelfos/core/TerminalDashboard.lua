@@ -60,6 +60,7 @@ function TerminalDashboard.new()
     self.identityId = "N/A"
     self.networkLabel = "Booting"
     self.networkColor = colors.lightGray
+    self.networkState = "booting" -- booting|connected|offline
     self.modemType = "n/a"
     self.sharedCount = 0
     self.remoteCount = 0
@@ -94,9 +95,10 @@ function TerminalDashboard:setIdentity(name, id)
     self.needsRedraw = true
 end
 
-function TerminalDashboard:setNetwork(label, color, modemType)
+function TerminalDashboard:setNetwork(label, color, modemType, state)
     self.networkLabel = label or self.networkLabel
     self.networkColor = color or self.networkColor
+    self.networkState = state or ((label == "Connected") and "connected" or "offline")
     if modemType then self.modemType = modemType end
     self.needsRedraw = true
 end
@@ -187,6 +189,7 @@ function TerminalDashboard:render(kernel)
     local now = os.epoch("utc")
 
     local y = 3
+    local swarmOnline = self.networkState == "connected"
     TermUI.drawMetric(2, y, "Computer", self.identityName, colors.white)
     TermUI.drawMetric(rightCol, y, "Uptime", formatUptime(now - self.startedAt), colors.white)
     y = y + 1
@@ -194,25 +197,30 @@ function TerminalDashboard:render(kernel)
     TermUI.drawMetric(rightCol, y, "Modem", self.modemType, colors.lightGray)
     y = y + 1
     TermUI.drawMetric(2, y, "Network", self.networkLabel, self.networkColor)
-    TermUI.drawMetric(rightCol, y, "Messages/s", string.format("%.1f", self.rate.msgPerSec), colors.cyan)
+    TermUI.drawMetric(rightCol, y, "Messages/s", swarmOnline and string.format("%.1f", self.rate.msgPerSec) or "n/a", swarmOnline and colors.cyan or colors.gray)
     y = y + 1
+    if not swarmOnline then
+        TermUI.drawText(2, y, "Swarm inactive (press L to pair)", colors.orange)
+        y = y + 1
+    end
 
     local monitorCount = kernel and #kernel.monitors or 0
     TermUI.drawMetric(2, y, "Monitors", monitorCount, colors.white)
-    TermUI.drawMetric(rightCol, y, "Remote", self.remoteCount, colors.white)
+    TermUI.drawMetric(rightCol, y, "Remote", swarmOnline and self.remoteCount or "n/a", swarmOnline and colors.white or colors.gray)
     y = y + 2
 
     TermUI.drawSeparator(y, colors.gray)
     y = y + 1
     local col2 = math.max(2, math.floor(w / 3) + 1)
     local col3 = math.max(col2 + 1, math.floor((w * 2) / 3) + 1)
-    TermUI.drawActivityLight(2, y, "DISCOVER", self.lastActivity.discover, self.stats.discover, { activeColor = colors.yellow })
-    TermUI.drawActivityLight(col2, y, "CALL", self.lastActivity.call, self.stats.call, { activeColor = colors.lime })
-    TermUI.drawActivityLight(col3, y, "ANNOUNCE", self.lastActivity.announce, self.stats.announce, { activeColor = colors.cyan })
+    local activityOpts = swarmOnline and {} or { idleColor = colors.lightGray, labelColor = colors.gray, countColor = colors.gray }
+    TermUI.drawActivityLight(2, y, "DISCOVER", self.lastActivity.discover, swarmOnline and self.stats.discover or "n/a", activityOpts)
+    TermUI.drawActivityLight(col2, y, "CALL", self.lastActivity.call, swarmOnline and self.stats.call or "n/a", activityOpts)
+    TermUI.drawActivityLight(col3, y, "ANNOUNCE", self.lastActivity.announce, swarmOnline and self.stats.announce or "n/a", activityOpts)
     y = y + 1
-    TermUI.drawActivityLight(2, y, "RX", self.lastActivity.rx, self.stats.rx, { activeColor = colors.lightBlue })
-    TermUI.drawActivityLight(col2, y, "RESCAN", self.lastActivity.rescan, self.stats.rescan, { activeColor = colors.orange })
-    TermUI.drawActivityLight(col3, y, "ERROR", self.lastActivity.call_error, self.stats.call_error, { activeColor = colors.red })
+    TermUI.drawActivityLight(2, y, "RX", self.lastActivity.rx, swarmOnline and self.stats.rx or "n/a", activityOpts)
+    TermUI.drawActivityLight(col2, y, "RESCAN", self.lastActivity.rescan, swarmOnline and self.stats.rescan or "n/a", activityOpts)
+    TermUI.drawActivityLight(col3, y, "ERROR", self.lastActivity.call_error, swarmOnline and self.stats.call_error or "n/a", activityOpts)
     y = y + 2
 
     local avgLoopMs = average(self.loopMsSamples)
@@ -225,9 +233,9 @@ function TerminalDashboard:render(kernel)
         loopColor = colors.orange
     end
     TermUI.drawMetric(2, y, "Loop avg/peak", string.format("%.0f/%.0f ms", avgLoopMs, peakLoopMs), loopColor)
-    TermUI.drawMetric(rightCol, y, "Call avg", string.format("%.0f ms", avgCallMs), colors.white)
+    TermUI.drawMetric(rightCol, y, "Call avg", swarmOnline and string.format("%.0f ms", avgCallMs) or "n/a", swarmOnline and colors.white or colors.gray)
     y = y + 1
-    TermUI.drawMetric(2, y, "Shared Local", self.sharedCount, colors.white)
+    TermUI.drawMetric(2, y, "Shared Local", swarmOnline and self.sharedCount or "n/a", swarmOnline and colors.white or colors.gray)
     y = y + 2
 
     if kernel and #kernel.monitors > 0 and y < h - 3 then

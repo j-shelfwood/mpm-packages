@@ -22,7 +22,9 @@ function KernelNetwork.initialize(kernel, config, identity)
         Crypto.clearSecret()
         RemotePeripheral.setClient(nil)
         if kernel.dashboard then
-            kernel.dashboard:setNetwork("Not in swarm", colors.orange, "n/a")
+            kernel.dashboard:setNetwork("Not in swarm", colors.orange, "n/a", "offline")
+            kernel.dashboard:setSharedCount(0)
+            kernel.dashboard:setRemoteCount(0)
             kernel.dashboard:setMessage("Press L -> Accept from pocket to join", colors.orange)
         else
             print("[ShelfOS] Network: not in swarm")
@@ -39,7 +41,9 @@ function KernelNetwork.initialize(kernel, config, identity)
     if not ok then
         RemotePeripheral.setClient(nil)
         if kernel.dashboard then
-            kernel.dashboard:setNetwork("No modem found", colors.red, "n/a")
+            kernel.dashboard:setNetwork("No modem found", colors.red, "n/a", "offline")
+            kernel.dashboard:setSharedCount(0)
+            kernel.dashboard:setRemoteCount(0)
             kernel.dashboard:setMessage("Network unavailable: no modem found", colors.red)
         else
             print("[ShelfOS] Network: no modem found")
@@ -49,7 +53,7 @@ function KernelNetwork.initialize(kernel, config, identity)
 
     -- ModemUtils now returns "ender" for isWireless()=true modems
     if kernel.dashboard then
-        kernel.dashboard:setNetwork("Connected", colors.lime, modemType)
+        kernel.dashboard:setNetwork("Connected", colors.lime, modemType, "connected")
         kernel.dashboard:setMessage("Network online via " .. modemType .. " modem", colors.lime)
     else
         print("[ShelfOS] Network: " .. modemType .. " modem")

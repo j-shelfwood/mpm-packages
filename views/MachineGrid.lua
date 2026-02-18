@@ -6,14 +6,16 @@
 local BaseView = mpm('views/BaseView')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Text = mpm('utils/Text')
-local Yield = mpm('utils/Yield')
 local Activity = mpm('peripherals/MachineActivity')
 
 local MACHINE_POLL_ACTIVE_MS = 1000
-local MACHINE_POLL_IDLE_MS = 1000
-local MACHINE_IDLE_CRAFT_POLL_MS = 1000
-local TYPELIST_REFRESH_MS = 1000
+local MACHINE_POLL_IDLE_MS = 5000
+local MACHINE_IDLE_CRAFT_POLL_MS = 5000
+local MACHINE_IDLE_ENERGY_POLL_MS = 5000
+local TYPELIST_REFRESH_MS = 5000
 local SHARED_SWEEP_INTERVAL_MS = 1000
+local MAX_POLLS_PER_SWEEP_ALL = 8
+local MAX_POLLS_PER_SWEEP_SINGLE = 16
 
 _G._shelfos_machineGridShared = _G._shelfos_machineGridShared or {
     byFilter = {}
@@ -29,8 +31,10 @@ local function getSharedFilterState(modFilter)
             typeByName = {},
             machineEntries = {},
             machineSeen = {},
+            dueEntries = {},
             lastTypesAt = 0,
-            lastSweepAt = 0
+            lastSweepAt = 0,
+            pollCursor = 0
         }
         store.byFilter[key] = state
     end
@@ -86,58 +90,75 @@ local function detectProgressState(peripheral)
         return false, nil, false
     end
 
-    local bestProcess = nil
-    local bestProgress = 0
-    local indexedSupported = false
-
-    for process = 0, 7 do
-        local progress = safeCall(peripheral, "getRecipeProgress", process)
-        if type(progress) == "number" then
-            indexedSupported = true
-            if progress > bestProgress then
-                bestProgress = progress
-                bestProcess = process
-            end
-        elseif process == 0 and not indexedSupported then
-            break
-        end
-    end
-
-    if indexedSupported then
-        return bestProgress > 0, bestProcess, true
-    end
-
     local progress = safeCall(peripheral, "getRecipeProgress")
     if type(progress) == "number" then
         return progress > 0, nil, false
     end
 
+    local indexedProgress = safeCall(peripheral, "getRecipeProgress", 0)
+    if type(indexedProgress) == "number" then
+        return indexedProgress > 0, 0, true
+    end
+
     return false, nil, false
 end
 
-local function getCraftingTarget(peripheral)
+local function readCraftName(peripheral, methodName, process)
+    if process ~= nil then
+        return extractStackName(safeCall(peripheral, methodName, process))
+    end
+    return extractStackName(safeCall(peripheral, methodName))
+end
+
+local function getCraftingTarget(peripheral, entry)
     if not peripheral then return nil end
 
     local isProgressActive, bestProcess, usesIndexedProgress = detectProgressState(peripheral)
-    local outputName = nil
-
-    -- Prefer process-specific factory slots when available.
-    if usesIndexedProgress and bestProcess ~= nil then
-        outputName = extractStackName(safeCall(peripheral, "getOutput", bestProcess))
-            or extractStackName(safeCall(peripheral, "getInput", bestProcess))
+    if entry and entry.craftMethod then
+        local process = entry.craftUsesIndexed and bestProcess or nil
+        local knownName = readCraftName(peripheral, entry.craftMethod, process)
+        if knownName then
+            return knownName, isProgressActive
+        end
+        entry.craftMethod = nil
+        entry.craftUsesIndexed = false
     end
 
-    -- Generic output/input APIs for many Mekanism machines/multiblocks.
-    outputName = outputName
-        or extractStackName(safeCall(peripheral, "getOutput"))
-        or extractStackName(safeCall(peripheral, "getInput"))
-        or extractStackName(safeCall(peripheral, "getOutputItem"))
-        or extractStackName(safeCall(peripheral, "getInputItem"))
-        or extractStackName(safeCall(peripheral, "getOutputItemOutput"))
-        or extractStackName(safeCall(peripheral, "getInputItemInput"))
+    if entry and entry.noCraftSignals and not isProgressActive then
+        return nil, isProgressActive
+    end
 
-    -- Return target even when currently idle if a slot contains a stable item; caller can decide usage.
-    return outputName, isProgressActive
+    local candidates = {
+        { method = "getOutput", indexed = true },
+        { method = "getInput", indexed = true },
+        { method = "getOutput", indexed = false },
+        { method = "getInput", indexed = false },
+        { method = "getOutputItem", indexed = false },
+        { method = "getInputItem", indexed = false },
+        { method = "getOutputItemOutput", indexed = false },
+        { method = "getInputItemInput", indexed = false }
+    }
+
+    for _, candidate in ipairs(candidates) do
+        if not candidate.indexed or (usesIndexedProgress and bestProcess ~= nil) then
+            local process = candidate.indexed and bestProcess or nil
+            local outputName = readCraftName(peripheral, candidate.method, process)
+            if outputName then
+                if entry then
+                    entry.craftMethod = candidate.method
+                    entry.craftUsesIndexed = candidate.indexed
+                    entry.noCraftSignals = false
+                end
+                return outputName, isProgressActive
+            end
+        end
+    end
+
+    if entry then
+        entry.noCraftSignals = true
+    end
+
+    return nil, isProgressActive
 end
 
 local function getEnergyPercent(peripheral)
@@ -174,8 +195,12 @@ local function buildMachineEntry(machine, idx, pType)
         isActive = false,
         energyPct = nil,
         crafting = nil,
+        craftMethod = nil,
+        craftUsesIndexed = false,
+        noCraftSignals = false,
         polledAt = 0,
-        craftPolledAt = 0
+        craftPolledAt = 0,
+        energyPolledAt = 0
     }
 end
 
@@ -194,10 +219,14 @@ local function pollMachineEntry(entry, nowMs)
     end
 
     entry.isActive = isActive
-    entry.energyPct = getEnergyPercent(p)
+    local energyAge = nowMs - (entry.energyPolledAt or 0)
+    if entry.isActive or entry.energyPct == nil or energyAge >= MACHINE_IDLE_ENERGY_POLL_MS then
+        entry.energyPct = getEnergyPercent(p)
+        entry.energyPolledAt = nowMs
+    end
 
     if entry.isActive then
-        local detectedCraft, progressActive = getCraftingTarget(p)
+        local detectedCraft, progressActive = getCraftingTarget(p, entry)
         if progressActive then
             entry.isActive = true
         end
@@ -208,7 +237,7 @@ local function pollMachineEntry(entry, nowMs)
     else
         local craftAge = nowMs - (entry.craftPolledAt or 0)
         if entry.crafting == nil or craftAge >= MACHINE_IDLE_CRAFT_POLL_MS then
-            local detectedCraft = getCraftingTarget(p)
+            local detectedCraft = getCraftingTarget(p, entry)
             if detectedCraft then
                 entry.crafting = detectedCraft
             end
@@ -220,7 +249,7 @@ local function pollMachineEntry(entry, nowMs)
     return entry
 end
 
-local function collectSectionMachines(self, typeData, nowMs, pollIdx, doSweep)
+local function collectSectionMachines(self, typeData, nowMs, doSweep)
     local machines = {}
     local activeCount = 0
     local shared = self.sharedState
@@ -250,8 +279,7 @@ local function collectSectionMachines(self, typeData, nowMs, pollIdx, doSweep)
         end
 
         if doSweep and shouldPollMachine(entry, nowMs) then
-            entry = pollMachineEntry(entry, nowMs)
-            shared.machineEntries[key] = entry
+            table.insert(shared.dueEntries, entry)
         end
 
         if entry.isActive then
@@ -262,10 +290,29 @@ local function collectSectionMachines(self, typeData, nowMs, pollIdx, doSweep)
             seen[key] = true
         end
         table.insert(machines, entry)
-        pollIdx = pollIdx + 1
     end
 
-    return machines, activeCount, pollIdx
+    return machines, activeCount
+end
+
+local function pollDueEntries(shared, nowMs, budget)
+    local due = shared.dueEntries or {}
+    local totalDue = #due
+    if totalDue == 0 or budget <= 0 then
+        return
+    end
+
+    local cursor = shared.pollCursor or 0
+    local limit = math.min(budget, totalDue)
+    for i = 1, limit do
+        cursor = (cursor % totalDue) + 1
+        local entry = due[cursor]
+        if entry then
+            pollMachineEntry(entry, nowMs)
+        end
+    end
+
+    shared.pollCursor = cursor
 end
 
 -- Draw a larger machine card:
@@ -390,12 +437,12 @@ return BaseView.custom({
         local sections = {}
         local totalActive = 0
         local totalMachines = 0
-        local pollIdx = 0
 
         local doSweep = (nowMs - (shared.lastSweepAt or 0)) >= SHARED_SWEEP_INTERVAL_MS
         if doSweep then
             shared.lastSweepAt = nowMs
             shared.machineSeen = {}
+            shared.dueEntries = {}
         end
 
         if self.machineType then
@@ -406,7 +453,7 @@ return BaseView.custom({
             end
 
             local machines, activeCount
-            machines, activeCount, pollIdx = collectSectionMachines(self, typeData, nowMs, pollIdx, doSweep)
+            machines, activeCount = collectSectionMachines(self, typeData, nowMs, doSweep)
 
             table.insert(sections, {
                 label = typeData.label,
@@ -421,7 +468,7 @@ return BaseView.custom({
             -- All types mode: one section per type
             for _, typeData in ipairs(types) do
                 local machines, activeCount
-                machines, activeCount, pollIdx = collectSectionMachines(self, typeData, nowMs, pollIdx, doSweep)
+                machines, activeCount = collectSectionMachines(self, typeData, nowMs, doSweep)
 
                 table.insert(sections, {
                     label = typeData.label,
@@ -433,6 +480,11 @@ return BaseView.custom({
                 totalActive = totalActive + activeCount
                 totalMachines = totalMachines + #machines
             end
+        end
+
+        if doSweep then
+            local budget = self.machineType and MAX_POLLS_PER_SWEEP_SINGLE or MAX_POLLS_PER_SWEEP_ALL
+            pollDueEntries(shared, nowMs, budget)
         end
 
         -- Drop entries for machines that no longer exist.
