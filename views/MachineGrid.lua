@@ -176,6 +176,79 @@ local function getEnergyPercent(peripheral)
     return nil
 end
 
+local function readActivityState(peripheral)
+    if not peripheral then
+        return nil, false
+    end
+
+    if type(peripheral.isBusy) == "function" then
+        local busy = safeCall(peripheral, "isBusy")
+        if type(busy) == "boolean" then
+            return busy, true
+        end
+    end
+
+    if type(peripheral.getRecipeProgress) == "function" then
+        local progress = safeCall(peripheral, "getRecipeProgress")
+        if type(progress) == "number" then
+            return progress > 0, true
+        end
+
+        local indexed = safeCall(peripheral, "getRecipeProgress", 0)
+        if type(indexed) == "number" then
+            return indexed > 0, true
+        end
+    end
+
+    if type(peripheral.getEnergyUsage) == "function" then
+        local usage = safeCall(peripheral, "getEnergyUsage")
+        if type(usage) == "number" then
+            return usage > 0, true
+        end
+    end
+
+    if type(peripheral.getProductionRate) == "function" then
+        local rate = safeCall(peripheral, "getProductionRate")
+        if type(rate) == "number" then
+            return rate > 0, true
+        end
+    end
+
+    if type(peripheral.isFormed) == "function" then
+        local formed = safeCall(peripheral, "isFormed")
+        if type(formed) == "boolean" then
+            if not formed then
+                return false, true
+            end
+
+            if type(peripheral.getBoilRate) == "function" then
+                local boil = safeCall(peripheral, "getBoilRate")
+                if type(boil) == "number" then
+                    return boil > 0, true
+                end
+            end
+
+            if type(peripheral.getStatus) == "function" then
+                local status = safeCall(peripheral, "getStatus")
+                if type(status) == "boolean" then
+                    return status, true
+                end
+            end
+
+            if type(peripheral.isIgnited) == "function" then
+                local ignited = safeCall(peripheral, "isIgnited")
+                if type(ignited) == "boolean" then
+                    return ignited, true
+                end
+            end
+
+            return true, true
+        end
+    end
+
+    return nil, false
+end
+
 local function buildMachineEntry(machine, idx, pType)
     local shortName = Activity.getShortName and Activity.getShortName(pType or machine.name) or (pType or machine.name)
     local shortLabel = machine.name:match("_(%d+)$") or (idx and tostring(idx)) or machine.name
@@ -211,18 +284,27 @@ local function shouldPollMachine(entry, nowMs)
 end
 
 local function pollMachineEntry(entry, nowMs)
-    local isActive = false
+    local isActive = entry.isActive and true or false
+    local isActivityKnown = false
     local p = entry.peripheral
     if p then
-        local active = Activity.getActivity(p)
-        isActive = active and true or false
+        local activeState, known = readActivityState(p)
+        if known then
+            isActivityKnown = true
+            isActive = activeState and true or false
+        end
     end
 
-    entry.isActive = isActive
+    if isActivityKnown then
+        entry.isActive = isActive
+    end
     local energyAge = nowMs - (entry.energyPolledAt or 0)
     if entry.isActive or entry.energyPct == nil or energyAge >= MACHINE_IDLE_ENERGY_POLL_MS then
-        entry.energyPct = getEnergyPercent(p)
-        entry.energyPolledAt = nowMs
+        local energy = getEnergyPercent(p)
+        if energy ~= nil then
+            entry.energyPct = energy
+            entry.energyPolledAt = nowMs
+        end
     end
 
     if entry.isActive then
