@@ -6,13 +6,14 @@
 local PairingScreen = mpm('shelfos/ui/PairingScreen')
 local Config = mpm('shelfos/core/Config')
 local ModemUtils = mpm('utils/ModemUtils')
+local EventUtils = mpm('utils/EventUtils')
 
 local KernelPairing = {}
 
 local function waitSeconds(seconds)
     local timer = os.startTimer(seconds)
     while true do
-        local event, id = os.pullEvent()
+        local event, id = EventUtils.pullEvent()
         if event == "timer" and id == timer then
             return
         end

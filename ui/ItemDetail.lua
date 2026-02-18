@@ -5,6 +5,7 @@
 
 local Core = mpm('ui/Core')
 local Text = mpm('utils/Text')
+local EventUtils = mpm('utils/EventUtils')
 
 local ItemDetail = {}
 ItemDetail.__index = ItemDetail
@@ -203,7 +204,7 @@ function ItemDetail:show()
 
         local side, x, y
         repeat
-            local _, touchSide, tx, ty = os.pullEvent("monitor_touch")
+            local _, touchSide, tx, ty = EventUtils.pullEvent("monitor_touch")
             side, x, y = touchSide, tx, ty
         until side == monitorName
 

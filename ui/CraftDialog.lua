@@ -3,6 +3,7 @@
 -- Provides amount selection and craft action with status feedback
 
 local Core = mpm('ui/Core')
+local EventUtils = mpm('utils/EventUtils')
 
 local CraftDialog = {}
 
@@ -189,7 +190,7 @@ function CraftDialog.show(monitor, peripheralName, opts)
         -- Wait for touch
         local side, tx, ty
         repeat
-            local _, touchSide, x, y = os.pullEvent("monitor_touch")
+            local _, touchSide, x, y = EventUtils.pullEvent("monitor_touch")
             side, tx, ty = touchSide, x, y
         until side == peripheralName
 

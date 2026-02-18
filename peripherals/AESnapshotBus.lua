@@ -4,6 +4,7 @@
 
 local Peripherals = mpm('utils/Peripherals')
 local Yield = mpm('utils/Yield')
+local EventUtils = mpm('utils/EventUtils')
 
 local AESnapshotBus = {}
 
@@ -164,7 +165,7 @@ function AESnapshotBus.runLoop(runningRef)
         if not didWork then
             local t = os.startTimer(0.1)
             repeat
-                local _, tid = os.pullEvent("timer")
+                local _, tid = EventUtils.pullEvent("timer")
             until tid == t
         end
     end

@@ -10,6 +10,7 @@ local Config = mpm('shelfos/core/Config')
 local Pairing = mpm('net/Pairing')
 local PairingScreen = mpm('shelfos/ui/PairingScreen')
 local ModemUtils = mpm('utils/ModemUtils')
+local EventUtils = mpm('utils/EventUtils')
 
 -- Main pairing acceptor
 local function acceptPairing()
@@ -137,7 +138,7 @@ local success, result = acceptPairing()
 if not success then
     print("")
     print("Press any key to exit...")
-    os.pullEvent("key")
+    EventUtils.pullEvent("key")
 end
 
 return {
