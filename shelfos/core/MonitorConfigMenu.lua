@@ -58,8 +58,12 @@ end
 function MonitorConfigMenu.openConfigFlow(monitor)
     local peripheral = monitor.peripheral
 
-    -- Use cached mountability checks when valid; cache is invalidated on hardware events.
-    local availableViews = ViewManager.getMountableViews()
+    -- Favor the monitor's cached list for instant menu open.
+    -- Recomputing mountability can be expensive on touch path.
+    local availableViews = monitor.availableViews
+    if not availableViews or #availableViews == 0 then
+        availableViews = ViewManager.getMountableViews()
+    end
     monitor.availableViews = availableViews
 
     local currentViewName = monitor.viewName

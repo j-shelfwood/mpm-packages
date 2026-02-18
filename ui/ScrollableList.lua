@@ -4,7 +4,6 @@
 -- Uses os.pullEvent directly - each monitor runs in its own coroutine with parallel API
 
 local Core = mpm('ui/Core')
-local EventUtils = mpm('utils/EventUtils')
 
 local ScrollableList = {}
 ScrollableList.__index = ScrollableList
@@ -296,7 +295,11 @@ function ScrollableList:show()
     while true do
         self:render()
 
-        local side, x, y = EventUtils.waitForTouch(monitorName)
+        local side, x, y
+        repeat
+            local _, touchSide, tx, ty = os.pullEvent("monitor_touch")
+            side, x, y = touchSide, tx, ty
+        until side == monitorName
 
         if side == monitorName then
             local result = self:handleTouch(x, y)

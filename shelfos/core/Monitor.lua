@@ -284,6 +284,12 @@ function Monitor:openConfigMenu()
         self.settingsTimer = nil
     end
 
+    -- Hide buffered window while drawing interactive config UI directly
+    -- on the raw peripheral to avoid stale-buffer interference.
+    if self.buffer then
+        self.buffer.setVisible(false)
+    end
+
     -- Show view selection + optional config flow
     local ok, selectedView, newConfig = pcall(MonitorConfigMenu.openConfigFlow, self)
     local didLoadView = false
@@ -304,6 +310,9 @@ end
 -- Close config menu
 function Monitor:closeConfigMenu(skipImmediateRender)
     self.inConfigMenu = false
+    if self.buffer then
+        self.buffer.setVisible(true)
+    end
     -- Clear peripheral and trigger immediate buffered render when view wasn't reloaded.
     self.peripheral.clear()
     if not skipImmediateRender then
@@ -479,6 +488,10 @@ function Monitor:handleTouch(monitorName, x, y)
         return false
     end
 
+    if self.pairingMode then
+        return false
+    end
+
     -- Config menu is now handled synchronously in openConfigMenu
     if self.inConfigMenu then
         return false
@@ -497,6 +510,10 @@ function Monitor:handleTouch(monitorName, x, y)
         return true
     end
 
+    -- Show settings affordance immediately on body touches so first-tap feedback
+    -- is constant-time even when interactive views have heavy touch handlers.
+    self:drawSettingsButton()
+
     -- Forward touch to view if it supports handleTouch (interactive views)
     -- View can handle touch for item selection, scrolling, etc.
     if self.view and self.view.handleTouch and self.viewInstance then
@@ -511,8 +528,6 @@ function Monitor:handleTouch(monitorName, x, y)
         end
     end
 
-    -- Always show settings affordance on body touches so view switching stays reachable.
-    self:drawSettingsButton()
     return true
 end
 
@@ -658,62 +673,10 @@ function Monitor:runLoop(running)
         local event, p1, p2, p3 = os.pullEvent()
 
         if event == "timer" then
-            -- Check if it's our render timer
-            if p1 == self.renderTimer then
-                -- Skip rendering if pairing mode is active (pairing code displayed)
-                if not self.pairingMode then
-                    local ok, err = pcall(function()
-                        self:render()
-                    end)
-                    if not ok then
-                        print("[Monitor] Render error on " .. (self.peripheralName or "unknown") .. ": " .. tostring(err))
-                    end
-                end
-                -- Always reschedule to keep timer chain alive
-                self:scheduleRender()
-
-            -- Check if it's our settings timer
-            elseif p1 == self.settingsTimer then
-                -- Also skip settings button changes in pairing mode
-                if not self.pairingMode then
-                    self:hideSettingsButton()
-                end
-            end
-            -- Other timers are ignored (they belong to other monitors)
+            self:handleTimer(p1)
 
         elseif event == "monitor_touch" then
-            -- Only handle touches for our peripheral
-            if p1 == self.peripheralName then
-                if self.inConfigMenu then
-                    -- Config menu handles its own touches
-                elseif p3 == 1 then
-                    -- Header touch (y=1) always opens view selector
-                    -- This ensures users can always change views, even with interactive views
-                    self:openConfigMenu()
-                elseif self.showingSettings and self:isSettingsButtonTouch(p2, p3) then
-                    -- Settings button tapped - open config menu
-                    -- This blocks, but that's OK - we have our own event queue
-                    self:openConfigMenu()
-                else
-                    -- Forward touch to view if it supports handleTouch (interactive views)
-                    local viewHandled = false
-                    if self.view and self.view.handleTouch and self.viewInstance then
-                        local touchOk, touchResult = pcall(self.view.handleTouch, self.viewInstance, p2, p3)
-                        if touchOk then
-                            viewHandled = touchResult and true or false
-                        else
-                            print("[Monitor] Touch handler error on " .. (self.peripheralName or "unknown") .. ": " .. tostring(touchResult))
-                        end
-                        if viewHandled then
-                            -- Re-render immediately to show updated state
-                            self:render()
-                        end
-                    end
-
-                    -- Always expose settings affordance on body touches.
-                    self:drawSettingsButton()
-                end
-            end
+            self:handleTouch(p1, p2, p3)
 
         elseif event == "monitor_resize" then
             -- Only handle resize for our peripheral
