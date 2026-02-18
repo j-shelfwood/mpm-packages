@@ -111,7 +111,7 @@ local function getEnergyPercent(peripheral)
 end
 
 -- Draw a larger machine card:
--- - Top row: compact power fill
+-- - Left column: vertical power fill
 -- - Middle: centered machine ID (#n)
 -- - Bottom: current crafted/processed item when active
 local function drawMachineCard(monitor, x, y, cardWidth, cardHeight, machine)
@@ -127,18 +127,34 @@ local function drawMachineCard(monitor, x, y, cardWidth, cardHeight, machine)
 
     local fill = 0
     if type(energyPct) == "number" then
-        fill = math.floor(energyPct * cardWidth + 0.5)
+        fill = math.floor(energyPct * cardHeight + 0.5)
     elseif isActive then
-        fill = math.max(1, math.floor(cardWidth * 0.5))
+        fill = math.max(1, math.floor(cardHeight * 0.5))
     end
-    if fill > 0 then
-        monitor.setBackgroundColor(colors.lime)
-        monitor.setCursorPos(x, y)
-        monitor.write(string.rep(" ", math.min(cardWidth, fill)))
+    if cardWidth >= 1 then
+        monitor.setBackgroundColor(colors.lightGray)
+        for row = 0, cardHeight - 1 do
+            monitor.setCursorPos(x, y + row)
+            monitor.write(" ")
+        end
+
+        if fill > 0 then
+            monitor.setBackgroundColor(colors.lime)
+            local fillRows = math.min(cardHeight, fill)
+            local startRow = y + cardHeight - fillRows
+            for row = startRow, y + cardHeight - 1 do
+                monitor.setCursorPos(x, row)
+                monitor.write(" ")
+            end
+        end
     end
 
+    local contentX = x + (cardWidth > 1 and 1 or 0)
+    local contentWidth = math.max(1, cardWidth - (cardWidth > 1 and 1 or 0))
+
     local idText = "#" .. tostring(machine.label or "?")
-    local idX = x + math.max(0, math.floor((cardWidth - #idText) / 2))
+    idText = Text.truncateMiddle(idText, contentWidth)
+    local idX = contentX + math.max(0, math.floor((contentWidth - #idText) / 2))
     local idY = y + 1
     monitor.setBackgroundColor(baseBg)
     monitor.setTextColor(colors.black)
@@ -147,14 +163,15 @@ local function drawMachineCard(monitor, x, y, cardWidth, cardHeight, machine)
 
     local craftText = ""
     if isActive and machine.crafting then
-        craftText = Text.truncateMiddle(machine.crafting, cardWidth)
+        craftText = Text.truncateMiddle(machine.crafting, contentWidth)
     elseif isActive then
         craftText = "Active"
     else
         craftText = "Idle"
     end
 
-    local craftX = x + math.max(0, math.floor((cardWidth - #craftText) / 2))
+    craftText = Text.truncateMiddle(craftText, contentWidth)
+    local craftX = contentX + math.max(0, math.floor((contentWidth - #craftText) / 2))
     local craftY = y + 2
     monitor.setCursorPos(craftX, craftY)
     monitor.write(craftText)
