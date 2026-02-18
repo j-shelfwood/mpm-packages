@@ -241,6 +241,12 @@ function Monitor:drawSettingsButton()
     self.settingsButton:render()
 
     self.showingSettings = true
+
+    -- Reset hide timer only when explicitly requested by touch interaction.
+    -- Render-path redraws should not extend button lifetime indefinitely.
+    if self.settingsTimer then
+        os.cancelTimer(self.settingsTimer)
+    end
     self.settingsTimer = os.startTimer(3)
 end
 
@@ -259,6 +265,10 @@ end
 
 -- Open config menu (uses MonitorConfigMenu for UI)
 function Monitor:openConfigMenu()
+    if self.inConfigMenu then
+        return
+    end
+
     self.inConfigMenu = true
     self.showingSettings = false
     self.settingsButton = nil
@@ -274,16 +284,17 @@ function Monitor:openConfigMenu()
     end
 
     -- Show view selection + optional config flow
-    local selectedView, newConfig = MonitorConfigMenu.openConfigFlow(self)
+    local ok, selectedView, newConfig = pcall(MonitorConfigMenu.openConfigFlow, self)
     local didLoadView = false
 
-    if selectedView then
+    if not ok then
+        print("[Monitor] Config menu error on " .. (self.peripheralName or "unknown") .. ": " .. tostring(selectedView))
+    elseif selectedView then
         self.viewConfig = newConfig or {}
         if self.onViewChange then
             self.onViewChange(self.peripheralName, selectedView, self.viewConfig)
         end
-        self:loadView(selectedView)
-        didLoadView = true
+        didLoadView = self:loadView(selectedView) and true or false
     end
 
     self:closeConfigMenu(didLoadView)
@@ -393,8 +404,8 @@ function Monitor:render()
     end
 
     -- Redraw settings button if showing (on buffer)
-    if self.showingSettings then
-        self:drawSettingsButton()
+    if self.showingSettings and self.settingsButton then
+        self.settingsButton:render()
     end
 
     -- Dependency health dots (remote peripheral status per view context)
@@ -484,15 +495,18 @@ function Monitor:handleTouch(monitorName, x, y)
     -- Forward touch to view if it supports handleTouch (interactive views)
     -- View can handle touch for item selection, scrolling, etc.
     if self.view and self.view.handleTouch and self.viewInstance then
-        local handled = self.view.handleTouch(self.viewInstance, x, y)
+        local ok, handled = pcall(self.view.handleTouch, self.viewInstance, x, y)
+        if not ok then
+            print("[Monitor] Touch handler error on " .. (self.peripheralName or "unknown") .. ": " .. tostring(handled))
+            handled = false
+        end
         if handled then
             -- Re-render immediately to show updated state
             self:render()
-            return true
         end
     end
 
-    -- Any other touch: show settings button
+    -- Always show settings affordance on body touches so view switching stays reachable.
     self:drawSettingsButton()
     return true
 end
@@ -679,17 +693,20 @@ function Monitor:runLoop(running)
                     -- Forward touch to view if it supports handleTouch (interactive views)
                     local viewHandled = false
                     if self.view and self.view.handleTouch and self.viewInstance then
-                        viewHandled = self.view.handleTouch(self.viewInstance, p2, p3)
+                        local touchOk, touchResult = pcall(self.view.handleTouch, self.viewInstance, p2, p3)
+                        if touchOk then
+                            viewHandled = touchResult and true or false
+                        else
+                            print("[Monitor] Touch handler error on " .. (self.peripheralName or "unknown") .. ": " .. tostring(touchResult))
+                        end
                         if viewHandled then
                             -- Re-render immediately to show updated state
                             self:render()
                         end
                     end
 
-                    -- If view didn't handle it, show settings button
-                    if not viewHandled then
-                        self:drawSettingsButton()
-                    end
+                    -- Always expose settings affordance on body touches.
+                    self:drawSettingsButton()
                 end
             end
 
