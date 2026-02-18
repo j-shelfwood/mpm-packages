@@ -27,15 +27,40 @@ function KernelNetwork.drainChannel(channel, blockTimeout, maxDrain)
     return drained
 end
 
+-- Open a network channel using the provided swarm secret.
+-- @param secret Shared network secret
+-- @param preferEnder Prefer wireless/ender modem first
+-- @return channel|nil, modemType|nil
+function KernelNetwork.openChannelWithSecret(secret, preferEnder)
+    local Channel = mpm('net/Channel')
+    local Crypto = mpm('net/Crypto')
+
+    Crypto.setSecret(secret)
+
+    local channel = Channel.new()
+    local ok, modemType = channel:open(preferEnder ~= false)
+    if not ok then
+        return nil, nil
+    end
+
+    return channel, modemType
+end
+
+-- Register reboot message handler for a channel.
+-- @param channel Channel instance
+-- @param onReboot Function(senderId, msg)
+function KernelNetwork.registerRebootHandler(channel, onReboot)
+    local Protocol = mpm('net/Protocol')
+    channel:on(Protocol.MessageType.REBOOT, onReboot)
+end
+
 -- Initialize networking (if modem available and paired with swarm)
 -- @param kernel Kernel instance
 -- @param config Current config
 -- @param identity Identity instance
 -- @return channel, discovery, peripheralHost, peripheralClient (or nils)
 function KernelNetwork.initialize(kernel, config, identity)
-    local Channel = mpm('net/Channel')
     local Crypto = mpm('net/Crypto')
-    local Protocol = mpm('net/Protocol')
     local RemotePeripheral = mpm('net/RemotePeripheral')
 
     -- Only init if secret is configured (paired with pocket)
@@ -56,12 +81,8 @@ function KernelNetwork.initialize(kernel, config, identity)
         return nil, nil, nil, nil
     end
 
-    Crypto.setSecret(config.network.secret)
-
-    local channel = Channel.new()
-    local ok, modemType = channel:open(true)
-
-    if not ok then
+    local channel, modemType = KernelNetwork.openChannelWithSecret(config.network.secret, true)
+    if not channel then
         RemotePeripheral.setClient(nil)
         if kernel.dashboard then
             kernel.dashboard:setNetwork("No modem found", colors.red, "n/a", "offline")
@@ -117,7 +138,7 @@ function KernelNetwork.initialize(kernel, config, identity)
     RemotePeripheral.setClient(peripheralClient)
 
     -- Register REBOOT handler - reboots this computer on command from pocket
-    channel:on(Protocol.MessageType.REBOOT, function(senderId, msg)
+    KernelNetwork.registerRebootHandler(channel, function(senderId, msg)
         if kernel.dashboard then
             kernel.dashboard:markActivity("call_error", "Reboot command received from #" .. senderId, colors.red)
             kernel.dashboard:render(kernel)

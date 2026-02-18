@@ -4,8 +4,6 @@
 
 local Config = mpm('shelfos/core/Config')
 local Paths = mpm('shelfos/core/Paths')
-local Channel = mpm('net/Channel')
-local Protocol = mpm('net/Protocol')
 local PeripheralHost = mpm('net/PeripheralHost')
 local Pairing = mpm('net/Pairing')
 local Crypto = mpm('net/Crypto')
@@ -333,14 +331,8 @@ function headless.run()
         end
     end
 
-    -- Initialize crypto with secret
-    Crypto.setSecret(config.network.secret)
-
-    -- Open network channel
-    local channel = Channel.new()
-    local ok, modemType = channel:open(true)  -- Prefer ender modem
-
-    if not ok then
+    local channel, modemType = KernelNetwork.openChannelWithSecret(config.network.secret, true)
+    if not channel then
         TermUI.clear()
         TermUI.drawTitleBar("Headless Mode")
         TermUI.drawText(2, 4, "No modem found", colors.red)
@@ -405,7 +397,7 @@ function headless.run()
     setMessage(state, "Sharing " .. count .. " peripheral(s)", colors.lightGray)
 
     -- Register REBOOT handler
-    channel:on(Protocol.MessageType.REBOOT, function(senderId, msg)
+    KernelNetwork.registerRebootHandler(channel, function(senderId, msg)
         markActivity(state, "reboot", "Reboot command from #" .. tostring(senderId), colors.red)
         drawDashboard(host, channel, config, modemType, state)
         sleep(0.5)

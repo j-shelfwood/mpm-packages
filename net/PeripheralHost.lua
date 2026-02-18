@@ -73,8 +73,6 @@ function PeripheralHost.new(channel, computerId, computerName)
     self.computerId = computerId
     self.computerName = computerName
     self.peripherals = {}  -- {name -> {type, methods, peripheral}}
-    self.lastAnnounce = 0
-    self.announceInterval = 10000  -- 10 seconds
     self.activityListener = nil
 
     return self
@@ -168,16 +166,10 @@ function PeripheralHost:announce()
     )
 
     self.channel:broadcast(msg)
-    self.lastAnnounce = os.epoch("utc")
     self:emitActivity("announce", {
         peripheralCount = #msg.data.peripherals
     })
     return true
-end
-
--- Check if should re-announce
-function PeripheralHost:shouldAnnounce()
-    return os.epoch("utc") - self.lastAnnounce > self.announceInterval
 end
 
 -- Handle peripheral discovery request
@@ -193,6 +185,18 @@ function PeripheralHost:handleDiscover(senderId, msg)
     })
 end
 
+local function sendCallError(self, senderId, msg, peripheralName, methodName, detail, activityError, durationMs)
+    local errResponse = Protocol.createPeriphError(msg, detail)
+    self.channel:send(senderId, errResponse)
+    self:emitActivity("call_error", {
+        senderId = senderId,
+        peripheral = peripheralName,
+        method = methodName,
+        error = activityError,
+        durationMs = durationMs
+    })
+end
+
 -- Handle peripheral method call
 -- @param senderId Requesting computer ID
 -- @param msg The call message
@@ -205,14 +209,7 @@ function PeripheralHost:handleCall(senderId, msg)
     -- Find the peripheral
     local info = self.peripherals[peripheralName]
     if not info then
-        local errResponse = Protocol.createPeriphError(msg, "Peripheral not found: " .. peripheralName)
-        self.channel:send(senderId, errResponse)
-        self:emitActivity("call_error", {
-            senderId = senderId,
-            peripheral = peripheralName,
-            method = methodName,
-            error = "Peripheral not found"
-        })
+        sendCallError(self, senderId, msg, peripheralName, methodName, "Peripheral not found: " .. peripheralName, "Peripheral not found")
         return
     end
 
@@ -226,14 +223,7 @@ function PeripheralHost:handleCall(senderId, msg)
     end
 
     if not methodExists then
-        local errResponse = Protocol.createPeriphError(msg, "Method not found: " .. methodName)
-        self.channel:send(senderId, errResponse)
-        self:emitActivity("call_error", {
-            senderId = senderId,
-            peripheral = peripheralName,
-            method = methodName,
-            error = "Method not found"
-        })
+        sendCallError(self, senderId, msg, peripheralName, methodName, "Method not found: " .. methodName, "Method not found")
         return
     end
 
@@ -242,14 +232,7 @@ function PeripheralHost:handleCall(senderId, msg)
     local method = p[methodName]
 
     if not method then
-        local errResponse = Protocol.createPeriphError(msg, "Method unavailable: " .. methodName)
-        self.channel:send(senderId, errResponse)
-        self:emitActivity("call_error", {
-            senderId = senderId,
-            peripheral = peripheralName,
-            method = methodName,
-            error = "Method unavailable"
-        })
+        sendCallError(self, senderId, msg, peripheralName, methodName, "Method unavailable: " .. methodName, "Method unavailable")
         return
     end
 
@@ -274,15 +257,17 @@ function PeripheralHost:handleCall(senderId, msg)
             durationMs = os.epoch("utc") - startedAt
         })
     else
-        local errResponse = Protocol.createPeriphError(msg, results[1] or "Unknown error")
-        self.channel:send(senderId, errResponse)
-        self:emitActivity("call_error", {
-            senderId = senderId,
-            peripheral = peripheralName,
-            method = methodName,
-            error = results[1] or "Unknown error",
-            durationMs = os.epoch("utc") - startedAt
-        })
+        local errorMessage = results[1] or "Unknown error"
+        sendCallError(
+            self,
+            senderId,
+            msg,
+            peripheralName,
+            methodName,
+            errorMessage,
+            errorMessage,
+            os.epoch("utc") - startedAt
+        )
     end
 end
 
