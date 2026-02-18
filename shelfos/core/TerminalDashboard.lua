@@ -3,55 +3,10 @@
 
 local Terminal = mpm('shelfos/core/Terminal')
 local TermUI = mpm('ui/TermUI')
+local DashboardUtils = mpm('shelfos/core/DashboardUtils')
 
 local TerminalDashboard = {}
 TerminalDashboard.__index = TerminalDashboard
-
-local function appendSample(samples, value, maxSamples)
-    table.insert(samples, value)
-    if #samples > maxSamples then
-        table.remove(samples, 1)
-    end
-end
-
-local function average(samples)
-    if #samples == 0 then return 0 end
-    local total = 0
-    for _, value in ipairs(samples) do
-        total = total + value
-    end
-    return total / #samples
-end
-
-local function maxValue(samples)
-    local max = 0
-    for _, value in ipairs(samples) do
-        if value > max then max = value end
-    end
-    return max
-end
-
-local function truncateText(text, maxLen)
-    text = tostring(text or "")
-    if #text <= maxLen then return text end
-    if maxLen <= 3 then return text:sub(1, maxLen) end
-    return text:sub(1, maxLen - 3) .. "..."
-end
-
-local function formatUptime(ms)
-    local seconds = math.floor((ms or 0) / 1000)
-    local hours = math.floor(seconds / 3600)
-    local minutes = math.floor((seconds % 3600) / 60)
-    local secs = seconds % 60
-
-    if hours > 0 then
-        return string.format("%dh %02dm %02ds", hours, minutes, secs)
-    end
-    if minutes > 0 then
-        return string.format("%dm %02ds", minutes, secs)
-    end
-    return string.format("%ds", secs)
-end
 
 function TerminalDashboard.new()
     local self = setmetatable({}, TerminalDashboard)
@@ -137,11 +92,11 @@ function TerminalDashboard:recordNetworkDrain(drained)
 end
 
 function TerminalDashboard:recordLoopMs(ms)
-    appendSample(self.loopMsSamples, ms or 0, 100)
+    DashboardUtils.appendSample(self.loopMsSamples, ms or 0, 100)
 end
 
 function TerminalDashboard:recordCallMs(ms)
-    appendSample(self.callDurationSamples, ms or 0, 80)
+    DashboardUtils.appendSample(self.callDurationSamples, ms or 0, 80)
 end
 
 function TerminalDashboard:onHostActivity(activity, data)
@@ -191,7 +146,7 @@ function TerminalDashboard:render(kernel)
     local y = 3
     local swarmOnline = self.networkState == "connected"
     TermUI.drawMetric(2, y, "Computer", self.identityName, colors.white)
-    TermUI.drawMetric(rightCol, y, "Uptime", formatUptime(now - self.startedAt), colors.white)
+    TermUI.drawMetric(rightCol, y, "Uptime", DashboardUtils.formatUptime(now - self.startedAt), colors.white)
     y = y + 1
     TermUI.drawMetric(2, y, "Computer ID", self.identityId, colors.lightGray)
     TermUI.drawMetric(rightCol, y, "Modem", self.modemType, colors.lightGray)
@@ -223,9 +178,9 @@ function TerminalDashboard:render(kernel)
     TermUI.drawActivityLight(col3, y, "ERROR", self.lastActivity.call_error, swarmOnline and self.stats.call_error or "n/a", activityOpts)
     y = y + 2
 
-    local avgLoopMs = average(self.loopMsSamples)
-    local peakLoopMs = maxValue(self.loopMsSamples)
-    local avgCallMs = average(self.callDurationSamples)
+    local avgLoopMs = DashboardUtils.average(self.loopMsSamples)
+    local peakLoopMs = DashboardUtils.maxValue(self.loopMsSamples)
+    local avgCallMs = DashboardUtils.average(self.callDurationSamples)
     local loopColor = colors.lime
     if avgLoopMs > 120 then
         loopColor = colors.red
@@ -244,7 +199,7 @@ function TerminalDashboard:render(kernel)
         for _, monitor in ipairs(kernel.monitors) do
             if y >= h - 2 then break end
             local row = monitor:getName() .. " -> " .. (monitor:getViewName() or "None")
-            TermUI.drawText(3, y, truncateText(row, math.max(1, w - 3)), colors.white)
+            TermUI.drawText(3, y, DashboardUtils.truncateText(row, math.max(1, w - 3)), colors.white)
             y = y + 1
         end
     end
@@ -254,7 +209,7 @@ function TerminalDashboard:render(kernel)
         statusColor = colors.gray
     end
     TermUI.clearLine(h)
-    TermUI.drawText(2, h, truncateText(self.message, math.max(1, w - 2)), statusColor)
+    TermUI.drawText(2, h, DashboardUtils.truncateText(self.message, math.max(1, w - 2)), statusColor)
 
     term.redirect(old)
 end

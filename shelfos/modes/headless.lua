@@ -12,56 +12,9 @@ local Crypto = mpm('net/Crypto')
 local ModemUtils = mpm('utils/ModemUtils')
 local TermUI = mpm('ui/TermUI')
 local KernelNetwork = mpm('shelfos/core/KernelNetwork')
+local DashboardUtils = mpm('shelfos/core/DashboardUtils')
 
 local headless = {}
-
-local function appendSample(samples, value, maxSamples)
-    table.insert(samples, value)
-    if #samples > maxSamples then
-        table.remove(samples, 1)
-    end
-end
-
-local function average(samples)
-    if #samples == 0 then return 0 end
-    local total = 0
-    for _, value in ipairs(samples) do
-        total = total + value
-    end
-    return total / #samples
-end
-
-local function maxValue(samples)
-    local max = 0
-    for _, value in ipairs(samples) do
-        if value > max then
-            max = value
-        end
-    end
-    return max
-end
-
-local function truncateText(text, maxLen)
-    text = tostring(text or "")
-    if #text <= maxLen then return text end
-    if maxLen <= 3 then return text:sub(1, maxLen) end
-    return text:sub(1, maxLen - 3) .. "..."
-end
-
-local function formatUptime(ms)
-    local seconds = math.floor((ms or 0) / 1000)
-    local hours = math.floor(seconds / 3600)
-    local minutes = math.floor((seconds % 3600) / 60)
-    local secs = seconds % 60
-
-    if hours > 0 then
-        return string.format("%dh %02dm %02ds", hours, minutes, secs)
-    end
-    if minutes > 0 then
-        return string.format("%dm %02ds", minutes, secs)
-    end
-    return string.format("%ds", secs)
-end
 
 local function newDashboardState()
     return {
@@ -108,6 +61,14 @@ local function markActivity(state, key, message, color)
     setMessage(state, message, color)
 end
 
+local function recordNetworkDrain(state, drained)
+    if (drained or 0) > 0 then
+        state.stats.rx = state.stats.rx + drained
+        state.lastActivity.rx = os.epoch("utc")
+        state.needsRedraw = true
+    end
+end
+
 local function updateRates(state)
     local now = os.epoch("utc")
     local elapsed = now - state.lastRateSampleAt
@@ -129,7 +90,7 @@ local function drawDashboard(host, channel, config, modemType, state)
 
     local y = 3
     TermUI.drawMetric(2, y, "Computer", config.computer.name or "Unknown", colors.white)
-    TermUI.drawMetric(rightCol, y, "Uptime", formatUptime(now - state.startedAt), colors.white)
+    TermUI.drawMetric(rightCol, y, "Uptime", DashboardUtils.formatUptime(now - state.startedAt), colors.white)
     y = y + 1
 
     TermUI.drawMetric(2, y, "Computer ID", os.getComputerID(), colors.lightGray)
@@ -166,9 +127,9 @@ local function drawDashboard(host, channel, config, modemType, state)
     TermUI.drawText(2, y, "Performance", colors.lightGray)
     y = y + 1
 
-    local avgLoopMs = average(state.loopMsSamples)
-    local peakLoopMs = maxValue(state.loopMsSamples)
-    local avgCallMs = average(state.callDurationSamples)
+    local avgLoopMs = DashboardUtils.average(state.loopMsSamples)
+    local peakLoopMs = DashboardUtils.maxValue(state.loopMsSamples)
+    local avgCallMs = DashboardUtils.average(state.callDurationSamples)
 
     local loopColor = colors.lime
     if avgLoopMs > 120 then
@@ -202,7 +163,7 @@ local function drawDashboard(host, channel, config, modemType, state)
         for _, p in ipairs(peripherals) do
             if y >= h - 2 then break end
             local rowText = "[" .. p.type .. "] " .. p.name
-            TermUI.drawText(4, y, truncateText(rowText, math.max(1, w - 5)), colors.white)
+            TermUI.drawText(4, y, DashboardUtils.truncateText(rowText, math.max(1, w - 5)), colors.white)
             y = y + 1
         end
     end
@@ -213,7 +174,7 @@ local function drawDashboard(host, channel, config, modemType, state)
     if now - state.messageAt > 4000 then
         statusColor = colors.gray
     end
-    TermUI.drawText(2, statusY, truncateText(state.message, math.max(1, w - 2)), statusColor)
+    TermUI.drawText(2, statusY, DashboardUtils.truncateText(state.message, math.max(1, w - 2)), statusColor)
 
     TermUI.drawStatusBar({
         { key = "Q", label = "Quit" },
@@ -408,7 +369,7 @@ function headless.run()
                 tostring(data.method or "call") .. " on " .. tostring(data.peripheral or "unknown"),
                 colors.lime
             )
-            appendSample(state.callDurationSamples, data.durationMs or 0, 60)
+            DashboardUtils.appendSample(state.callDurationSamples, data.durationMs or 0, 60)
         elseif activity == "call_error" then
             markActivity(
                 state,
@@ -416,7 +377,7 @@ function headless.run()
                 "Call error: " .. tostring(data.error or "unknown"),
                 colors.red
             )
-            appendSample(state.callDurationSamples, data.durationMs or 0, 60)
+            DashboardUtils.appendSample(state.callDurationSamples, data.durationMs or 0, 60)
         elseif activity == "announce" then
             markActivity(
                 state,
@@ -472,10 +433,7 @@ function headless.run()
             end
 
             local drained = KernelNetwork.drainChannel(channel, 0, 50)
-            if drained > 0 then
-                state.stats.rx = state.stats.rx + drained
-                state.needsRedraw = true
-            end
+            recordNetworkDrain(state, drained)
 
         elseif event == "key" then
             local key = p1
@@ -506,11 +464,9 @@ function headless.run()
             host:rescan()
 
         elseif event == "rednet_message" then
-            markActivity(state, "rx", "Inbound network traffic", colors.lightBlue)
+            setMessage(state, "Inbound network traffic", colors.lightBlue)
             local drained = KernelNetwork.drainChannel(channel, 0, 50)
-            if drained > 0 then
-                state.stats.rx = state.stats.rx + (drained - 1)
-            end
+            recordNetworkDrain(state, drained)
 
         elseif event == "term_resize" then
             TermUI.refreshSize()
@@ -518,7 +474,7 @@ function headless.run()
         end
 
         local loopDuration = os.epoch("utc") - loopStart
-        appendSample(state.loopMsSamples, loopDuration, 80)
+        DashboardUtils.appendSample(state.loopMsSamples, loopDuration, 80)
         updateRates(state)
 
         local now = os.epoch("utc")
