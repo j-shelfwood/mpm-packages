@@ -9,12 +9,118 @@ local Text = mpm('utils/Text')
 local Yield = mpm('utils/Yield')
 local Activity = mpm('peripherals/MachineActivity')
 
--- Draw a single machine cell (colored square)
-local function drawCell(monitor, x, y, isActive)
-    local bgColor = isActive and colors.green or colors.gray
-    monitor.setBackgroundColor(bgColor)
+local function clamp01(value)
+    if type(value) ~= "number" then return nil end
+    if value < 0 then return 0 end
+    if value > 1 then return 1 end
+    return value
+end
+
+local function safeCall(p, method, ...)
+    if not p or type(p[method]) ~= "function" then return nil end
+    local ok, result = pcall(p[method], ...)
+    if ok then return result end
+    return nil
+end
+
+local function extractStackName(stack)
+    if type(stack) ~= "table" then return nil end
+    local name = stack.name or stack.registryName or stack.id
+    if not name or name == "" then return nil end
+
+    local count = stack.count or stack.amount or 0
+    if type(count) == "number" and count <= 0 then
+        return nil
+    end
+
+    return Text.prettifyName(name)
+end
+
+local function getCraftingTarget(peripheral)
+    if not peripheral then return nil end
+
+    -- Factory-style API: getRecipeProgress(process) + getOutput(process)
+    if type(peripheral.getRecipeProgress) == "function" and type(peripheral.getOutput) == "function" then
+        local bestProcess = nil
+        local bestProgress = 0
+        local indexedSupported = false
+
+        for process = 0, 7 do
+            local progress = safeCall(peripheral, "getRecipeProgress", process)
+            if progress == nil then
+                if process == 0 and not indexedSupported then
+                    break
+                end
+            else
+                indexedSupported = true
+                if progress > bestProgress then
+                    bestProgress = progress
+                    bestProcess = process
+                end
+            end
+        end
+
+        if bestProcess ~= nil and bestProgress > 0 then
+            local output = safeCall(peripheral, "getOutput", bestProcess)
+            local outputName = extractStackName(output)
+            if outputName then
+                return outputName
+            end
+        end
+    end
+
+    -- Generic output APIs for many Mekanism machines/multiblocks
+    local outputName = extractStackName(safeCall(peripheral, "getOutput"))
+        or extractStackName(safeCall(peripheral, "getOutputItem"))
+        or extractStackName(safeCall(peripheral, "getOutputItemOutput"))
+
+    return outputName
+end
+
+local function getEnergyPercent(peripheral)
+    local pct = clamp01(safeCall(peripheral, "getEnergyFilledPercentage"))
+    if pct ~= nil then
+        return pct
+    end
+
+    local energy = safeCall(peripheral, "getEnergy")
+    local maxEnergy = safeCall(peripheral, "getMaxEnergy")
+    if type(energy) == "number" and type(maxEnergy) == "number" and maxEnergy > 0 then
+        return clamp01(energy / maxEnergy)
+    end
+
+    return nil
+end
+
+-- Draw a single machine cell as a 4-segment mini bar.
+local function drawCell(monitor, x, y, machine)
+    local isActive = machine and machine.isActive
+    local energyPct = machine and machine.energyPct
+    local segments = 4
+    local filled = (energyPct and math.floor(energyPct * segments + 0.5)) or (isActive and segments or 0)
+    if isActive and filled < 1 then
+        filled = 1
+    end
+    if filled > segments then
+        filled = segments
+    end
+    local fillColor = isActive and colors.lime or colors.lightGray
+    local emptyColor = colors.gray
+
+    for i = 1, segments do
+        monitor.setBackgroundColor(i <= filled and fillColor or emptyColor)
+        monitor.setCursorPos(x + i - 1, y)
+        monitor.write(" ")
+    end
+
+    -- Idle machines without energy info stay dark.
+    if not isActive and energyPct == nil then
+        monitor.setBackgroundColor(colors.gray)
+        monitor.setCursorPos(x, y)
+        monitor.write("    ")
+    end
+
     monitor.setCursorPos(x, y)
-    monitor.write("  ")  -- 2-char wide cell
     monitor.setBackgroundColor(colors.black)
 end
 
@@ -74,9 +180,37 @@ return BaseView.custom({
             for idx, machine in ipairs(typeData.machines) do
                 pollIdx = pollIdx + 1
                 local entry = Activity.buildMachineEntry(machine, idx, typeData.type)
+                entry.energyPct = getEnergyPercent(machine.peripheral)
+                if entry.isActive then
+                    entry.crafting = getCraftingTarget(machine.peripheral)
+                end
                 if entry.isActive then activeCount = activeCount + 1 end
                 table.insert(machines, entry)
                 Yield.check(pollIdx, 6)
+            end
+
+            local craftingCounts = {}
+            for _, machine in ipairs(machines) do
+                if machine.isActive and machine.crafting then
+                    craftingCounts[machine.crafting] = (craftingCounts[machine.crafting] or 0) + 1
+                end
+            end
+            local craftingList = {}
+            for name, count in pairs(craftingCounts) do
+                table.insert(craftingList, { name = name, count = count })
+            end
+            table.sort(craftingList, function(a, b)
+                if a.count == b.count then return a.name < b.name end
+                return a.count > b.count
+            end)
+            local top = {}
+            for i = 1, math.min(2, #craftingList) do
+                local c = craftingList[i]
+                if c.count > 1 then
+                    table.insert(top, c.name .. " x" .. c.count)
+                else
+                    table.insert(top, c.name)
+                end
             end
 
             table.insert(sections, {
@@ -84,7 +218,8 @@ return BaseView.custom({
                 color = typeData.classification.color or colors.white,
                 active = activeCount,
                 total = #machines,
-                machines = machines
+                machines = machines,
+                craftingSummary = #top > 0 and table.concat(top, ", ") or nil
             })
             totalActive = activeCount
             totalMachines = #machines
@@ -96,9 +231,37 @@ return BaseView.custom({
                 for idx, machine in ipairs(typeData.machines) do
                     pollIdx = pollIdx + 1
                     local entry = Activity.buildMachineEntry(machine, idx, typeData.type)
+                    entry.energyPct = getEnergyPercent(machine.peripheral)
+                    if entry.isActive then
+                        entry.crafting = getCraftingTarget(machine.peripheral)
+                    end
                     if entry.isActive then activeCount = activeCount + 1 end
                     table.insert(machines, entry)
                     Yield.check(pollIdx, 8)
+                end
+
+                local craftingCounts = {}
+                for _, machine in ipairs(machines) do
+                    if machine.isActive and machine.crafting then
+                        craftingCounts[machine.crafting] = (craftingCounts[machine.crafting] or 0) + 1
+                    end
+                end
+                local craftingList = {}
+                for name, count in pairs(craftingCounts) do
+                    table.insert(craftingList, { name = name, count = count })
+                end
+                table.sort(craftingList, function(a, b)
+                    if a.count == b.count then return a.name < b.name end
+                    return a.count > b.count
+                end)
+                local top = {}
+                for i = 1, math.min(2, #craftingList) do
+                    local c = craftingList[i]
+                    if c.count > 1 then
+                        table.insert(top, c.name .. " x" .. c.count)
+                    else
+                        table.insert(top, c.name)
+                    end
                 end
 
                 table.insert(sections, {
@@ -106,7 +269,8 @@ return BaseView.custom({
                     color = typeData.classification.color or colors.white,
                     active = activeCount,
                     total = #machines,
-                    machines = machines
+                    machines = machines,
+                    craftingSummary = #top > 0 and table.concat(top, ", ") or nil
                 })
                 totalActive = totalActive + activeCount
                 totalMachines = totalMachines + #machines
@@ -143,8 +307,8 @@ return BaseView.custom({
         self.monitor.write(countStr)
 
         -- Render sections flowing top-to-bottom
-        -- Each section: 1 header line + ceil(machines/cellsPerRow) cell rows
-        local cellWidth = 2   -- 2 chars per cell
+        -- Each section: header line + optional crafting line + ceil(machines/cellsPerRow) cell rows
+        local cellWidth = 4   -- 4-char mini bar per machine
         local cellGap = 1     -- 1 char gap between cells
         local cellStep = cellWidth + cellGap
         local cellsPerRow = math.max(1, math.floor((width + cellGap) / cellStep))
@@ -169,6 +333,13 @@ return BaseView.custom({
 
             currentY = currentY + 1
 
+            if section.craftingSummary and currentY <= height then
+                self.monitor.setTextColor(colors.lightGray)
+                self.monitor.setCursorPos(1, currentY)
+                self.monitor.write(Text.truncateMiddle("Now: " .. section.craftingSummary, width))
+                currentY = currentY + 1
+            end
+
             -- Draw machine cells in rows
             for idx, machine in ipairs(section.machines) do
                 if currentY > height then break end
@@ -176,7 +347,7 @@ return BaseView.custom({
                 local col = (idx - 1) % cellsPerRow
                 local x = 1 + col * cellStep
 
-                drawCell(self.monitor, x, currentY, machine.isActive)
+                drawCell(self.monitor, x, currentY, machine)
 
                 -- Move to next row after filling this one
                 if col == cellsPerRow - 1 or idx == #section.machines then
