@@ -20,7 +20,7 @@ local function safePullEvent(filter, timeout)
     local events = {}
 
     while true do
-        local event = {os.pullEventRaw()}
+        local event = {os.pullEvent()}
 
         -- Check for terminate
         if event[1] == "terminate" then
@@ -103,7 +103,7 @@ function EventUtils.sleep(seconds)
     local events = {}
 
     while true do
-        local event = {os.pullEventRaw()}
+        local event = {os.pullEvent()}
 
         if event[1] == "terminate" then
             for _, e in ipairs(events) do

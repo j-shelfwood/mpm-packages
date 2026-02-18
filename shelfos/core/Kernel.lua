@@ -17,6 +17,7 @@ local KernelMenu = mpm('shelfos/core/KernelMenu')
 local AESnapshotBus = mpm('peripherals/AESnapshotBus')
 local ViewManager = mpm('views/Manager')
 local MachineActivity = mpm('peripherals/MachineActivity')
+local EventUtils = mpm('utils/EventUtils')
 -- Note: TimerDispatch no longer needed - parallel API gives each coroutine its own event queue
 
 local Kernel = {}
@@ -210,7 +211,7 @@ end
 function Kernel:keyboardLoop(runningRef)
     while runningRef.value do
         local loopStart = os.epoch("utc")
-        local event, p1 = os.pullEvent()
+        local event, p1 = EventUtils.pullEvent()
 
         if event == "key" then
             -- Handle menu keys - may block for dialogs
@@ -246,7 +247,7 @@ end
 function Kernel:dashboardLoop(runningRef)
     while runningRef.value do
         local timer = os.startTimer(0.25)
-        local event, p1 = os.pullEvent()
+        local event, p1 = EventUtils.pullEvent()
 
         if event == "timer" and p1 == timer then
             if self.dashboard then
