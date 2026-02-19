@@ -25,13 +25,34 @@ local MOD_PREFIXES = {
 -- Energy storage type patterns (for more specific classification)
 local STORAGE_PATTERNS = {
     { pattern = "energy_cube", label = "Energy Cube" },
+    { pattern = "energycube", label = "Energy Cube" },
     { pattern = "battery", label = "Battery" },
     { pattern = "energy_cell", label = "Energy Cell" },
+    { pattern = "energycell", label = "Energy Cell" },
     { pattern = "capacitor", label = "Capacitor" },
     { pattern = "accumulator", label = "Accumulator" },
     { pattern = "flux_storage", label = "Flux Storage" },
+    { pattern = "fluxstorage", label = "Flux Storage" },
     { pattern = "induction", label = "Induction Matrix" },
 }
+
+local function hasEnergyMethods(p)
+    if not p then return false end
+    if type(p.getEnergy) ~= "function" then return false end
+    if type(p.getEnergyCapacity) == "function" then return true end
+    if type(p.getMaxEnergy) == "function" then return true end
+    return false
+end
+
+local function isLikelyStorageType(typeName, peripheralName)
+    local id = (typeName or peripheralName or ""):lower()
+    for _, pattern in ipairs(STORAGE_PATTERNS) do
+        if id:find(pattern.pattern) then
+            return true
+        end
+    end
+    return false
+end
 
 -- Check if energy_storage peripherals exist
 function EnergyInterface.exists()
@@ -46,18 +67,18 @@ function EnergyInterface.findAll()
     local names = Peripherals.getNames()
 
     for idx, name in ipairs(names) do
-        local hasEnergyStorage = Peripherals.hasType(name, "energy_storage")
-        if hasEnergyStorage then
-            local p = Peripherals.wrap(name)
-            if p and p.getEnergy and p.getEnergyCapacity then
-                local primaryType = Peripherals.getType(name)
-                table.insert(storages, {
-                    peripheral = p,
-                    name = name,
-                    primaryType = primaryType or "energy_storage",
-                    types = {primaryType or "energy_storage"}
-                })
-            end
+        local primaryType = Peripherals.getType(name)
+        local hasEnergyStorageType = Peripherals.hasType(name, "energy_storage")
+        local p = Peripherals.wrap(name)
+
+        local isStorage = hasEnergyStorageType or isLikelyStorageType(primaryType, name)
+        if isStorage and hasEnergyMethods(p) then
+            table.insert(storages, {
+                peripheral = p,
+                name = name,
+                primaryType = primaryType or (hasEnergyStorageType and "energy_storage" or "unknown_storage"),
+                types = {primaryType or "energy_storage"}
+            })
         end
         Yield.check(idx, 10)
     end

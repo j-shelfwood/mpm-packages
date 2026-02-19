@@ -9,6 +9,14 @@ local ScrollableList = mpm('ui/ScrollableList')
 
 local MonitorConfigMenu = {}
 
+local VIEW_LABELS = {
+    EnergyGraph = "EnergyGraph [AE2]",
+    EnergyStatus = "EnergyStatus [AE2]",
+    NetworkDashboard = "NetworkDashboard [AE2]",
+    EnergyOverview = "EnergyOverview [General]",
+    EnergySystem = "EnergySystem [General]"
+}
+
 -- Draw the view selection menu using ui/List
 -- Uses raw peripheral for interactive menus (not buffered)
 -- @param peripheral Raw monitor peripheral
@@ -22,7 +30,7 @@ function MonitorConfigMenu.showViewSelector(peripheral, availableViews, currentV
         cancelText = "Cancel",
         showPageIndicator = false,
         formatFn = function(viewName)
-            return viewName
+            return VIEW_LABELS[viewName] or viewName
         end
     }):show()
 

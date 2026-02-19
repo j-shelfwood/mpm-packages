@@ -114,10 +114,11 @@ On first boot, ShelfOS:
 | Peripheral | Default View |
 |------------|--------------|
 | ME Bridge / RS Bridge | StorageGraph |
-| Energy Storage | EnergyGraph |
+| Energy Detector | EnergySystem |
+| Energy Storage (non-AE2) | EnergyOverview |
 | None | Clock |
 
-When multiple monitors are connected, ShelfOS assigns variety (StorageGraph, ItemBrowser, EnergyGraph, etc.) rather than duplicates.
+When multiple monitors are connected, ShelfOS assigns variety (StorageGraph, ItemBrowser, EnergySystem, etc.) rather than duplicates.
 
 ## Network Swarm
 
@@ -332,15 +333,25 @@ Views are provided by the `views` package:
 | `CraftableBrowser` | Browse craftable items |
 | `PatternBrowser` | Browse crafting patterns |
 
-### Energy & Machines
+### Energy (AE2/ME Bridge)
 
 | View | Description |
 |------|-------------|
-| `EnergyGraph` | Energy storage graph |
-| `EnergyStatus` | Energy capacity display |
+| `EnergyGraph` | AE2 energy storage graph |
+| `EnergyStatus` | AE2 input/output/net display |
+| `NetworkDashboard` | AE2 storage + energy overview |
+
+### Energy (General Power)
+
+| View | Description |
+|------|-------------|
 | `EnergyOverview` | Cross-mod storage bank overview |
-| `EnergyFlow` | Energy detector throughput monitor |
 | `EnergySystem` | Role-mapped input/output/net + battery bank state |
+
+### Machines
+
+| View | Description |
+|------|-------------|
 | `MachineGrid` | Machine activity grid |
 | `MachineList` | Machine activity list + details |
 
