@@ -11,6 +11,8 @@ local EnergyInterface = mpm('peripherals/EnergyInterface')
 
 local DETECTOR_REFRESH_SECONDS = 2
 local FLOW_HISTORY_SIZE = 12
+local RATE_HISTORY_SIZE = 6
+local OUTLIER_FACTOR = 16
 
 local function formatRate(fePerTick)
     if fePerTick >= 1e9 then
@@ -158,15 +160,74 @@ local function resolveSelectedDetectors(allDetectors, selectedNames)
     return resolved
 end
 
-local function sampleDetectorValues(detectors)
+local function unionDetectors(left, right)
+    local combined = {}
+    local seen = {}
+    for _, detector in ipairs(left or {}) do
+        if not seen[detector.name] then
+            table.insert(combined, detector)
+            seen[detector.name] = true
+        end
+    end
+    for _, detector in ipairs(right or {}) do
+        if not seen[detector.name] then
+            table.insert(combined, detector)
+            seen[detector.name] = true
+        end
+    end
+    return combined
+end
+
+local function median(values)
+    local n = #values
+    if n == 0 then return 0 end
+    local copy = {}
+    for i, value in ipairs(values) do
+        copy[i] = value
+    end
+    table.sort(copy)
+    local mid = math.floor((n + 1) / 2)
+    if n % 2 == 1 then
+        return copy[mid]
+    end
+    return (copy[mid] + copy[mid + 1]) / 2
+end
+
+local function sanitizeRate(name, rawRate, limit, historyByName)
+    local rate = rawRate
+    if rate < 0 then
+        rate = 0
+    end
+    if limit > 0 and rate > (limit * 1.05) then
+        rate = limit
+    end
+
+    local history = historyByName[name] or {}
+    local baseline = median(history)
+    if #history >= 3 and baseline > 0 and rate > 5000 and rate > (baseline * OUTLIER_FACTOR) then
+        rate = baseline
+    end
+
+    table.insert(history, rate)
+    if #history > RATE_HISTORY_SIZE then
+        table.remove(history, 1)
+    end
+    historyByName[name] = history
+
+    return rate
+end
+
+local function sampleDetectorValues(detectors, rateHistoryByName)
     local sampled = {}
     for idx, detector in ipairs(detectors) do
         local p = detector.peripheral
         local rateOk, rate = pcall(p.getTransferRate)
         local limitOk, limit = pcall(p.getTransferRateLimit)
+        local rawRate = (rateOk and type(rate) == "number") and rate or 0
+        local currentLimit = (limitOk and type(limit) == "number") and limit or 0
         sampled[detector.name] = {
-            rate = (rateOk and type(rate) == "number") and rate or 0,
-            limit = (limitOk and type(limit) == "number") and limit or 0
+            rate = sanitizeRate(detector.name, rawRate, currentLimit, rateHistoryByName),
+            limit = currentLimit
         }
         Yield.check(idx, 5)
     end
@@ -301,6 +362,7 @@ return BaseView.custom({
         self.storageNameFilter = config.storage_name_filter or ""
         self.showBreakdown = config.show_breakdown ~= "no"
         self.flowHistory = {}
+        self.rateHistoryByName = {}
         self.detectorCache = {}
         self.lastDetectorScanAt = nil
     end,
@@ -315,7 +377,8 @@ return BaseView.custom({
         local allDetectors = self.detectorCache
         local inputDetectors = resolveSelectedDetectors(allDetectors, self.inputDetectorNames)
         local outputDetectors = resolveSelectedDetectors(allDetectors, self.outputDetectorNames)
-        local sampled = sampleDetectorValues(allDetectors)
+        local polledDetectors = unionDetectors(inputDetectors, outputDetectors)
+        local sampled = sampleDetectorValues(polledDetectors, self.rateHistoryByName)
 
         local inRate, inLimit, inEntries = collectDetectorTotals(inputDetectors, sampled)
         local outRate, outLimit, outEntries = collectDetectorTotals(outputDetectors, sampled)
