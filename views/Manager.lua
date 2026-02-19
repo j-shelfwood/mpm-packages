@@ -22,6 +22,14 @@ local function copyArray(arr)
     return copy
 end
 
+local function hasEnergyStorage()
+    return Peripherals.find("energy_storage") or Peripherals.find("energyStorage")
+end
+
+local function hasEnergyDetector()
+    return Peripherals.find("energy_detector")
+end
+
 -- Get list of all available views from manifest
 function Manager.getAvailableViews()
     local manifestPath = "/mpm/Packages/views/manifest.json"
@@ -238,8 +246,9 @@ function Manager.suggestView()
     local suggestions = {
         { check = function() return Peripherals.find("me_bridge") end, view = "StorageGraph", reason = "AE2 ME Bridge detected" },
         { check = function() return Peripherals.find("rsBridge") end, view = "StorageGraph", reason = "RS Bridge detected" },
+        { check = hasEnergyDetector, view = "EnergySystem", reason = "Energy detectors detected" },
         { check = function() return Peripherals.find("enrichmentChamber") end, view = "MachineGrid", reason = "Mekanism machines detected" },
-        { check = function() return Peripherals.find("energyStorage") end, view = "EnergyGraph", reason = "Energy storage detected" },
+        { check = hasEnergyStorage, view = "EnergyGraph", reason = "Energy storage detected" },
         { check = function() return Peripherals.find("environment_detector") end, view = "Clock", reason = "Environment detector found" },
     }
 
@@ -302,8 +311,18 @@ function Manager.suggestViewsForMonitors(monitorCount)
     end
 
     -- Add energy if available (local or remote)
-    local hasEnergy = Peripherals.find("energyStorage")
+    local hasEnergy = hasEnergyStorage()
+    local hasDetector = hasEnergyDetector()
     Yield.yield()
+
+    if hasDetector then
+        for _, m in ipairs(mountable) do
+            if m == "EnergySystem" then
+                table.insert(prioritized, m)
+                break
+            end
+        end
+    end
 
     if hasEnergy then
         for _, m in ipairs(mountable) do

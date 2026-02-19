@@ -35,7 +35,7 @@ local STORAGE_PATTERNS = {
 
 -- Check if energy_storage peripherals exist
 function EnergyInterface.exists()
-    local p = Peripherals.find("energy_storage")
+    local p = Peripherals.find("energy_storage") or Peripherals.find("energyStorage")
     return p ~= nil
 end
 
@@ -46,30 +46,17 @@ function EnergyInterface.findAll()
     local names = Peripherals.getNames()
 
     for idx, name in ipairs(names) do
-        local types = {Peripherals.getType(name)}
-
-        -- Check if this peripheral has energy_storage as one of its types
-        for _, pType in ipairs(types) do
-            if pType == "energy_storage" then
-                local p = Peripherals.wrap(name)
-                if p and p.getEnergy and p.getEnergyCapacity then
-                    -- Get primary type (first non-energy_storage type)
-                    local primaryType = nil
-                    for _, t in ipairs(types) do
-                        if t ~= "energy_storage" then
-                            primaryType = t
-                            break
-                        end
-                    end
-
-                    table.insert(storages, {
-                        peripheral = p,
-                        name = name,
-                        primaryType = primaryType or "energy_storage",
-                        types = types
-                    })
-                end
-                break
+        local hasEnergyStorage = Peripherals.hasType(name, "energy_storage")
+        if hasEnergyStorage then
+            local p = Peripherals.wrap(name)
+            if p and p.getEnergy and p.getEnergyCapacity then
+                local primaryType = Peripherals.getType(name)
+                table.insert(storages, {
+                    peripheral = p,
+                    name = name,
+                    primaryType = primaryType or "energy_storage",
+                    types = {primaryType or "energy_storage"}
+                })
             end
         end
         Yield.check(idx, 10)

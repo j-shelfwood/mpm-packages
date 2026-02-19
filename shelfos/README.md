@@ -338,6 +338,9 @@ Views are provided by the `views` package:
 |------|-------------|
 | `EnergyGraph` | Energy storage graph |
 | `EnergyStatus` | Energy capacity display |
+| `EnergyOverview` | Cross-mod storage bank overview |
+| `EnergyFlow` | Energy detector throughput monitor |
+| `EnergySystem` | Role-mapped input/output/net + battery bank state |
 | `MachineGrid` | Machine activity grid |
 | `MachineList` | Machine activity list + details |
 
