@@ -15,6 +15,7 @@ local TerminalDashboard = mpm('shelfos/core/TerminalDashboard')
 local KernelNetwork = mpm('shelfos/core/KernelNetwork')
 local KernelMenu = mpm('shelfos/core/KernelMenu')
 local AESnapshotBus = mpm('peripherals/AESnapshotBus')
+local MachineSnapshotBus = mpm('peripherals/MachineSnapshotBus')
 local ViewManager = mpm('views/Manager')
 local MachineActivity = mpm('peripherals/MachineActivity')
 -- Note: TimerDispatch no longer needed - parallel API gives each coroutine its own event queue
@@ -198,6 +199,11 @@ function Kernel:run()
         AESnapshotBus.runLoop(runningRef)
     end)
 
+    -- Shared machine telemetry snapshot poller for machine-oriented views.
+    table.insert(tasks, function()
+        MachineSnapshotBus.runLoop(runningRef)
+    end)
+
     -- Run all tasks in parallel - each gets own event queue copy
     parallel.waitForAny(table.unpack(tasks))
 
@@ -221,6 +227,7 @@ function Kernel:keyboardLoop(runningRef)
 
         elseif event == "peripheral" or event == "peripheral_detach" then
             ViewManager.invalidateMountableCache()
+            MachineSnapshotBus.invalidate()
             MachineActivity.invalidateCache()
 
             -- Rescan shared peripherals when hardware changes

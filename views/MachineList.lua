@@ -9,6 +9,7 @@ local Core = mpm('ui/Core')
 local ModalOverlay = mpm('ui/ModalOverlay')
 local Yield = mpm('utils/Yield')
 local Activity = mpm('peripherals/MachineActivity')
+local MachineSnapshotBus = mpm('peripherals/MachineSnapshotBus')
 
 local function safeCall(p, method, ...)
     if not p or type(p[method]) ~= "function" then return nil end
@@ -197,8 +198,11 @@ return BaseView.interactive({
     },
 
     mount = function()
-        local discovered = Activity.discoverAll()
-        return next(discovered) ~= nil
+        if not MachineSnapshotBus.isRunning() then
+            MachineSnapshotBus.tick(true)
+        end
+        local snapshot = MachineSnapshotBus.getSnapshot("all", nil)
+        return snapshot and (snapshot.totalMachines or 0) > 0
     end,
 
     init = function(self, config)
@@ -208,7 +212,11 @@ return BaseView.interactive({
     end,
 
     getData = function(self)
-        local types = Activity.buildTypeList(self.modFilter)
+        if not MachineSnapshotBus.isRunning() then
+            MachineSnapshotBus.tick()
+        end
+
+        local types = MachineSnapshotBus.getTypeList(self.modFilter)
         self._types = types
 
         if self.machineType then
@@ -233,12 +241,20 @@ return BaseView.interactive({
             table.insert(items, { kind = "nav", dir = "prev", label = "<< Prev type" })
         end
 
-        for idx, machine in ipairs(current.machines) do
-            local entry = Activity.buildMachineEntry(machine, idx, current.type)
-            if entry.isActive then activeCount = activeCount + 1 end
-            entry.kind = "machine"
-            table.insert(items, entry)
-            Yield.check(idx, 10)
+        for idx, machine in ipairs(current.machines or {}) do
+            if machine.isActive then activeCount = activeCount + 1 end
+            table.insert(items, {
+                kind = "machine",
+                label = machine.label,
+                fullLabel = machine.fullLabel,
+                shortName = machine.shortName,
+                name = machine.name,
+                type = machine.type,
+                peripheral = machine.peripheral,
+                isActive = machine.isActive,
+                activity = machine.activity
+            })
+            Yield.check(idx, 20)
         end
 
         if not self.machineType and #types > 1 then

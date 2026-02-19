@@ -7,16 +7,17 @@ local BaseView = mpm('views/BaseView')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Text = mpm('utils/Text')
 local Activity = mpm('peripherals/MachineActivity')
+local MachineSnapshotBus = mpm('peripherals/MachineSnapshotBus')
 local Yield = mpm('utils/Yield')
 
 local MACHINE_POLL_ACTIVE_MS = 1000
-local MACHINE_POLL_IDLE_MS = 5000
+local MACHINE_POLL_IDLE_MS = 1500
 local MACHINE_IDLE_CRAFT_POLL_MS = 5000
 local MACHINE_IDLE_ENERGY_POLL_MS = 5000
 local TYPELIST_REFRESH_MS = 5000
-local SHARED_SWEEP_INTERVAL_MS = 1000
-local MAX_POLLS_PER_SWEEP_ALL = 8
-local MAX_POLLS_PER_SWEEP_SINGLE = 16
+local SHARED_SWEEP_INTERVAL_MS = 500
+local MIN_POLLS_PER_SWEEP_ALL = 8
+local MIN_POLLS_PER_SWEEP_SINGLE = 16
 
 _G._shelfos_machineGridShared = _G._shelfos_machineGridShared or {
     byFilter = {}
@@ -404,6 +405,28 @@ local function pollDueEntries(shared, nowMs, budget)
     return polled
 end
 
+local function calculateSweepBudget(totalMachines, singleTypeMode)
+    if totalMachines <= 0 then
+        return 0
+    end
+
+    local minBudget = singleTypeMode and MIN_POLLS_PER_SWEEP_SINGLE or MIN_POLLS_PER_SWEEP_ALL
+    local scaledBudget = math.ceil(totalMachines * 0.35)
+    local maxBudget = singleTypeMode and 64 or 40
+
+    return math.max(minBudget, math.min(maxBudget, scaledBudget))
+end
+
+local function countActiveMachines(machines)
+    local active = 0
+    for _, machine in ipairs(machines or {}) do
+        if machine.isActive then
+            active = active + 1
+        end
+    end
+    return active
+end
+
 -- Draw a larger machine card:
 -- - Left column: vertical power fill
 -- - Middle: centered machine ID (#n)
@@ -426,7 +449,7 @@ local function drawMachineCard(monitor, x, y, cardWidth, cardHeight, machine)
         fill = math.max(1, math.floor(cardHeight * 0.5))
     end
     if cardWidth >= 1 then
-        monitor.setBackgroundColor(colors.lightGray)
+        monitor.setBackgroundColor(colors.gray)
         for row = 0, cardHeight - 1 do
             monitor.setCursorPos(x, y + row)
             monitor.write(" ")
@@ -438,6 +461,12 @@ local function drawMachineCard(monitor, x, y, cardWidth, cardHeight, machine)
             local startRow = y + cardHeight - fillRows
             for row = startRow, y + cardHeight - 1 do
                 monitor.setCursorPos(x, row)
+                monitor.write(" ")
+            end
+        elseif isActive then
+            monitor.setBackgroundColor(colors.green)
+            for row = 0, cardHeight - 1 do
+                monitor.setCursorPos(x, y + row)
                 monitor.write(" ")
             end
         end
@@ -495,114 +524,23 @@ return BaseView.custom({
     },
 
     mount = function()
-        local discovered = Activity.discoverAll()
-        return next(discovered) ~= nil
+        if not MachineSnapshotBus.isRunning() then
+            MachineSnapshotBus.tick(true)
+        end
+        local snapshot = MachineSnapshotBus.getSnapshot("all", nil)
+        return snapshot and (snapshot.totalMachines or 0) > 0
     end,
 
     init = function(self, config)
         self.modFilter = config.mod_filter or "all"
         self.machineType = Activity.normalizeMachineType(config.machine_type)
-        self.sharedState = getSharedFilterState(self.modFilter)
     end,
 
     getData = function(self)
-        if not self.sharedState then
-            self.sharedState = getSharedFilterState(self.modFilter)
+        if not MachineSnapshotBus.isRunning() then
+            MachineSnapshotBus.tick()
         end
-
-        local shared = self.sharedState
-        local nowMs = os.epoch("utc")
-        if (nowMs - (shared.lastTypesAt or 0)) >= TYPELIST_REFRESH_MS and not shared.refreshingTypes then
-            -- Claim refresh window first to avoid multi-monitor cold-refresh storms.
-            shared.refreshingTypes = true
-            shared.lastTypesAt = nowMs
-            local ok, types = pcall(Activity.buildTypeList, self.modFilter)
-            if ok and type(types) == "table" then
-                shared.types = types
-                shared.typeByName = {}
-                for _, info in ipairs(types) do
-                    shared.typeByName[info.type] = info
-                end
-            else
-                -- Retry soon if refresh fails, without immediate herd retries.
-                shared.lastTypesAt = nowMs - (TYPELIST_REFRESH_MS - 1000)
-            end
-            shared.refreshingTypes = false
-        end
-
-        local types = shared.types or {}
-        local sections = {}
-        local totalActive = 0
-        local totalMachines = 0
-
-        local doSweep = (nowMs - (shared.lastSweepAt or 0)) >= SHARED_SWEEP_INTERVAL_MS and not shared.sweeping
-        if doSweep then
-            shared.sweeping = true
-            shared.lastSweepAt = nowMs
-            shared.machineSeen = {}
-            shared.dueEntries = {}
-        end
-
-        if self.machineType then
-            -- Single type mode
-            local typeData = shared.typeByName and shared.typeByName[self.machineType] or nil
-            if not typeData then
-                if doSweep then
-                    shared.sweeping = false
-                end
-                return { sections = {}, totalActive = 0, totalMachines = 0 }
-            end
-
-            local machines, activeCount
-            machines, activeCount = collectSectionMachines(self, typeData, nowMs, doSweep)
-
-            table.insert(sections, {
-                label = typeData.label,
-                color = typeData.classification.color or colors.white,
-                active = activeCount,
-                total = #machines,
-                machines = machines
-            })
-            totalActive = activeCount
-            totalMachines = #machines
-        else
-            -- All types mode: one section per type
-            for _, typeData in ipairs(types) do
-                local machines, activeCount
-                machines, activeCount = collectSectionMachines(self, typeData, nowMs, doSweep)
-
-                table.insert(sections, {
-                    label = typeData.label,
-                    color = typeData.classification.color or colors.white,
-                    active = activeCount,
-                    total = #machines,
-                    machines = machines
-                })
-                totalActive = totalActive + activeCount
-                totalMachines = totalMachines + #machines
-            end
-        end
-
-        if doSweep then
-            local budget = self.machineType and MAX_POLLS_PER_SWEEP_SINGLE or MAX_POLLS_PER_SWEEP_ALL
-            pollDueEntries(shared, nowMs, budget)
-        end
-
-        -- Drop entries for machines that no longer exist.
-        if doSweep then
-            for name in pairs(shared.machineEntries) do
-                if not shared.machineSeen[name] then
-                    shared.machineEntries[name] = nil
-                end
-            end
-            shared.sweeping = false
-        end
-
-        return {
-            sections = sections,
-            totalActive = totalActive,
-            totalMachines = totalMachines
-        }
+        return MachineSnapshotBus.getSnapshot(self.modFilter, self.machineType)
     end,
 
     render = function(self, data)
