@@ -118,7 +118,7 @@ function Kernel:initializeMonitors()
 
     -- Get settings for theme etc.
     local settings = self.config.settings or {}
-    local availableViews = ViewManager.getMountableViews()
+    local availableViews = ViewManager.getSelectableViews()
 
     for i, monitorConfig in ipairs(self.config.monitors or {}) do
         -- Pass index (0-based) for timer staggering

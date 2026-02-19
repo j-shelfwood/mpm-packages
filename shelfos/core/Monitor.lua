@@ -155,7 +155,7 @@ function Monitor:initialize()
     -- Get available views. Prefer the precomputed list from Kernel to avoid
     -- repeated mount scans during multi-monitor boot.
     if #self.availableViews == 0 then
-        self.availableViews = ViewManager.getMountableViewsFast()
+        self.availableViews = ViewManager.getSelectableViews()
     end
 
     -- Find current view index

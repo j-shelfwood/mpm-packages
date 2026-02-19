@@ -118,7 +118,7 @@ function setup.run()
     print("=== View Assignment ===")
     print("")
 
-    local mountableViews = ViewManager.getMountableViewsFast()
+    local mountableViews = ViewManager.getSelectableViews()
 
     if #mountableViews == 0 then
         print("[!] No views available.")

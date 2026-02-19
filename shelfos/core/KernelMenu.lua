@@ -73,7 +73,7 @@ function KernelMenu.handleKey(kernel, key, runningRef)
         end
 
     elseif action == "monitors" then
-        local availableViews = ViewManager.getMountableViewsFast()
+        local availableViews = ViewManager.getSelectableViews()
 
         local result, monitorIndex, newView = Terminal.showDialog(function()
             return Menu.showMonitors(kernel.monitors, availableViews)

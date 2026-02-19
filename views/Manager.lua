@@ -12,6 +12,7 @@ local mountErrorCache = {}
 local mountableCache = nil
 local mountableCacheAt = 0
 local MOUNTABLE_CACHE_TTL_MS = 5000
+local selectableCache = nil
 
 local function copyArray(arr)
     local copy = {}
@@ -60,6 +61,16 @@ function Manager.getAvailableViews()
     end
 
     return views
+end
+
+-- Get selectable views for interactive UI paths (boot/config/menu).
+-- This intentionally avoids mount() execution to keep first render responsive.
+function Manager.getSelectableViews()
+    if selectableCache then
+        return copyArray(selectableCache)
+    end
+    selectableCache = Manager.getAvailableViews()
+    return copyArray(selectableCache)
 end
 
 -- Load a view module by name
@@ -174,11 +185,13 @@ function Manager.clearCache()
     mountErrorCache = {}
     mountableCache = nil
     mountableCacheAt = 0
+    selectableCache = nil
 end
 
 function Manager.invalidateMountableCache()
     mountableCache = nil
     mountableCacheAt = 0
+    selectableCache = nil
 end
 
 -- Create a view instance
