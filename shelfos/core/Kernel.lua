@@ -187,12 +187,11 @@ function Kernel:run()
         self:dashboardLoop(runningRef)
     end)
 
-    -- Network loop if channel exists
-    if self.channel then
-        table.insert(tasks, function()
-            KernelNetwork.loop(self, runningRef)
-        end)
-    end
+    -- Always run network loop. It yields when no channel is present, and this
+    -- allows runtime pairing to activate networking without rebooting.
+    table.insert(tasks, function()
+        KernelNetwork.loop(self, runningRef)
+    end)
 
     -- Shared AE snapshot poller (decouples heavy peripheral reads from view renders)
     table.insert(tasks, function()

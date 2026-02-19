@@ -130,15 +130,11 @@ function KernelNetwork.initialize(kernel, config, identity)
         os.reboot()
     end)
 
-    -- Discover remote peripherals (non-blocking, short timeout)
-    local count = peripheralClient:discover(2)
+    -- Kick off async discovery. KernelNetwork.loop will poll responses.
+    peripheralClient:discoverAsync()
     if kernel.dashboard then
-        kernel.dashboard:setRemoteCount(count)
-        if count > 0 then
-            kernel.dashboard:setMessage("Found " .. count .. " remote peripheral(s)", colors.cyan)
-        end
-    elseif count > 0 then
-        print("[ShelfOS] Found " .. count .. " remote peripheral(s)")
+        kernel.dashboard:setRemoteCount(peripheralClient:getCount())
+        kernel.dashboard:setMessage("Network initialized; discovering peers...", colors.cyan)
     end
 
     return channel, discovery, peripheralHost, peripheralClient
