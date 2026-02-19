@@ -87,6 +87,28 @@ function Text.formatFluidAmount(amount_mB)
     end
 end
 
+-- Format byte capacity as AE-style crafting storage in k units (1k, 4k, 16k, ...)
+-- @param bytes number Byte capacity
+-- @return string Formatted string like "1k", "4k", "16k"
+function Text.formatBytesAsK(bytes)
+    local n = tonumber(bytes) or 0
+    if n <= 0 then
+        return "0k"
+    end
+
+    local k = n / 1024
+    local rounded = math.floor(k + 0.5)
+    if math.abs(k - rounded) < 0.01 then
+        return tostring(rounded) .. "k"
+    end
+
+    if k >= 10 then
+        return string.format("%.0fk", k)
+    end
+
+    return string.format("%.1fk", k)
+end
+
 -- Function to shorten item names if they're too long
 function Text.shortenName(name, maxLength)
     if #name <= maxLength then

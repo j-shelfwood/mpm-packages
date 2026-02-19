@@ -9,6 +9,90 @@ local Core = mpm('ui/Core')
 local Yield = mpm('utils/Yield')
 local ModalOverlay = mpm('ui/ModalOverlay')
 
+local function getTaskCpuName(task)
+    if not task or not task.cpu then return nil end
+    if type(task.cpu) == "table" then
+        return task.cpu.name
+    end
+    return tostring(task.cpu)
+end
+
+local function makeCPULabel(index, total, storageBytes)
+    local capacity = Text.formatBytesAsK(storageBytes or 0)
+    local prefix = "CPU " .. tostring(index or "?")
+    if total and total > 0 then
+        prefix = prefix .. "/" .. total
+    end
+    return prefix .. " (" .. capacity .. ")"
+end
+
+local function buildCPULookup(cpus)
+    local byUniqueName = {}
+    local counts = {}
+    local totalStorage = 0
+
+    for _, cpu in ipairs(cpus or {}) do
+        totalStorage = totalStorage + (cpu.storage or 0)
+        local name = cpu.name
+        if name and name ~= "" then
+            counts[name] = (counts[name] or 0) + 1
+        end
+    end
+
+    for index, cpu in ipairs(cpus or {}) do
+        local name = cpu.name
+        if name and counts[name] == 1 then
+            byUniqueName[name] = { index = index, cpu = cpu }
+        end
+    end
+
+    return {
+        byUniqueName = byUniqueName,
+        totalCPUs = #(cpus or {}),
+        totalStorage = totalStorage
+    }
+end
+
+local function resolveTaskCPULabel(task, lookup)
+    local taskCpuName = getTaskCpuName(task)
+    if taskCpuName and lookup and lookup.byUniqueName and lookup.byUniqueName[taskCpuName] then
+        local entry = lookup.byUniqueName[taskCpuName]
+        return makeCPULabel(entry.index, lookup.totalCPUs, entry.cpu.storage)
+    end
+
+    if type(task.cpu) == "table" then
+        local cpu = task.cpu
+        if cpu.index then
+            return makeCPULabel(cpu.index, lookup and lookup.totalCPUs, cpu.storage)
+        end
+        if cpu.storage then
+            return "CPU (" .. Text.formatBytesAsK(cpu.storage) .. ")"
+        end
+    end
+
+    return "CPU ?"
+end
+
+local function assignCPULabelsToTasks(tasks, cpus, lookup)
+    local busyIndexes = {}
+    for index, cpu in ipairs(cpus or {}) do
+        if cpu.isBusy then
+            table.insert(busyIndexes, index)
+        end
+    end
+
+    local fallbackCursor = 1
+    for _, task in ipairs(tasks or {}) do
+        local label = resolveTaskCPULabel(task, lookup)
+        if label == "CPU ?" and #busyIndexes > 0 then
+            local idx = busyIndexes[((fallbackCursor - 1) % #busyIndexes) + 1]
+            label = makeCPULabel(idx, #cpus, cpus[idx].storage)
+            fallbackCursor = fallbackCursor + 1
+        end
+        task._cpuLabel = label
+    end
+end
+
 -- Task detail overlay with cancel button (blocking)
 local function showTaskDetail(self, task)
     local itemName = "Unknown"
@@ -71,10 +155,9 @@ local function showTaskDetail(self, task)
             contentY = contentY + 1
 
             if task.cpu then
-                local cpuName = type(task.cpu) == "table" and task.cpu.name or tostring(task.cpu)
                 monitor.setTextColor(colors.lightGray)
                 monitor.setCursorPos(frame.x1 + 1, contentY)
-                monitor.write("CPU: " .. Core.truncate(cpuName, frame.width - 6))
+                monitor.write("CPU: " .. Core.truncate(task._cpuLabel or "CPU ?", frame.width - 6))
             end
 
             if state.statusMessage then
@@ -160,6 +243,7 @@ return BaseView.interactive({
         self.showCompleted = config.showCompleted or false
         self.busyCount = 0
         self.totalCPUs = 0
+        self.totalStorage = 0
     end,
 
     getData = function(self)
@@ -178,13 +262,18 @@ return BaseView.interactive({
 
         self.busyCount = 0
         self.totalCPUs = 0
+        self.totalStorage = 0
         if cpusOk and cpus then
             self.totalCPUs = #cpus
+            local lookup = buildCPULookup(cpus)
+            self.totalStorage = lookup.totalStorage or 0
             for _, cpu in ipairs(cpus) do
                 if cpu.isBusy then
                     self.busyCount = self.busyCount + 1
                 end
             end
+
+            assignCPULabelsToTasks(tasks, cpus, lookup)
         end
 
         return tasks
@@ -244,7 +333,7 @@ return BaseView.interactive({
     end,
 
     footer = function(self, data)
-        local footerText = self.busyCount .. "/" .. self.totalCPUs .. " CPUs busy"
+        local footerText = self.busyCount .. "/" .. self.totalCPUs .. " busy | " .. Text.formatBytesAsK(self.totalStorage) .. " cap"
         return {
             text = footerText,
             color = colors.gray

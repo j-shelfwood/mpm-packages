@@ -1,10 +1,86 @@
 -- CPUOverview.lua
 -- Displays grid overview of all AE2 crafting CPUs
--- Shows status (IDLE/BUSY) and current crafting task
+-- Shows compact CPU labels and current crafting task on 2-line cells
 
 local BaseView = mpm('views/BaseView')
 local AEViewSupport = mpm('views/AEViewSupport')
 local Text = mpm('utils/Text')
+
+local function getTaskCpuName(task)
+    if not task or not task.cpu then return nil end
+    if type(task.cpu) == "table" then
+        return task.cpu.name
+    end
+    return tostring(task.cpu)
+end
+
+local function getCraftingItemLabel(task)
+    if not task then
+        return "BUSY"
+    end
+
+    local itemName = "Crafting"
+    if task.resource and task.resource.displayName then
+        itemName = task.resource.displayName
+    elseif task.resource and task.resource.name then
+        itemName = Text.prettifyName(task.resource.name)
+    elseif task.name or task.item then
+        itemName = Text.prettifyName(task.name or task.item)
+    end
+
+    if type(task.completion) == "number" then
+        local percent = math.floor(task.completion * 100 + 0.5)
+        itemName = itemName .. " " .. percent .. "%"
+    end
+
+    return itemName
+end
+
+local function buildTaskMap(cpus, tasks)
+    local map = {}
+    local usedTasks = {}
+    local nameToIndexes = {}
+
+    for index, cpu in ipairs(cpus or {}) do
+        if cpu.name and cpu.name ~= "" then
+            nameToIndexes[cpu.name] = nameToIndexes[cpu.name] or {}
+            table.insert(nameToIndexes[cpu.name], index)
+        end
+    end
+
+    for taskIndex, task in ipairs(tasks or {}) do
+        local taskCpuName = getTaskCpuName(task)
+        local indexes = taskCpuName and nameToIndexes[taskCpuName] or nil
+        if indexes and #indexes == 1 then
+            local idx = indexes[1]
+            if cpus[idx] and cpus[idx].isBusy and not map[idx] then
+                map[idx] = task
+                usedTasks[taskIndex] = true
+            end
+        end
+    end
+
+    local remainingTasks = {}
+    for taskIndex, task in ipairs(tasks or {}) do
+        if not usedTasks[taskIndex] then
+            table.insert(remainingTasks, task)
+        end
+    end
+
+    local cursor = 1
+    for cpuIndex, cpu in ipairs(cpus or {}) do
+        if cpu.isBusy and not map[cpuIndex] then
+            map[cpuIndex] = remainingTasks[cursor]
+            cursor = cursor + 1
+        end
+    end
+
+    return map
+end
+
+local function getCPULabel(cpu, index, total)
+    return "CPU " .. index .. "/" .. total .. " (" .. Text.formatBytesAsK(cpu.storage or 0) .. ")"
+end
 
 return BaseView.grid({
     sleepTime = 1,
@@ -23,13 +99,13 @@ return BaseView.grid({
     },
 
     mount = function()
-            return AEViewSupport.mount()
-        end,
+        return AEViewSupport.mount()
+    end,
 
     init = function(self, config)
         AEViewSupport.init(self)
         self.showStorage = config.showStorage or false
-        self.tasks = nil  -- Will be populated by getData
+        self.totalStorage = 0
     end,
 
     getData = function(self)
@@ -44,77 +120,53 @@ return BaseView.grid({
         local tasksOk, tasksData = pcall(function()
             return self.interface:getCraftingTasks()
         end)
-        self.tasks = tasksOk and tasksData or nil
+        local tasks = tasksOk and tasksData or {}
+        local tasksByCpuIndex = buildTaskMap(cpus, tasks)
 
-        return cpus
+        self.totalStorage = 0
+        local rows = {}
+        for index, cpu in ipairs(cpus) do
+            self.totalStorage = self.totalStorage + (cpu.storage or 0)
+            rows[index] = {
+                cpu = cpu,
+                index = index,
+                total = #cpus,
+                task = tasksByCpuIndex[index]
+            }
+        end
+
+        return rows
     end,
 
     header = function(self, data)
         return {
             text = "Crafting CPUs",
             color = colors.white,
-            secondary = " (" .. #data .. ")",
+            secondary = " (" .. #data .. " | " .. Text.formatBytesAsK(self.totalStorage) .. ")",
             secondaryColor = colors.gray
         }
     end,
 
-    cellHeight = 3,
+    -- Keep cells compact so small monitors still show item/status on line 2.
+    cellHeight = 2,
 
-    formatItem = function(self, cpuData)
+    formatItem = function(self, entry)
+        local cpuData = entry.cpu
         local lines = {}
         local lineColors = {}
-        local taskInfo = nil
 
-        -- Line 1: CPU name
-        local name = cpuData.name or "Unknown"
-
-        -- Line 2: Status
-        local status = cpuData.isBusy and "BUSY" or "IDLE"
-        local statusColor = cpuData.isBusy and colors.orange or colors.lime
-
-        table.insert(lines, name)
+        table.insert(lines, getCPULabel(cpuData, entry.index, entry.total))
         table.insert(lineColors, colors.white)
-        table.insert(lines, status)
-        table.insert(lineColors, statusColor)
 
-        -- Line 3: Crafting item (if busy) or storage info
-        if cpuData.isBusy and self.tasks then
-            local craftingItem = "..."
-            for _, task in ipairs(self.tasks) do
-                if task.cpu == cpuData.name or (not task.cpu and cpuData.isBusy) then
-                    local itemName = "Unknown"
-                    if task.resource and task.resource.displayName then
-                        itemName = task.resource.displayName
-                    elseif task.resource and task.resource.name then
-                        itemName = Text.prettifyName(task.resource.name)
-                    elseif task.name or task.item then
-                        itemName = Text.prettifyName(task.name or task.item)
-                    end
-                    craftingItem = itemName
-                    taskInfo = task
-                    break
-                end
-            end
-
-            -- Add crafting item with optional progress
-            local detailStr = craftingItem
-            if taskInfo then
-                local quantity = taskInfo.quantity or (taskInfo.resource and taskInfo.resource.count)
-                if quantity then
-                    detailStr = detailStr .. " x" .. Text.formatNumber(quantity, 0)
-                end
-                if type(taskInfo.completion) == "number" then
-                    detailStr = detailStr .. " " .. math.floor(taskInfo.completion * 100 + 0.5) .. "%"
-                end
-            end
-            table.insert(lines, detailStr)
+        if cpuData.isBusy then
+            table.insert(lines, getCraftingItemLabel(entry.task))
             table.insert(lineColors, colors.yellow)
-        elseif self.showStorage then
-            local storageStr = (cpuData.storage or 0) .. "B"
-            if cpuData.coProcessors and cpuData.coProcessors > 0 then
-                storageStr = storageStr .. " " .. cpuData.coProcessors .. "cp"
+        else
+            local idleText = "IDLE"
+            if self.showStorage and cpuData.coProcessors and cpuData.coProcessors > 0 then
+                idleText = idleText .. " " .. cpuData.coProcessors .. "cp"
             end
-            table.insert(lines, storageStr)
+            table.insert(lines, idleText)
             table.insert(lineColors, colors.gray)
         end
 

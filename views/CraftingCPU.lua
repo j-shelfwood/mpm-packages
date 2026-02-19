@@ -8,6 +8,50 @@ local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Yield = mpm('utils/Yield')
 
+local function getCPUDisplayLabel(cpu, index, total)
+    local capacity = Text.formatBytesAsK(cpu and cpu.storage or 0)
+    local prefix = "CPU " .. tostring(index or "?")
+    if total and total > 0 then
+        prefix = prefix .. "/" .. total
+    end
+    return prefix .. " (" .. capacity .. ")"
+end
+
+local function resolveSelectedCPU(cpus, selector)
+    if not cpus or #cpus == 0 or selector == nil then
+        return nil, nil
+    end
+
+    if type(selector) == "string" then
+        local idxFromPrefixed = selector:match("^index:(%d+)$")
+        if idxFromPrefixed then
+            local idx = tonumber(idxFromPrefixed)
+            if idx and cpus[idx] then
+                return cpus[idx], idx
+            end
+        end
+
+        local idxFromRaw = tonumber(selector)
+        if idxFromRaw and cpus[idxFromRaw] then
+            return cpus[idxFromRaw], idxFromRaw
+        end
+    elseif type(selector) == "number" then
+        local idx = math.floor(selector)
+        if cpus[idx] then
+            return cpus[idx], idx
+        end
+    end
+
+    -- Backwards compatibility with legacy name-based config.
+    for i, cpu in ipairs(cpus) do
+        if cpu.name == selector then
+            return cpu, i
+        end
+    end
+
+    return nil, nil
+end
+
 local function buildTaskDetail(task)
     if not task then return nil end
     local parts = {}
@@ -34,10 +78,10 @@ local function getCPUOptions()
     if not cpusOk or not cpus then return {} end
 
     local options = {}
-    for _, cpu in ipairs(cpus) do
+    for index, cpu in ipairs(cpus) do
         table.insert(options, {
-            value = cpu.name,
-            label = cpu.name .. " (" .. (cpu.storage or 0) .. "B)"
+            value = "index:" .. index,
+            label = getCPUDisplayLabel(cpu, index, #cpus)
         })
     end
 
@@ -64,14 +108,14 @@ return BaseView.custom({
 
     init = function(self, config)
         AEViewSupport.init(self)
-        self.cpuName = config.cpu
+        self.cpuSelector = config.cpu
     end,
 
     getData = function(self)
         -- Lazy re-init: retry if host not yet discovered at init time
         if not AEViewSupport.ensureInterface(self) then return nil end
 
-        if not self.cpuName then
+        if not self.cpuSelector then
             return nil
         end
 
@@ -81,16 +125,10 @@ return BaseView.custom({
 
         Yield.yield()
 
-        local cpu = nil
-        for _, c in ipairs(cpus) do
-            if c.name == self.cpuName then
-                cpu = c
-                break
-            end
-        end
+        local cpu, cpuIndex = resolveSelectedCPU(cpus, self.cpuSelector)
 
         if not cpu then
-            return { notFound = true }
+            return { notFound = true, selector = self.cpuSelector }
         end
 
         -- Get crafting task info if busy
@@ -99,11 +137,36 @@ return BaseView.custom({
             local tasksOk, tasks = pcall(function() return self.interface:getCraftingTasks() end)
             Yield.yield()
             if tasksOk and tasks then
+                -- Prefer explicit name match when available and meaningful.
                 for _, task in ipairs(tasks) do
-                    -- Find task matching this CPU (task.cpu matches cpu.name)
-                    if task.cpu == cpu.name or (not task.cpu and cpu.isBusy) then
+                    local taskCpuName = type(task.cpu) == "table" and task.cpu.name or task.cpu
+                    if cpu.name and cpu.name ~= "" and cpu.name ~= "Unnamed" and taskCpuName == cpu.name then
                         currentTask = task
                         break
+                    end
+                end
+
+                -- Fallback: map task by busy CPU order when names are duplicated/unnamed.
+                if not currentTask then
+                    local busyRank = 0
+                    for i, c in ipairs(cpus) do
+                        if c.isBusy then
+                            busyRank = busyRank + 1
+                        end
+                        if i == cpuIndex then
+                            break
+                        end
+                    end
+
+                    if busyRank > 0 then
+                        local seenBusyTasks = 0
+                        for _, task in ipairs(tasks) do
+                            seenBusyTasks = seenBusyTasks + 1
+                            if seenBusyTasks == busyRank then
+                                currentTask = task
+                                break
+                            end
+                        end
                     end
                 end
             end
@@ -111,6 +174,8 @@ return BaseView.custom({
 
         return {
             cpu = cpu,
+            cpuIndex = cpuIndex,
+            totalCPUs = #cpus,
             currentTask = currentTask
         }
     end,
@@ -118,14 +183,14 @@ return BaseView.custom({
     render = function(self, data)
         if data.notFound then
             MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "CPU not found", colors.red)
-            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) + 1, self.cpuName, colors.gray)
+            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) + 1, tostring(data.selector or "?"), colors.gray)
             return
         end
 
         local cpu = data.cpu
 
-        -- Row 1: CPU name
-        local name = Text.truncateMiddle(cpu.name, self.width)
+        -- Row 1: CPU index + capacity
+        local name = Text.truncateMiddle(getCPUDisplayLabel(cpu, data.cpuIndex, data.totalCPUs), self.width)
         MonitorHelpers.writeCentered(self.monitor, 1, name, colors.white)
 
         -- Center area: Status
@@ -175,7 +240,7 @@ return BaseView.custom({
 
         -- Bottom: Storage info
         self.monitor.setTextColor(colors.gray)
-        local storageStr = (cpu.storage or 0) .. "B storage"
+        local storageStr = Text.formatBytesAsK(cpu.storage or 0) .. " storage"
         if cpu.coProcessors and cpu.coProcessors > 0 then
             storageStr = storageStr .. " | " .. cpu.coProcessors .. " co-proc"
         end
