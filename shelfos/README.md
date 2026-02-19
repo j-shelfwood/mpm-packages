@@ -346,7 +346,7 @@ Views are provided by the `views` package:
 | View | Description |
 |------|-------------|
 | `EnergyOverview` | Cross-mod storage bank overview |
-| `EnergySystem` | Role-mapped input/output/net + battery bank state |
+| `EnergySystem` | Manual IN/OUT detector mapping (multi-select), FE/t flow state, FE bank |
 
 ### Machines
 

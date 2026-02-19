@@ -1,6 +1,6 @@
 -- ConfigUI.lua
 -- Renders configuration menus on monitors for view setup
--- Handles different config field types: number, boolean, item:id, fluid:id, select, peripheral
+-- Handles different config field types: number, boolean, item:id, fluid:id, select, peripheral, multiselect
 -- Uses ui/ widgets for consistent styling
 --
 -- Split module:
@@ -97,6 +97,133 @@ function ConfigUI.drawPicker(monitor, title, options, currentValue, formatFn)
     return getValue(selectedItem)
 end
 
+local function cloneArray(values)
+    local copy = {}
+    for i, value in ipairs(values or {}) do
+        copy[i] = value
+    end
+    return copy
+end
+
+local function normalizeOptions(options)
+    local normalized = {}
+    for _, option in ipairs(options or {}) do
+        if type(option) == "table" then
+            table.insert(normalized, {
+                value = option.value or option.name or tostring(option.label or ""),
+                label = option.label or option.name or tostring(option.value)
+            })
+        else
+            table.insert(normalized, {
+                value = tostring(option),
+                label = tostring(option)
+            })
+        end
+    end
+    return normalized
+end
+
+local function resolveFieldOptions(field, config)
+    local options = field.options
+    if type(options) == "function" then
+        options = options(config)
+    end
+    return normalizeOptions(options or {})
+end
+
+-- Multi-select picker for monitor configuration.
+-- Returns selected array (in option order) or nil if cancelled.
+function ConfigUI.drawMultiPicker(monitor, title, options, currentValues)
+    local width, height = monitor.getSize()
+    local monitorName = Peripherals.getName(monitor)
+    local normalized = normalizeOptions(options)
+    local selected = {}
+
+    for _, value in ipairs(currentValues or {}) do
+        selected[tostring(value)] = true
+    end
+
+    local listStartY = 3
+    local listEndY = math.max(listStartY, height - 3)
+    local rowsPerPage = math.max(1, listEndY - listStartY + 1)
+    local page = 1
+
+    while true do
+        Core.clear(monitor)
+        Core.drawBar(monitor, 1, title, Core.COLORS.titleBar, Core.COLORS.titleText)
+
+        local pageCount = math.max(1, math.ceil(#normalized / rowsPerPage))
+        if page > pageCount then page = pageCount end
+
+        monitor.setTextColor(Core.COLORS.textMuted)
+        monitor.setBackgroundColor(colors.black)
+        monitor.setCursorPos(2, 2)
+        monitor.write("Tap to toggle")
+        local pageText = string.format("%d/%d", page, pageCount)
+        local pageX = math.max(2, width - #pageText - 1)
+        monitor.setCursorPos(pageX, 2)
+        monitor.write(pageText)
+        if page > 1 then
+            monitor.setCursorPos(1, 2)
+            monitor.write("<")
+        end
+        if page < pageCount then
+            monitor.setCursorPos(width, 2)
+            monitor.write(">")
+        end
+
+        local startIdx = (page - 1) * rowsPerPage + 1
+        local endIdx = math.min(#normalized, startIdx + rowsPerPage - 1)
+        local touchRows = {}
+
+        for idx = startIdx, endIdx do
+            local y = listStartY + (idx - startIdx)
+            local opt = normalized[idx]
+            local isSelected = selected[tostring(opt.value)] == true
+            local marker = isSelected and "[x] " or "[ ] "
+            local display = Core.truncateMiddle(marker .. opt.label, width - 2)
+            monitor.setCursorPos(2, y)
+            monitor.setTextColor(isSelected and colors.lime or Core.COLORS.text)
+            monitor.write(display)
+            touchRows[y] = tostring(opt.value)
+        end
+
+        Core.drawBar(monitor, height - 2, "Clear", Core.COLORS.neutralButton, Core.COLORS.text)
+        Core.drawBar(monitor, height - 1, "Save", Core.COLORS.confirmButton, Core.COLORS.text)
+        Core.drawBar(monitor, height, "Cancel", Core.COLORS.cancelButton, Core.COLORS.text)
+        Core.resetColors(monitor)
+
+        local _, x, y = EventLoop.waitForMonitorTouch(monitorName)
+
+        if y == height - 1 then
+            local result = {}
+            for _, opt in ipairs(normalized) do
+                if selected[tostring(opt.value)] then
+                    table.insert(result, opt.value)
+                end
+            end
+            return result
+        end
+
+        if y == height then
+            return nil
+        end
+
+        if y == height - 2 then
+            selected = {}
+        elseif y == 2 then
+            if x <= math.min(3, width) and page > 1 then
+                page = page - 1
+            elseif x >= math.max(1, width - 2) and page < pageCount then
+                page = page + 1
+            end
+        elseif touchRows[y] then
+            local value = touchRows[y]
+            selected[value] = not selected[value]
+        end
+    end
+end
+
 -- Delegate to ConfigUIInputs for number input
 function ConfigUI.drawNumberInput(monitor, title, currentValue, min, max, presets, step, largeStep)
     return Inputs.drawNumberInput(monitor, title, currentValue, min, max, presets, step, largeStep)
@@ -121,7 +248,11 @@ function ConfigUI.drawConfigMenu(monitor, viewName, schema, currentConfig)
         if currentConfig[field.key] ~= nil then
             config[field.key] = currentConfig[field.key]
         elseif field.default ~= nil then
-            config[field.key] = field.default
+            if type(field.default) == "table" then
+                config[field.key] = cloneArray(field.default)
+            else
+                config[field.key] = field.default
+            end
         end
     end
 
@@ -167,6 +298,24 @@ function ConfigUI.drawConfigMenu(monitor, viewName, schema, currentConfig)
                     valueDisplay = config[field.key] and "Yes" or "No"
                 elseif field.type == "peripheral" then
                     valueDisplay = config[field.key]
+                elseif field.type == "multiselect" then
+                    local selectedValues = config[field.key]
+                    if type(selectedValues) == "table" and #selectedValues > 0 then
+                        local options = resolveFieldOptions(field, config)
+                        local labelsByValue = {}
+                        for _, opt in ipairs(options) do
+                            labelsByValue[tostring(opt.value)] = opt.label
+                        end
+                        if #selectedValues == 1 then
+                            local only = tostring(selectedValues[1])
+                            valueDisplay = labelsByValue[only] or only
+                        else
+                            valueDisplay = tostring(#selectedValues) .. " selected"
+                        end
+                    else
+                        valueDisplay = "None selected"
+                        valueColor = Core.COLORS.textMuted
+                    end
                 else
                     valueDisplay = tostring(config[field.key])
                 end
@@ -276,10 +425,7 @@ function ConfigUI.drawConfigMenu(monitor, viewName, schema, currentConfig)
                     end)
 
                 elseif field.type == "select" then
-                    local options = field.options
-                    if type(options) == "function" then
-                        options = options(config)
-                    end
+                    local options = resolveFieldOptions(field, config)
                     -- Handle empty options with informative message
                     if not options or #options == 0 then
                         local Dialog = mpm('ui/Dialog')
@@ -290,6 +436,27 @@ function ConfigUI.drawConfigMenu(monitor, viewName, schema, currentConfig)
                         )
                     else
                         newValue = ConfigUI.drawPicker(monitor, field.label or field.key, options, config[field.key])
+                    end
+                elseif field.type == "multiselect" then
+                    local options = resolveFieldOptions(field, config)
+                    if not options or #options == 0 then
+                        local Dialog = mpm('ui/Dialog')
+                        Dialog.confirm(
+                            monitor,
+                            field.label or field.key,
+                            "No options available. Check peripheral connections."
+                        )
+                    else
+                        local existing = config[field.key]
+                        if type(existing) ~= "table" then
+                            existing = {}
+                        end
+                        newValue = ConfigUI.drawMultiPicker(
+                            monitor,
+                            field.label or field.key,
+                            options,
+                            cloneArray(existing)
+                        )
                     end
                 end
 

@@ -309,11 +309,15 @@ function Monitor:openConfigMenu()
     if not ok then
         print("[Monitor] Config menu error on " .. (self.peripheralName or "unknown") .. ": " .. tostring(selectedView))
     elseif selectedView then
-        self.viewConfig = newConfig or {}
-        if self.onViewChange then
-            self.onViewChange(self.peripheralName, selectedView, self.viewConfig)
-        end
+        local pendingConfig = newConfig or {}
+        local previousConfig = self.viewConfig
+        self.viewConfig = pendingConfig
         didLoadView = self:loadView(selectedView) and true or false
+        if didLoadView and self.onViewChange then
+            self.onViewChange(self.peripheralName, selectedView, self.viewConfig)
+        elseif not didLoadView then
+            self.viewConfig = previousConfig
+        end
     end
 
     self:closeConfigMenu(didLoadView)

@@ -1,6 +1,6 @@
 -- EnergySystem.lua
--- Battery-centric energy monitor for detector-first topologies:
--- source -> input detector -> storage bank -> output detector -> load
+-- Manual detector-mapped energy monitor:
+-- source -> [IN detectors] -> storage bank -> [OUT detectors] -> load
 
 local BaseView = mpm('views/BaseView')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
@@ -8,6 +8,9 @@ local Text = mpm('utils/Text')
 local Yield = mpm('utils/Yield')
 local Peripherals = mpm('utils/Peripherals')
 local EnergyInterface = mpm('peripherals/EnergyInterface')
+
+local DETECTOR_REFRESH_SECONDS = 2
+local FLOW_HISTORY_SIZE = 12
 
 local function formatRate(fePerTick)
     if fePerTick >= 1e9 then
@@ -61,16 +64,6 @@ local function joulesToFE(value)
     return value / 2.5
 end
 
-local function feToJoules(value)
-    if type(mekanismEnergyHelper) == "table" and type(mekanismEnergyHelper.feToJoules) == "function" then
-        local ok, converted = pcall(mekanismEnergyHelper.feToJoules, value)
-        if ok and type(converted) == "number" then
-            return converted
-        end
-    end
-    return value * 2.5
-end
-
 local function findDetectors()
     local detectors = {}
     local names = Peripherals.getNames()
@@ -91,106 +84,41 @@ end
 
 local function getDetectorOptions()
     local detectors = findDetectors()
-    local options = {
-        { value = "auto_input", label = "Auto Input (first)" },
-        { value = "auto_output", label = "Auto Output (second)" },
-        { value = "all", label = "All Detectors (sum)" }
-    }
+    local options = {}
     for _, d in ipairs(detectors) do
         table.insert(options, { value = d.name, label = d.name })
     end
     return options
 end
 
-local function selectDetectors(detectors, selector)
-    if selector == "all" then
-        return detectors
+local function normalizeDetectorSelection(value)
+    local result = {}
+    local seen = {}
+
+    local function push(name)
+        if type(name) ~= "string" or name == "" then return end
+        if seen[name] then return end
+        seen[name] = true
+        table.insert(result, name)
     end
 
-    if selector == "auto_input" then
-        return detectors[1] and {detectors[1]} or {}
-    end
-
-    if selector == "auto_output" then
-        if #detectors >= 2 then
-            return {detectors[2]}
-        elseif #detectors == 1 then
-            return {detectors[1]}
+    if type(value) == "table" then
+        for _, name in ipairs(value) do
+            push(name)
         end
-        return {}
+    elseif type(value) == "string" and value ~= "" then
+        push(value)
     end
 
-    for _, d in ipairs(detectors) do
-        if d.name == selector then
-            return {d}
-        end
-    end
-    return {}
-end
-
-local function collectDetectorTotals(detectors)
-    local totalRate = 0
-    local totalLimit = 0
-    local entries = {}
-
-    for idx, det in ipairs(detectors) do
-        local p = det.peripheral
-        local rateOk, rate = pcall(p.getTransferRate)
-        local limitOk, limit = pcall(p.getTransferRateLimit)
-        local currentRate = (rateOk and type(rate) == "number") and rate or 0
-        local currentLimit = (limitOk and type(limit) == "number") and limit or 0
-
-        totalRate = totalRate + currentRate
-        totalLimit = totalLimit + currentLimit
-        table.insert(entries, {
-            name = det.name,
-            rate = currentRate,
-            limit = currentLimit
-        })
-        Yield.check(idx, 5)
-    end
-
-    return totalRate, totalLimit, entries
-end
-
-local function getResolvedRoleName(selector, detectors, roleLabel)
-    if #detectors == 1 then
-        return detectors[1].name
-    end
-    if selector == "auto_input" then
-        return "AUTO(first)"
-    end
-    if selector == "auto_output" then
-        return "AUTO(second)"
-    end
-    if selector == "all" then
-        return "ALL"
-    end
-    return roleLabel .. ":none"
-end
-
-local function getConfidenceState(storagePercent, netRate)
-    if storagePercent >= 0.95 and netRate >= 0 then
-        return "CURTAILED", "LOW", colors.orange
-    end
-    if storagePercent <= 0.05 and netRate <= 0 then
-        return "SUPPLY-LIMITED", "LOW", colors.red
-    end
-    if storagePercent >= 0.15 and storagePercent <= 0.85 then
-        return "STEADY", "HIGH", colors.lime
-    end
-    return "TRANSIENT", "MED", colors.yellow
+    return result
 end
 
 local function getStorageTotals(modFilter, nameFilter)
     local storages = EnergyInterface.findAll()
     local totals = {
         count = 0,
-        storedJ = 0,
-        capacityJ = 0,
         storedFE = 0,
-        capacityFE = 0,
-        hasJ = false
+        capacityFE = 0
     }
 
     for idx, storage in ipairs(storages) do
@@ -200,16 +128,11 @@ local function getStorageTotals(modFilter, nameFilter)
             if status then
                 totals.count = totals.count + 1
                 if status.unit == "J" then
-                    totals.hasJ = true
-                    totals.storedJ = totals.storedJ + status.stored
-                    totals.capacityJ = totals.capacityJ + status.capacity
                     totals.storedFE = totals.storedFE + joulesToFE(status.stored)
                     totals.capacityFE = totals.capacityFE + joulesToFE(status.capacity)
                 else
                     totals.storedFE = totals.storedFE + status.stored
                     totals.capacityFE = totals.capacityFE + status.capacity
-                    totals.storedJ = totals.storedJ + feToJoules(status.stored)
-                    totals.capacityJ = totals.capacityJ + feToJoules(status.capacity)
                 end
             end
         end
@@ -220,25 +143,124 @@ local function getStorageTotals(modFilter, nameFilter)
     return totals
 end
 
+local function resolveSelectedDetectors(allDetectors, selectedNames)
+    local byName = {}
+    for _, detector in ipairs(allDetectors) do
+        byName[detector.name] = detector
+    end
+
+    local resolved = {}
+    for _, name in ipairs(selectedNames or {}) do
+        if byName[name] then
+            table.insert(resolved, byName[name])
+        end
+    end
+    return resolved
+end
+
+local function sampleDetectorValues(detectors)
+    local sampled = {}
+    for idx, detector in ipairs(detectors) do
+        local p = detector.peripheral
+        local rateOk, rate = pcall(p.getTransferRate)
+        local limitOk, limit = pcall(p.getTransferRateLimit)
+        sampled[detector.name] = {
+            rate = (rateOk and type(rate) == "number") and rate or 0,
+            limit = (limitOk and type(limit) == "number") and limit or 0
+        }
+        Yield.check(idx, 5)
+    end
+    return sampled
+end
+
+local function collectDetectorTotals(detectors, sampled)
+    local totalRate = 0
+    local totalLimit = 0
+    local entries = {}
+
+    for _, det in ipairs(detectors) do
+        local values = sampled[det.name] or { rate = 0, limit = 0 }
+        totalRate = totalRate + values.rate
+        totalLimit = totalLimit + values.limit
+        table.insert(entries, {
+            name = det.name,
+            rate = values.rate,
+            limit = values.limit
+        })
+    end
+
+    return totalRate, totalLimit, entries
+end
+
+local function hasOverlap(left, right)
+    local seen = {}
+    for _, name in ipairs(left or {}) do
+        seen[name] = true
+    end
+    for _, name in ipairs(right or {}) do
+        if seen[name] then
+            return true
+        end
+    end
+    return false
+end
+
+local function classifyState(flowHistory, netRate)
+    if #flowHistory == 0 then
+        return "PASSIVE", colors.lightBlue
+    end
+
+    local sum = 0
+    local absSum = 0
+    local minValue = flowHistory[1]
+    local maxValue = flowHistory[1]
+    for _, value in ipairs(flowHistory) do
+        sum = sum + value
+        absSum = absSum + math.abs(value)
+        if value < minValue then minValue = value end
+        if value > maxValue then maxValue = value end
+    end
+
+    local avg = sum / #flowHistory
+    local avgAbs = absSum / #flowHistory
+    local spread = maxValue - minValue
+    local passiveThreshold = math.max(25, avgAbs * 0.15)
+    local spikeThreshold = math.max(250, avgAbs * 1.2)
+
+    if spread >= spikeThreshold and #flowHistory >= 4 then
+        return "SPIKING", colors.orange
+    end
+    if math.abs(netRate) <= passiveThreshold then
+        return "PASSIVE", colors.lightBlue
+    end
+    if avg > passiveThreshold then
+        return "CHARGING", colors.lime
+    end
+    if avg < -passiveThreshold then
+        return "DISCHARGING", colors.red
+    end
+    return "STABLE", colors.cyan
+end
+
 return BaseView.custom({
     sleepTime = 0.5,
 
     configSchema = {
         {
-            key = "input_detector",
-            type = "select",
-            label = "Input Lane Detector",
+            key = "input_detectors",
+            type = "multiselect",
+            label = "Input Detectors",
             options = getDetectorOptions,
-            default = "auto_input",
-            description = "Detector between source entangloporter and battery bank"
+            default = {},
+            description = "Pick one or more IN lane detectors"
         },
         {
-            key = "output_detector",
-            type = "select",
-            label = "Output Lane Detector",
+            key = "output_detectors",
+            type = "multiselect",
+            label = "Output Detectors",
             options = getDetectorOptions,
-            default = "auto_output",
-            description = "Detector between battery bank and load entangloporter"
+            default = {},
+            description = "Pick one or more OUT lane detectors"
         },
         {
             key = "storage_mod_filter",
@@ -273,27 +295,39 @@ return BaseView.custom({
     end,
 
     init = function(self, config)
-        self.inputDetector = config.input_detector or "auto_input"
-        self.outputDetector = config.output_detector or "auto_output"
+        self.inputDetectorNames = normalizeDetectorSelection(config.input_detectors)
+        self.outputDetectorNames = normalizeDetectorSelection(config.output_detectors)
         self.storageModFilter = config.storage_mod_filter or "all"
         self.storageNameFilter = config.storage_name_filter or ""
         self.showBreakdown = config.show_breakdown ~= "no"
+        self.flowHistory = {}
+        self.detectorCache = {}
+        self.lastDetectorScanAt = nil
     end,
 
     getData = function(self)
-        local allDetectors = findDetectors()
-        local inputDetectors = selectDetectors(allDetectors, self.inputDetector)
-        local outputDetectors = selectDetectors(allDetectors, self.outputDetector)
+        local now = os.epoch("utc") / 1000
+        if not self.lastDetectorScanAt or (now - self.lastDetectorScanAt) >= DETECTOR_REFRESH_SECONDS then
+            self.detectorCache = findDetectors()
+            self.lastDetectorScanAt = now
+        end
 
-        local inRate, inLimit, inEntries = collectDetectorTotals(inputDetectors)
-        local outRate, outLimit, outEntries = collectDetectorTotals(outputDetectors)
+        local allDetectors = self.detectorCache
+        local inputDetectors = resolveSelectedDetectors(allDetectors, self.inputDetectorNames)
+        local outputDetectors = resolveSelectedDetectors(allDetectors, self.outputDetectorNames)
+        local sampled = sampleDetectorValues(allDetectors)
+
+        local inRate, inLimit, inEntries = collectDetectorTotals(inputDetectors, sampled)
+        local outRate, outLimit, outEntries = collectDetectorTotals(outputDetectors, sampled)
         local netRate = inRate - outRate
-        local inputRoleName = getResolvedRoleName(self.inputDetector, inputDetectors, "IN")
-        local outputRoleName = getResolvedRoleName(self.outputDetector, outputDetectors, "OUT")
-        local sameDetectorMapped = (#inputDetectors == 1 and #outputDetectors == 1 and inputDetectors[1].name == outputDetectors[1].name)
+
+        table.insert(self.flowHistory, netRate)
+        if #self.flowHistory > FLOW_HISTORY_SIZE then
+            table.remove(self.flowHistory, 1)
+        end
 
         local storage = getStorageTotals(self.storageModFilter, self.storageNameFilter)
-        local stateName, stateConfidence, stateColor = getConfidenceState(storage.percent or 0, netRate)
+        local stateName, stateColor = classifyState(self.flowHistory, netRate)
 
         local etaToFull = nil
         local etaToEmpty = nil
@@ -305,35 +339,33 @@ return BaseView.custom({
 
         return {
             detectorCount = #allDetectors,
-            input = { rate = inRate, limit = inLimit, entries = inEntries },
-            output = { rate = outRate, limit = outLimit, entries = outEntries },
+            input = { rate = inRate, limit = inLimit, entries = inEntries, count = #inputDetectors },
+            output = { rate = outRate, limit = outLimit, entries = outEntries, count = #outputDetectors },
             netRate = netRate,
             storage = storage,
             etaToFull = etaToFull,
             etaToEmpty = etaToEmpty,
             stateName = stateName,
-            stateConfidence = stateConfidence,
             stateColor = stateColor,
-            inputRoleName = inputRoleName,
-            outputRoleName = outputRoleName,
-            sameDetectorMapped = sameDetectorMapped
+            overlap = hasOverlap(self.inputDetectorNames, self.outputDetectorNames)
         }
     end,
 
     render = function(self, data)
         local y = 1
-
         MonitorHelpers.writeCentered(self.monitor, y, "Energy System", colors.yellow)
         y = y + 2
 
         self.monitor.setTextColor(colors.lime)
-        self.monitor.setCursorPos(1, y)
-        self.monitor.write("IN : " .. Text.truncateMiddle(formatRate(data.input.rate), math.max(1, self.width - 6)))
+        MonitorHelpers.writeCentered(self.monitor, y, "INPUT")
+        y = y + 1
+        MonitorHelpers.writeCentered(self.monitor, y, formatRate(data.input.rate), colors.lime)
         y = y + 1
 
         self.monitor.setTextColor(colors.orange)
-        self.monitor.setCursorPos(1, y)
-        self.monitor.write("OUT: " .. Text.truncateMiddle(formatRate(data.output.rate), math.max(1, self.width - 6)))
+        MonitorHelpers.writeCentered(self.monitor, y, "OUTPUT")
+        y = y + 1
+        MonitorHelpers.writeCentered(self.monitor, y, formatRate(data.output.rate), colors.orange)
         y = y + 1
 
         local netColor = colors.white
@@ -344,40 +376,22 @@ return BaseView.custom({
         elseif data.netRate < 0 then
             netColor = colors.red
         end
-        self.monitor.setTextColor(netColor)
-        self.monitor.setCursorPos(1, y)
-        self.monitor.write("NET: " .. netPrefix .. formatRate(data.netRate))
+        MonitorHelpers.writeCentered(self.monitor, y, "NET " .. netPrefix .. formatRate(data.netRate), netColor)
         y = y + 1
 
-        self.monitor.setTextColor(data.stateColor or colors.yellow)
-        self.monitor.setCursorPos(1, y)
-        self.monitor.write(Text.truncateMiddle(
-            string.format("State: %s (%s)", data.stateName or "TRANSIENT", data.stateConfidence or "MED"),
-            self.width
-        ))
-        y = y + 2
+        MonitorHelpers.writeCentered(self.monitor, y, "State: " .. (data.stateName or "PASSIVE"), data.stateColor or colors.lightBlue)
+        y = y + 1
 
         local storage = data.storage
-        if storage.count > 0 then
+        if storage.count > 0 and y < self.height - 2 then
             local barWidth = math.max(1, self.width - 2)
             MonitorHelpers.drawProgressBar(self.monitor, 1, y, barWidth, storage.percent * 100, colors.green, colors.gray, false)
             y = y + 1
 
-            local stored, capacity, unit
-            if storage.hasJ then
-                stored = storage.storedJ
-                capacity = storage.capacityJ
-                unit = "J"
-            else
-                stored = storage.storedFE
-                capacity = storage.capacityFE
-                unit = "FE"
-            end
-
             self.monitor.setTextColor(colors.lightGray)
             self.monitor.setCursorPos(1, y)
             self.monitor.write(Text.truncateMiddle(
-                string.format("Bank: %s / %s", EnergyInterface.formatEnergy(stored, unit), EnergyInterface.formatEnergy(capacity, unit)),
+                string.format("Bank: %s / %s", EnergyInterface.formatEnergy(storage.storedFE, "FE"), EnergyInterface.formatEnergy(storage.capacityFE, "FE")),
                 self.width
             ))
             y = y + 1
@@ -389,24 +403,17 @@ return BaseView.custom({
             self.monitor.setCursorPos(1, y)
             self.monitor.write(Text.truncateMiddle(eta, self.width))
             y = y + 1
-        else
+        elseif y < self.height - 1 then
             self.monitor.setTextColor(colors.orange)
             self.monitor.setCursorPos(1, y)
             self.monitor.write("No energy storages matched")
             y = y + 1
         end
 
-        if y < self.height - 1 then
-            self.monitor.setTextColor(colors.gray)
-            self.monitor.setCursorPos(1, y)
-            self.monitor.write(Text.truncateMiddle("IN=" .. data.inputRoleName .. " OUT=" .. data.outputRoleName, self.width))
-            y = y + 1
-        end
-
-        if data.sameDetectorMapped and y < self.height - 1 then
+        if data.overlap and y < self.height - 1 then
             self.monitor.setTextColor(colors.red)
             self.monitor.setCursorPos(1, y)
-            self.monitor.write(Text.truncateMiddle("WARN: IN and OUT use same detector", self.width))
+            self.monitor.write(Text.truncateMiddle("WARN: IN and OUT share detector(s)", self.width))
             y = y + 1
         end
 
@@ -435,7 +442,7 @@ return BaseView.custom({
         self.monitor.setTextColor(colors.gray)
         self.monitor.setCursorPos(1, self.height)
         self.monitor.write(Text.truncateMiddle(
-            string.format("%d detectors | %d storages", data.detectorCount, data.storage.count),
+            string.format("IN:%d OUT:%d | %d storages", data.input.count, data.output.count, data.storage.count),
             self.width
         ))
     end,

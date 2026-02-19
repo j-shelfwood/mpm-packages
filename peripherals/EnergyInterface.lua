@@ -54,6 +54,16 @@ local function isLikelyStorageType(typeName, peripheralName)
     return false
 end
 
+local function joulesToFE(value)
+    if type(mekanismEnergyHelper) == "table" and type(mekanismEnergyHelper.joulesToFE) == "function" then
+        local ok, converted = pcall(mekanismEnergyHelper.joulesToFE, value)
+        if ok and type(converted) == "number" then
+            return converted
+        end
+    end
+    return value / 2.5
+end
+
 -- Check if energy_storage peripherals exist
 function EnergyInterface.exists()
     local p = Peripherals.find("energy_storage") or Peripherals.find("energyStorage")
@@ -134,7 +144,9 @@ function EnergyInterface.getStatus(p)
         stored = 0,
         capacity = 0,
         percent = 0,
-        unit = "FE"
+        unit = "FE",
+        storedFE = 0,
+        capacityFE = 0
     }
 
     -- Try CC:Tweaked generic methods first (FE)
@@ -145,6 +157,8 @@ function EnergyInterface.getStatus(p)
         status.stored = stored
         status.capacity = capacity > 0 and capacity or 1
         status.percent = status.capacity > 0 and (status.stored / status.capacity) or 0
+        status.storedFE = status.stored
+        status.capacityFE = status.capacity
         return status
     end
 
@@ -157,6 +171,8 @@ function EnergyInterface.getStatus(p)
         status.capacity = max > 0 and max or 1
         status.percent = status.capacity > 0 and (status.stored / status.capacity) or 0
         status.unit = "J"
+        status.storedFE = joulesToFE(status.stored)
+        status.capacityFE = joulesToFE(status.capacity)
         return status
     end
 
@@ -207,14 +223,15 @@ function EnergyInterface.getTotals()
     local totals = {
         stored = 0,
         capacity = 0,
-        count = 0
+        count = 0,
+        unit = "FE"
     }
 
     for idx, storage in ipairs(all) do
         local status = EnergyInterface.getStatus(storage.peripheral)
         if status then
-            totals.stored = totals.stored + status.stored
-            totals.capacity = totals.capacity + status.capacity
+            totals.stored = totals.stored + (status.storedFE or status.stored or 0)
+            totals.capacity = totals.capacity + (status.capacityFE or status.capacity or 0)
             totals.count = totals.count + 1
         end
         Yield.check(idx, 10)

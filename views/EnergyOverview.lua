@@ -75,10 +75,12 @@ return BaseView.custom({
             data.stored = 0
             data.capacity = 0
             for _, storage in ipairs(data.storages) do
-                data.stored = data.stored + storage.status.stored
-                data.capacity = data.capacity + storage.status.capacity
-                totals.stored = totals.stored + storage.status.stored
-                totals.capacity = totals.capacity + storage.status.capacity
+                local stored = storage.status.storedFE or storage.status.stored or 0
+                local capacity = storage.status.capacityFE or storage.status.capacity or 0
+                data.stored = data.stored + stored
+                data.capacity = data.capacity + capacity
+                totals.stored = totals.stored + stored
+                totals.capacity = totals.capacity + capacity
                 totals.count = totals.count + 1
             end
             data.percent = data.capacity > 0 and (data.stored / data.capacity) or 0
