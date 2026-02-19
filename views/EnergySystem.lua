@@ -303,6 +303,90 @@ local function classifyState(flowHistory, netRate)
     return "STABLE", colors.cyan
 end
 
+local function drawHeaderBar(monitor, width, title, stateName, stateColor)
+    monitor.setBackgroundColor(colors.gray)
+    monitor.setTextColor(colors.black)
+    monitor.setCursorPos(1, 1)
+    monitor.write(string.rep(" ", width))
+
+    monitor.setCursorPos(2, 1)
+    monitor.write(Text.truncateMiddle(title, math.max(1, width - 2)))
+
+    local state = stateName or "PASSIVE"
+    local stateText = "[" .. state .. "]"
+    stateText = Text.truncateMiddle(stateText, math.max(1, math.floor(width * 0.45)))
+    local stateX = math.max(2, width - #stateText)
+    monitor.setCursorPos(stateX, 1)
+    monitor.setTextColor(stateColor or colors.lightBlue)
+    monitor.write(stateText)
+
+    monitor.setBackgroundColor(colors.black)
+    monitor.setTextColor(colors.white)
+end
+
+local function drawMetricCard(monitor, x1, y1, x2, y2, title, value, accentBg, valueColor)
+    MonitorHelpers.drawBox(monitor, x1, y1, x2, y2, colors.black, accentBg)
+    local width = x2 - x1 + 1
+    local titleText = Text.truncateMiddle(title, math.max(1, width - 2))
+    local valueText = Text.truncateMiddle(value, math.max(1, width - 2))
+
+    monitor.setTextColor(colors.lightGray)
+    monitor.setCursorPos(x1 + 1, y1 + 1)
+    monitor.write(titleText)
+
+    monitor.setTextColor(valueColor or colors.white)
+    monitor.setCursorPos(x1 + 1, y1 + 2)
+    monitor.write(valueText)
+
+    monitor.setTextColor(colors.white)
+end
+
+local function formatNet(netRate)
+    if netRate > 0 then
+        return "+" .. formatRate(netRate), colors.lime
+    elseif netRate < 0 then
+        return formatRate(netRate), colors.red
+    end
+    return formatRate(netRate), colors.white
+end
+
+local function drawCompact(self, data)
+    drawHeaderBar(self.monitor, self.width, "ENERGY SYSTEM", data.stateName, data.stateColor)
+
+    local inText = "IN  " .. formatRate(data.input.rate)
+    local outText = "OUT " .. formatRate(data.output.rate)
+    local netText, netColor = formatNet(data.netRate)
+
+    self.monitor.setTextColor(colors.lime)
+    self.monitor.setCursorPos(1, 3)
+    self.monitor.write(Text.truncateMiddle(inText, self.width))
+
+    self.monitor.setTextColor(colors.orange)
+    self.monitor.setCursorPos(1, 4)
+    self.monitor.write(Text.truncateMiddle(outText, self.width))
+
+    self.monitor.setTextColor(netColor)
+    self.monitor.setCursorPos(1, 5)
+    self.monitor.write(Text.truncateMiddle("NET " .. netText, self.width))
+
+    local barY = math.min(self.height - 2, 7)
+    local storage = data.storage
+    if storage.count > 0 and barY > 5 then
+        MonitorHelpers.drawProgressBar(self.monitor, 1, barY, self.width, storage.percent * 100, colors.green, colors.gray, false)
+        self.monitor.setTextColor(colors.lightGray)
+        local bankLine = string.format("%s / %s", EnergyInterface.formatEnergy(storage.storedFE, "FE"), EnergyInterface.formatEnergy(storage.capacityFE, "FE"))
+        self.monitor.setCursorPos(1, math.min(self.height - 1, barY + 1))
+        self.monitor.write(Text.truncateMiddle(bankLine, self.width))
+    end
+
+    self.monitor.setTextColor(colors.gray)
+    self.monitor.setCursorPos(1, self.height)
+    self.monitor.write(Text.truncateMiddle(
+        string.format("IN:%d OUT:%d ST:%d", data.input.count, data.output.count, data.storage.count),
+        self.width
+    ))
+end
+
 return BaseView.custom({
     sleepTime = 0.5,
 
@@ -415,99 +499,94 @@ return BaseView.custom({
     end,
 
     render = function(self, data)
-        local y = 1
-        MonitorHelpers.writeCentered(self.monitor, y, "Energy System", colors.yellow)
-        y = y + 2
-
-        self.monitor.setTextColor(colors.lime)
-        MonitorHelpers.writeCentered(self.monitor, y, "INPUT")
-        y = y + 1
-        MonitorHelpers.writeCentered(self.monitor, y, formatRate(data.input.rate), colors.lime)
-        y = y + 1
-
-        self.monitor.setTextColor(colors.orange)
-        MonitorHelpers.writeCentered(self.monitor, y, "OUTPUT")
-        y = y + 1
-        MonitorHelpers.writeCentered(self.monitor, y, formatRate(data.output.rate), colors.orange)
-        y = y + 1
-
-        local netColor = colors.white
-        local netPrefix = ""
-        if data.netRate > 0 then
-            netColor = colors.lime
-            netPrefix = "+"
-        elseif data.netRate < 0 then
-            netColor = colors.red
+        if self.width < 30 or self.height < 12 then
+            drawCompact(self, data)
+            return
         end
-        MonitorHelpers.writeCentered(self.monitor, y, "NET " .. netPrefix .. formatRate(data.netRate), netColor)
-        y = y + 1
 
-        MonitorHelpers.writeCentered(self.monitor, y, "State: " .. (data.stateName or "PASSIVE"), data.stateColor or colors.lightBlue)
-        y = y + 1
+        local monitor = self.monitor
+        local width = self.width
+        local height = self.height
 
+        drawHeaderBar(monitor, width, "ENERGY SYSTEM", data.stateName, data.stateColor)
+
+        local cardsTop = 3
+        local cardsBottom = 6
+        local available = width - 4
+        local cardWidth = math.max(8, math.floor(available / 3))
+        local gap = 1
+
+        local c1x1 = 2
+        local c1x2 = math.min(width - 1, c1x1 + cardWidth - 1)
+        local c2x1 = c1x2 + gap + 1
+        local c2x2 = math.min(width - 1, c2x1 + cardWidth - 1)
+        local c3x1 = c2x2 + gap + 1
+        local c3x2 = width - 1
+
+        drawMetricCard(monitor, c1x1, cardsTop, c1x2, cardsBottom, "INPUT", formatRate(data.input.rate), colors.green, colors.lime)
+        drawMetricCard(monitor, c2x1, cardsTop, c2x2, cardsBottom, "OUTPUT", formatRate(data.output.rate), colors.orange, colors.orange)
+        local netText, netColor = formatNet(data.netRate)
+        drawMetricCard(monitor, c3x1, cardsTop, c3x2, cardsBottom, "NET", netText, colors.gray, netColor)
+
+        local storageY = cardsBottom + 2
         local storage = data.storage
-        if storage.count > 0 and y < self.height - 2 then
-            local barWidth = math.max(1, self.width - 2)
-            MonitorHelpers.drawProgressBar(self.monitor, 1, y, barWidth, storage.percent * 100, colors.green, colors.gray, false)
-            y = y + 1
+        if storage.count > 0 and storageY < height - 2 then
+            monitor.setTextColor(colors.white)
+            monitor.setCursorPos(2, storageY)
+            monitor.write("Bank " .. string.format("%.1f%%", storage.percent * 100))
+            monitor.setTextColor(colors.lightGray)
+            local bankLine = string.format("%s / %s",
+                EnergyInterface.formatEnergy(storage.storedFE, "FE"),
+                EnergyInterface.formatEnergy(storage.capacityFE, "FE")
+            )
+            monitor.setCursorPos(2, storageY + 1)
+            monitor.write(Text.truncateMiddle(bankLine, math.max(1, width - 2)))
 
-            self.monitor.setTextColor(colors.lightGray)
-            self.monitor.setCursorPos(1, y)
-            self.monitor.write(Text.truncateMiddle(
-                string.format("Bank: %s / %s", EnergyInterface.formatEnergy(storage.storedFE, "FE"), EnergyInterface.formatEnergy(storage.capacityFE, "FE")),
-                self.width
-            ))
-            y = y + 1
+            MonitorHelpers.drawProgressBar(monitor, 2, storageY + 2, math.max(1, width - 2), storage.percent * 100, colors.green, colors.gray, false)
 
-            self.monitor.setTextColor(colors.gray)
+            monitor.setTextColor(colors.gray)
             local eta = data.etaToFull and ("Full in " .. formatDuration(data.etaToFull))
                 or (data.etaToEmpty and ("Empty in " .. formatDuration(data.etaToEmpty)))
                 or "Stable"
-            self.monitor.setCursorPos(1, y)
-            self.monitor.write(Text.truncateMiddle(eta, self.width))
-            y = y + 1
-        elseif y < self.height - 1 then
-            self.monitor.setTextColor(colors.orange)
-            self.monitor.setCursorPos(1, y)
-            self.monitor.write("No energy storages matched")
-            y = y + 1
+            monitor.setCursorPos(2, storageY + 3)
+            monitor.write(Text.truncateMiddle(eta, math.max(1, width - 2)))
+        elseif storageY < height - 1 then
+            monitor.setTextColor(colors.orange)
+            monitor.setCursorPos(2, storageY)
+            monitor.write("No energy storages matched")
         end
 
-        if data.overlap and y < self.height - 1 then
-            self.monitor.setTextColor(colors.red)
-            self.monitor.setCursorPos(1, y)
-            self.monitor.write(Text.truncateMiddle("WARN: IN and OUT share detector(s)", self.width))
-            y = y + 1
-        end
-
-        if self.showBreakdown and y < self.height - 1 then
-            self.monitor.setTextColor(colors.gray)
-            self.monitor.setCursorPos(1, y)
-            self.monitor.write("Detectors:")
+        local detailStart = storageY + 5
+        if self.showBreakdown and detailStart <= height - 2 then
+            local y = detailStart
+            monitor.setTextColor(colors.gray)
+            monitor.setCursorPos(2, y)
+            monitor.write("Detectors")
             y = y + 1
 
             for _, entry in ipairs(data.input.entries) do
-                if y > self.height - 1 then break end
-                self.monitor.setTextColor(colors.lime)
-                self.monitor.setCursorPos(1, y)
-                self.monitor.write(Text.truncateMiddle("I " .. entry.name .. " " .. formatRate(entry.rate), self.width))
+                if y > height - 1 then break end
+                monitor.setTextColor(colors.lime)
+                monitor.setCursorPos(2, y)
+                monitor.write(Text.truncateMiddle("I " .. entry.name .. " " .. formatRate(entry.rate), math.max(1, width - 2)))
                 y = y + 1
             end
             for _, entry in ipairs(data.output.entries) do
-                if y > self.height - 1 then break end
-                self.monitor.setTextColor(colors.orange)
-                self.monitor.setCursorPos(1, y)
-                self.monitor.write(Text.truncateMiddle("O " .. entry.name .. " " .. formatRate(entry.rate), self.width))
+                if y > height - 1 then break end
+                monitor.setTextColor(colors.orange)
+                monitor.setCursorPos(2, y)
+                monitor.write(Text.truncateMiddle("O " .. entry.name .. " " .. formatRate(entry.rate), math.max(1, width - 2)))
                 y = y + 1
             end
         end
 
-        self.monitor.setTextColor(colors.gray)
-        self.monitor.setCursorPos(1, self.height)
-        self.monitor.write(Text.truncateMiddle(
-            string.format("IN:%d OUT:%d | %d storages", data.input.count, data.output.count, data.storage.count),
-            self.width
-        ))
+        monitor.setTextColor(data.overlap and colors.red or colors.gray)
+        monitor.setCursorPos(1, height)
+        local footer = string.format("IN:%d OUT:%d ST:%d", data.input.count, data.output.count, data.storage.count)
+        if data.overlap then
+            footer = footer .. " | OVERLAP"
+        end
+        monitor.write(Text.truncateMiddle(footer, width))
     end,
 
     renderEmpty = function(self)
