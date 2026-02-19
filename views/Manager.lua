@@ -137,7 +137,7 @@ function Manager.getMountableViews(forceRefresh)
     end
 
     mountableCache = mountable
-    mountableCacheAt = now
+    mountableCacheAt = os.epoch("utc")
 
     return copyArray(mountable)
 end

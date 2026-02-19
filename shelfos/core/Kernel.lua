@@ -118,10 +118,11 @@ function Kernel:initializeMonitors()
 
     -- Get settings for theme etc.
     local settings = self.config.settings or {}
+    local availableViews = ViewManager.getMountableViews()
 
     for i, monitorConfig in ipairs(self.config.monitors or {}) do
         -- Pass index (0-based) for timer staggering
-        local monitor = Monitor.new(monitorConfig, onViewChange, settings, i - 1)
+        local monitor = Monitor.new(monitorConfig, onViewChange, settings, i - 1, availableViews)
 
         if monitor:isConnected() then
             table.insert(self.monitors, monitor)

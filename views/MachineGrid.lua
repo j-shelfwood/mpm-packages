@@ -524,11 +524,7 @@ return BaseView.custom({
     },
 
     mount = function()
-        if not MachineSnapshotBus.isRunning() then
-            MachineSnapshotBus.tick(true)
-        end
-        local snapshot = MachineSnapshotBus.getSnapshot("all", nil)
-        return snapshot and (snapshot.totalMachines or 0) > 0
+        return true
     end,
 
     init = function(self, config)
@@ -537,9 +533,6 @@ return BaseView.custom({
     end,
 
     getData = function(self)
-        if not MachineSnapshotBus.isRunning() then
-            MachineSnapshotBus.tick()
-        end
         return MachineSnapshotBus.getSnapshot(self.modFilter, self.machineType)
     end,
 

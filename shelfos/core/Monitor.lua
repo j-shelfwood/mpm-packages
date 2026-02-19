@@ -49,6 +49,14 @@ local DependencyStatus = mpm('net/DependencyStatus')
 local Monitor = {}
 Monitor.__index = Monitor
 
+local function copyArray(arr)
+    local copy = {}
+    for i, v in ipairs(arr or {}) do
+        copy[i] = v
+    end
+    return copy
+end
+
 -- Calculate optimal text scale based on NATIVE monitor size (at scale 1.0)
 -- This prevents feedback loops where changing scale changes dimensions
 -- @param monitor The monitor peripheral
@@ -84,7 +92,8 @@ end
 -- @param onViewChange Callback for view changes
 -- @param settings Global settings
 -- @param index Monitor index (0-based) for staggering timers
-function Monitor.new(config, onViewChange, settings, index)
+-- @param availableViews Optional precomputed mountable views list
+function Monitor.new(config, onViewChange, settings, index, availableViews)
     local self = setmetatable({}, Monitor)
 
     self.peripheralName = config.peripheral
@@ -111,7 +120,7 @@ function Monitor.new(config, onViewChange, settings, index)
     self.settingsTimer = nil
     self.showingSettings = false
     self.inConfigMenu = false
-    self.availableViews = {}
+    self.availableViews = copyArray(availableViews)
     self.currentIndex = 1
     self.settingsButton = nil
     self.pairingMode = false  -- When true, skip rendering (pairing code displayed)
@@ -143,8 +152,11 @@ function Monitor:initialize()
     Theme.apply(self.peripheral, self.themeName)
     Theme.apply(self.buffer, self.themeName)
 
-    -- Get available views
-    self.availableViews = ViewManager.getMountableViews()
+    -- Get available views. Prefer the precomputed list from Kernel to avoid
+    -- repeated mount scans during multi-monitor boot.
+    if #self.availableViews == 0 then
+        self.availableViews = ViewManager.getMountableViewsFast()
+    end
 
     -- Find current view index
     for i, name in ipairs(self.availableViews) do

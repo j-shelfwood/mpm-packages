@@ -4,6 +4,7 @@
 
 local Activity = mpm('peripherals/MachineActivity')
 local Text = mpm('utils/Text')
+local Yield = mpm('utils/Yield')
 
 local MachineSnapshotBus = {}
 
@@ -327,6 +328,7 @@ local function pollSweep()
         if entry then
             pollEntry(entry, now)
         end
+        Yield.check(i, 4)
     end
 
     st.pollCursor = cursor
