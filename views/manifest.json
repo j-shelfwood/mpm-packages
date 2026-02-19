@@ -24,6 +24,7 @@
     "MekMachineGauge.lua",
     "EnergyOverview.lua",
     "EnergySystem.lua",
+    "EnergyFlowGraph.lua",
     "NetworkDashboard.lua",
     "NetworkDashboardRenderers.lua",
     "EnergyGraph.lua",

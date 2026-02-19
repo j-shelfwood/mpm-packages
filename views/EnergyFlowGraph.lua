@@ -1,6 +1,5 @@
--- EnergySystem.lua
--- Manual detector-mapped energy monitor:
--- source -> [IN detectors] -> storage bank -> [OUT detectors] -> load
+-- EnergyFlowGraph.lua
+-- Dedicated dual-line graph for manual detector-mapped energy flow.
 
 local BaseView = mpm('views/BaseView')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
@@ -14,6 +13,7 @@ local STORAGE_REFRESH_SECONDS = 3
 local FLOW_HISTORY_SIZE = 12
 local RATE_HISTORY_SIZE = 6
 local OUTLIER_FACTOR = 16
+local IO_GRAPH_HISTORY_SIZE = 240
 
 local function formatRate(fePerTick)
     local abs = math.abs(fePerTick)
@@ -378,6 +378,55 @@ local function drawCompact(self, data)
     self.monitor.write(Text.truncateMiddle("Input/Output history available on larger monitors", self.width))
 end
 
+local function drawDualHistoryGraph(monitor, x1, y1, x2, y2, inputHistory, outputHistory)
+    local width = x2 - x1 + 1
+    local height = y2 - y1 + 1
+    if width < 8 or height < 4 then
+        return
+    end
+
+    local points = math.min(width, #inputHistory, #outputHistory)
+    if points < 2 then
+        return
+    end
+
+    local maxValue = 1
+    for i = #inputHistory - points + 1, #inputHistory do
+        if inputHistory[i] and inputHistory[i] > maxValue then
+            maxValue = inputHistory[i]
+        end
+        if outputHistory[i] and outputHistory[i] > maxValue then
+            maxValue = outputHistory[i]
+        end
+    end
+
+    for col = 1, points do
+        local idx = #inputHistory - points + col
+        local inValue = inputHistory[idx] or 0
+        local outValue = outputHistory[idx] or 0
+
+        local inY = y2 - math.floor((inValue / maxValue) * (height - 1))
+        local outY = y2 - math.floor((outValue / maxValue) * (height - 1))
+
+        local x = x1 + col - 1
+        if inY == outY then
+            monitor.setTextColor(colors.yellow)
+            monitor.setCursorPos(x, inY)
+            monitor.write("*")
+        else
+            monitor.setTextColor(colors.lime)
+            monitor.setCursorPos(x, inY)
+            monitor.write("I")
+
+            monitor.setTextColor(colors.orange)
+            monitor.setCursorPos(x, outY)
+            monitor.write("O")
+        end
+    end
+
+    monitor.setTextColor(colors.white)
+end
+
 return BaseView.custom({
     sleepTime = 1,
 
@@ -426,6 +475,8 @@ return BaseView.custom({
         self.storageModFilter = config.storage_mod_filter or "all"
         self.storageNameFilter = config.storage_name_filter or ""
         self.flowHistory = {}
+        self.inputRateHistory = {}
+        self.outputRateHistory = {}
         self.rateHistoryByName = {}
         self.detectorCache = {}
         self.lastDetectorScanAt = nil
@@ -460,6 +511,8 @@ return BaseView.custom({
         local inRate = collectDetectorTotals(inputDetectors, sampled)
         local outRate = collectDetectorTotals(outputDetectors, sampled)
         local netRate = inRate - outRate
+        MonitorHelpers.recordHistory(self.inputRateHistory, inRate, IO_GRAPH_HISTORY_SIZE)
+        MonitorHelpers.recordHistory(self.outputRateHistory, outRate, IO_GRAPH_HISTORY_SIZE)
 
         table.insert(self.flowHistory, netRate)
         if #self.flowHistory > FLOW_HISTORY_SIZE then
@@ -492,7 +545,9 @@ return BaseView.custom({
             etaToEmpty = etaToEmpty,
             stateName = stateName,
             stateColor = stateColor,
-            overlap = hasOverlap(self.inputDetectorNames, self.outputDetectorNames)
+            overlap = hasOverlap(self.inputDetectorNames, self.outputDetectorNames),
+            inputHistory = self.inputRateHistory,
+            outputHistory = self.outputRateHistory
         }
     end,
 
@@ -506,68 +561,40 @@ return BaseView.custom({
         local width = self.width
         local height = self.height
 
-        drawHeaderBar(monitor, width, "ENERGY SYSTEM", data.stateName, data.stateColor)
+        drawHeaderBar(monitor, width, "ENERGY FLOW GRAPH", data.stateName, data.stateColor)
 
-        local cardsTop = 3
-        local cardsBottom = 6
-        local available = width - 4
-        local cardWidth = math.max(8, math.floor(available / 3))
-        local gap = 1
+        local summaryY = 3
+        monitor.setTextColor(colors.lime)
+        monitor.setCursorPos(2, summaryY)
+        monitor.write(Text.truncateMiddle("IN  " .. formatRate(data.input.rate), math.max(1, width - 2)))
 
-        local c1x1 = 2
-        local c1x2 = math.min(width - 1, c1x1 + cardWidth - 1)
-        local c2x1 = c1x2 + gap + 1
-        local c2x2 = math.min(width - 1, c2x1 + cardWidth - 1)
-        local c3x1 = c2x2 + gap + 1
-        local c3x2 = width - 1
+        monitor.setTextColor(colors.orange)
+        monitor.setCursorPos(2, summaryY + 1)
+        monitor.write(Text.truncateMiddle("OUT " .. formatRate(data.output.rate), math.max(1, width - 2)))
 
-        drawMetricCard(monitor, c1x1, cardsTop, c1x2, cardsBottom, "INPUT", formatRate(data.input.rate), colors.green, colors.lime)
-        drawMetricCard(monitor, c2x1, cardsTop, c2x2, cardsBottom, "OUTPUT", formatRate(data.output.rate), colors.orange, colors.orange)
         local netText, netColor = formatNet(data.netRate)
-        drawMetricCard(monitor, c3x1, cardsTop, c3x2, cardsBottom, "NET", netText, colors.gray, netColor)
+        monitor.setTextColor(netColor)
+        monitor.setCursorPos(2, summaryY + 2)
+        monitor.write(Text.truncateMiddle("NET " .. netText, math.max(1, width - 2)))
 
-        local storageY = cardsBottom + 2
-        local storage = data.storage
-        if storage.count > 0 and storageY < height - 1 then
-            monitor.setTextColor(colors.white)
-            monitor.setCursorPos(2, storageY)
-            monitor.write("Bank " .. string.format("%.1f%%", storage.percent * 100))
-            monitor.setTextColor(colors.lightGray)
-            local bankLine = string.format("%s / %s",
-                EnergyInterface.formatEnergy(storage.storedFE, "FE"),
-                EnergyInterface.formatEnergy(storage.capacityFE, "FE")
-            )
-            monitor.setCursorPos(2, storageY + 1)
-            monitor.write(Text.truncateMiddle(bankLine, math.max(1, width - 2)))
-
-            MonitorHelpers.drawProgressBar(monitor, 2, storageY + 2, math.max(1, width - 2), storage.percent * 100, colors.green, colors.gray, false)
-
+        local graphTop = summaryY + 4
+        local graphBottom = height - 1
+        if graphTop <= graphBottom then
             monitor.setTextColor(colors.gray)
-            local eta = data.etaToFull and ("Full in " .. formatDuration(data.etaToFull))
-                or (data.etaToEmpty and ("Empty in " .. formatDuration(data.etaToEmpty)))
-                or "Stable"
-            monitor.setCursorPos(2, storageY + 3)
-            monitor.write(Text.truncateMiddle(eta, math.max(1, width - 2)))
-
-            if storageY + 5 <= height - 1 then
-                monitor.setTextColor(colors.gray)
-                monitor.setCursorPos(2, storageY + 5)
-                monitor.write(Text.truncateMiddle("Use EnergyFlowGraph for long-window I/O history", math.max(1, width - 2)))
-            end
-        elseif storageY < height - 1 then
-            monitor.setTextColor(colors.orange)
-            monitor.setCursorPos(2, storageY)
-            monitor.write("No energy storages matched")
+            monitor.setCursorPos(2, graphTop)
+            monitor.write(Text.truncateMiddle("History  I=IN O=OUT *=BOTH", math.max(1, width - 2)))
+            drawDualHistoryGraph(monitor, 2, graphTop + 1, width - 1, graphBottom, data.inputHistory, data.outputHistory)
         end
 
-        monitor.setTextColor(data.overlap and colors.red or colors.gray)
-        monitor.setCursorPos(1, height)
-        local footer = data.overlap and "WARN: IN and OUT detector overlap" or " "
-        monitor.write(Text.truncateMiddle(footer, width))
+        if data.overlap then
+            monitor.setTextColor(colors.red)
+            monitor.setCursorPos(1, height)
+            monitor.write(Text.truncateMiddle("WARN: IN and OUT detector overlap", width))
+        end
     end,
 
     renderEmpty = function(self)
-        MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) - 1, "Energy System", colors.yellow)
+        MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) - 1, "Energy Flow Graph", colors.yellow)
         MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) + 1, "No detectors/storage found", colors.gray)
     end
 })
