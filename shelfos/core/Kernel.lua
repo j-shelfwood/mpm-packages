@@ -16,6 +16,8 @@ local KernelNetwork = mpm('shelfos/core/KernelNetwork')
 local KernelMenu = mpm('shelfos/core/KernelMenu')
 local AESnapshotBus = mpm('peripherals/AESnapshotBus')
 local MachineSnapshotBus = mpm('peripherals/MachineSnapshotBus')
+local EnergySnapshotBus = mpm('peripherals/EnergySnapshotBus')
+local MekSnapshotBus = mpm('peripherals/MekSnapshotBus')
 local ViewManager = mpm('views/Manager')
 local MachineActivity = mpm('peripherals/MachineActivity')
 -- Note: TimerDispatch no longer needed - parallel API gives each coroutine its own event queue
@@ -205,6 +207,16 @@ function Kernel:run()
         MachineSnapshotBus.runLoop(runningRef)
     end)
 
+    -- Shared energy storage snapshot poller for cross-mod energy views.
+    table.insert(tasks, function()
+        EnergySnapshotBus.runLoop(runningRef)
+    end)
+
+    -- Shared Mek snapshot poller for Mek generator/multiblock/single-machine views.
+    table.insert(tasks, function()
+        MekSnapshotBus.runLoop(runningRef)
+    end)
+
     -- Run all tasks in parallel - each gets own event queue copy
     parallel.waitForAny(table.unpack(tasks))
 
@@ -229,6 +241,8 @@ function Kernel:keyboardLoop(runningRef)
         elseif event == "peripheral" or event == "peripheral_detach" then
             ViewManager.invalidateMountableCache()
             MachineSnapshotBus.invalidate()
+            EnergySnapshotBus.invalidate()
+            MekSnapshotBus.invalidate()
             MachineActivity.invalidateCache()
 
             -- Rescan shared peripherals when hardware changes
@@ -251,11 +265,21 @@ end
 
 -- Dashboard rendering loop for display mode terminal UI
 function Kernel:dashboardLoop(runningRef)
+    local dashboardTimer = nil
+
+    local function ensureDashboardTimer()
+        if not dashboardTimer then
+            dashboardTimer = os.startTimer(0.25)
+        end
+    end
+
+    ensureDashboardTimer()
+
     while runningRef.value do
-        local timer = os.startTimer(0.25)
         local event, p1 = os.pullEvent()
 
-        if event == "timer" and p1 == timer then
+        if event == "timer" and p1 == dashboardTimer then
+            dashboardTimer = nil
             if self.dashboard then
                 if self.peripheralClient then
                     self.dashboard:setRemoteCount(self.peripheralClient:getCount())
@@ -263,6 +287,7 @@ function Kernel:dashboardLoop(runningRef)
                 self.dashboard:tick()
                 self.dashboard:render(self)
             end
+            ensureDashboardTimer()
         elseif event == "term_resize" then
             Terminal.resize()
             KernelMenu.draw()
@@ -270,6 +295,7 @@ function Kernel:dashboardLoop(runningRef)
                 self.dashboard:requestRedraw()
                 self.dashboard:render(self)
             end
+            ensureDashboardTimer()
         end
     end
 end

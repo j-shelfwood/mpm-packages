@@ -5,6 +5,7 @@
 local Yield = mpm('utils/Yield')
 local Text = mpm('utils/Text')
 local Peripherals = mpm('utils/Peripherals')
+local EnergySnapshotBus = mpm('peripherals/EnergySnapshotBus')
 
 local EnergyInterface = {}
 
@@ -73,6 +74,23 @@ end
 -- Find all energy storage peripherals
 -- Returns array of { peripheral, name, type }
 function EnergyInterface.findAll()
+    if EnergySnapshotBus and EnergySnapshotBus.isRunning and EnergySnapshotBus.isRunning() then
+        local entries = EnergySnapshotBus.getEntries()
+        if entries and #entries > 0 then
+            local storages = {}
+            for idx, entry in ipairs(entries) do
+                table.insert(storages, {
+                    peripheral = entry.peripheral,
+                    name = entry.name,
+                    primaryType = entry.primaryType or "energy_storage",
+                    types = {entry.primaryType or "energy_storage"}
+                })
+                Yield.check(idx, 25)
+            end
+            return storages
+        end
+    end
+
     local storages = {}
     local names = Peripherals.getNames()
 
@@ -139,6 +157,13 @@ end
 -- Returns nil if peripheral is unreachable (remote timeout, etc.)
 function EnergyInterface.getStatus(p)
     if not p then return nil end
+
+    if EnergySnapshotBus and EnergySnapshotBus.isRunning and EnergySnapshotBus.isRunning() then
+        local snap = EnergySnapshotBus.getStatusByPeripheral(p)
+        if snap and snap.ok and type(snap.data) == "table" then
+            return snap.data
+        end
+    end
 
     local status = {
         stored = 0,

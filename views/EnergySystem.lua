@@ -10,16 +10,19 @@ local Peripherals = mpm('utils/Peripherals')
 local EnergyInterface = mpm('peripherals/EnergyInterface')
 
 local DETECTOR_REFRESH_SECONDS = 2
+local STORAGE_REFRESH_SECONDS = 3
 local FLOW_HISTORY_SIZE = 12
 local RATE_HISTORY_SIZE = 6
 local OUTLIER_FACTOR = 16
+local IO_GRAPH_HISTORY_SIZE = 240
 
 local function formatRate(fePerTick)
-    if fePerTick >= 1e9 then
+    local abs = math.abs(fePerTick)
+    if abs >= 1e9 then
         return string.format("%.2f GFE/t", fePerTick / 1e9)
-    elseif fePerTick >= 1e6 then
+    elseif abs >= 1e6 then
         return string.format("%.2f MFE/t", fePerTick / 1e6)
-    elseif fePerTick >= 1e3 then
+    elseif abs > 1e4 then
         return string.format("%.1f kFE/t", fePerTick / 1e3)
     end
     return string.format("%.0f FE/t", fePerTick)
@@ -236,21 +239,13 @@ end
 
 local function collectDetectorTotals(detectors, sampled)
     local totalRate = 0
-    local totalLimit = 0
-    local entries = {}
 
     for _, det in ipairs(detectors) do
         local values = sampled[det.name] or { rate = 0, limit = 0 }
         totalRate = totalRate + values.rate
-        totalLimit = totalLimit + values.limit
-        table.insert(entries, {
-            name = det.name,
-            rate = values.rate,
-            limit = values.limit
-        })
     end
 
-    return totalRate, totalLimit, entries
+    return totalRate
 end
 
 local function hasOverlap(left, right)
@@ -381,14 +376,60 @@ local function drawCompact(self, data)
 
     self.monitor.setTextColor(colors.gray)
     self.monitor.setCursorPos(1, self.height)
-    self.monitor.write(Text.truncateMiddle(
-        string.format("IN:%d OUT:%d ST:%d", data.input.count, data.output.count, data.storage.count),
-        self.width
-    ))
+    self.monitor.write(Text.truncateMiddle("Input/Output history available on larger monitors", self.width))
+end
+
+local function drawDualHistoryGraph(monitor, x1, y1, x2, y2, inputHistory, outputHistory)
+    local width = x2 - x1 + 1
+    local height = y2 - y1 + 1
+    if width < 8 or height < 4 then
+        return
+    end
+
+    local points = math.min(width, #inputHistory, #outputHistory)
+    if points < 2 then
+        return
+    end
+
+    local maxValue = 1
+    for i = #inputHistory - points + 1, #inputHistory do
+        if inputHistory[i] and inputHistory[i] > maxValue then
+            maxValue = inputHistory[i]
+        end
+        if outputHistory[i] and outputHistory[i] > maxValue then
+            maxValue = outputHistory[i]
+        end
+    end
+
+    for col = 1, points do
+        local idx = #inputHistory - points + col
+        local inValue = inputHistory[idx] or 0
+        local outValue = outputHistory[idx] or 0
+
+        local inY = y2 - math.floor((inValue / maxValue) * (height - 1))
+        local outY = y2 - math.floor((outValue / maxValue) * (height - 1))
+
+        local x = x1 + col - 1
+        if inY == outY then
+            monitor.setTextColor(colors.yellow)
+            monitor.setCursorPos(x, inY)
+            monitor.write("*")
+        else
+            monitor.setTextColor(colors.lime)
+            monitor.setCursorPos(x, inY)
+            monitor.write("I")
+
+            monitor.setTextColor(colors.orange)
+            monitor.setCursorPos(x, outY)
+            monitor.write("O")
+        end
+    end
+
+    monitor.setTextColor(colors.white)
 end
 
 return BaseView.custom({
-    sleepTime = 0.5,
+    sleepTime = 1,
 
     configSchema = {
         {
@@ -422,16 +463,6 @@ return BaseView.custom({
             label = "Storage Name Filter",
             default = "",
             description = "Optional wildcard filter for bank storages"
-        },
-        {
-            key = "show_breakdown",
-            type = "select",
-            label = "Detector Breakdown",
-            options = {
-                { value = "yes", label = "Yes" },
-                { value = "no", label = "No" }
-            },
-            default = "yes"
         }
     },
 
@@ -444,11 +475,14 @@ return BaseView.custom({
         self.outputDetectorNames = normalizeDetectorSelection(config.output_detectors)
         self.storageModFilter = config.storage_mod_filter or "all"
         self.storageNameFilter = config.storage_name_filter or ""
-        self.showBreakdown = config.show_breakdown ~= "no"
         self.flowHistory = {}
+        self.inputRateHistory = {}
+        self.outputRateHistory = {}
         self.rateHistoryByName = {}
         self.detectorCache = {}
         self.lastDetectorScanAt = nil
+        self.storageCache = { count = 0, storedFE = 0, capacityFE = 0, percent = 0 }
+        self.lastStoragePollAt = nil
     end,
 
     getData = function(self)
@@ -456,6 +490,17 @@ return BaseView.custom({
         if not self.lastDetectorScanAt or (now - self.lastDetectorScanAt) >= DETECTOR_REFRESH_SECONDS then
             self.detectorCache = findDetectors()
             self.lastDetectorScanAt = now
+
+            -- Prune per-detector rate histories for detached/unknown detectors.
+            local active = {}
+            for _, detector in ipairs(self.detectorCache) do
+                active[detector.name] = true
+            end
+            for name in pairs(self.rateHistoryByName) do
+                if not active[name] then
+                    self.rateHistoryByName[name] = nil
+                end
+            end
         end
 
         local allDetectors = self.detectorCache
@@ -464,16 +509,23 @@ return BaseView.custom({
         local polledDetectors = unionDetectors(inputDetectors, outputDetectors)
         local sampled = sampleDetectorValues(polledDetectors, self.rateHistoryByName)
 
-        local inRate, inLimit, inEntries = collectDetectorTotals(inputDetectors, sampled)
-        local outRate, outLimit, outEntries = collectDetectorTotals(outputDetectors, sampled)
+        local inRate = collectDetectorTotals(inputDetectors, sampled)
+        local outRate = collectDetectorTotals(outputDetectors, sampled)
         local netRate = inRate - outRate
+        MonitorHelpers.recordHistory(self.inputRateHistory, inRate, IO_GRAPH_HISTORY_SIZE)
+        MonitorHelpers.recordHistory(self.outputRateHistory, outRate, IO_GRAPH_HISTORY_SIZE)
 
         table.insert(self.flowHistory, netRate)
         if #self.flowHistory > FLOW_HISTORY_SIZE then
             table.remove(self.flowHistory, 1)
         end
 
-        local storage = getStorageTotals(self.storageModFilter, self.storageNameFilter)
+        local storage = self.storageCache
+        if not self.lastStoragePollAt or (now - self.lastStoragePollAt) >= STORAGE_REFRESH_SECONDS then
+            storage = getStorageTotals(self.storageModFilter, self.storageNameFilter)
+            self.storageCache = storage
+            self.lastStoragePollAt = now
+        end
         local stateName, stateColor = classifyState(self.flowHistory, netRate)
 
         local etaToFull = nil
@@ -486,15 +538,17 @@ return BaseView.custom({
 
         return {
             detectorCount = #allDetectors,
-            input = { rate = inRate, limit = inLimit, entries = inEntries, count = #inputDetectors },
-            output = { rate = outRate, limit = outLimit, entries = outEntries, count = #outputDetectors },
+            input = { rate = inRate, count = #inputDetectors },
+            output = { rate = outRate, count = #outputDetectors },
             netRate = netRate,
             storage = storage,
             etaToFull = etaToFull,
             etaToEmpty = etaToEmpty,
             stateName = stateName,
             stateColor = stateColor,
-            overlap = hasOverlap(self.inputDetectorNames, self.outputDetectorNames)
+            overlap = hasOverlap(self.inputDetectorNames, self.outputDetectorNames),
+            inputHistory = self.inputRateHistory,
+            outputHistory = self.outputRateHistory
         }
     end,
 
@@ -556,36 +610,18 @@ return BaseView.custom({
             monitor.write("No energy storages matched")
         end
 
-        local detailStart = storageY + 5
-        if self.showBreakdown and detailStart <= height - 2 then
-            local y = detailStart
+        local graphTop = storageY + 5
+        local graphBottom = height - 2
+        if graphTop <= graphBottom then
             monitor.setTextColor(colors.gray)
-            monitor.setCursorPos(2, y)
-            monitor.write("Detectors")
-            y = y + 1
-
-            for _, entry in ipairs(data.input.entries) do
-                if y > height - 1 then break end
-                monitor.setTextColor(colors.lime)
-                monitor.setCursorPos(2, y)
-                monitor.write(Text.truncateMiddle("I " .. entry.name .. " " .. formatRate(entry.rate), math.max(1, width - 2)))
-                y = y + 1
-            end
-            for _, entry in ipairs(data.output.entries) do
-                if y > height - 1 then break end
-                monitor.setTextColor(colors.orange)
-                monitor.setCursorPos(2, y)
-                monitor.write(Text.truncateMiddle("O " .. entry.name .. " " .. formatRate(entry.rate), math.max(1, width - 2)))
-                y = y + 1
-            end
+            monitor.setCursorPos(2, graphTop)
+            monitor.write(Text.truncateMiddle("I/O History  I=IN O=OUT *=BOTH", math.max(1, width - 2)))
+            drawDualHistoryGraph(monitor, 2, graphTop + 1, width - 1, graphBottom, data.inputHistory, data.outputHistory)
         end
 
         monitor.setTextColor(data.overlap and colors.red or colors.gray)
         monitor.setCursorPos(1, height)
-        local footer = string.format("IN:%d OUT:%d ST:%d", data.input.count, data.output.count, data.storage.count)
-        if data.overlap then
-            footer = footer .. " | OVERLAP"
-        end
+        local footer = data.overlap and "WARN: IN and OUT detector overlap" or " "
         monitor.write(Text.truncateMiddle(footer, width))
     end,
 

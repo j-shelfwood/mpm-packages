@@ -413,13 +413,22 @@ function headless.run()
     local announceInterval = 10000  -- 10 seconds
     local redrawInterval = 250
     local nextRedrawAt = os.epoch("utc")
+    local loopTimer = nil
+
+    local function ensureLoopTimer()
+        if not loopTimer then
+            loopTimer = os.startTimer(0.25)
+        end
+    end
+
+    ensureLoopTimer()
 
     while running do
         local loopStart = os.epoch("utc")
-        local timer = os.startTimer(0.25)
         local event, p1 = os.pullEvent()
 
-        if event == "timer" and p1 == timer then
+        if event == "timer" and p1 == loopTimer then
+            loopTimer = nil
             if os.epoch("utc") - lastAnnounce > announceInterval then
                 host:announce()
                 lastAnnounce = os.epoch("utc")
@@ -427,6 +436,7 @@ function headless.run()
 
             local drained = KernelNetwork.drainChannel(channel, 0, 50)
             recordNetworkDrain(state, drained)
+            ensureLoopTimer()
 
         elseif event == "key" then
             local key = p1
@@ -464,6 +474,7 @@ function headless.run()
         elseif event == "term_resize" then
             TermUI.refreshSize()
             state.needsRedraw = true
+            ensureLoopTimer()
         end
 
         local loopDuration = os.epoch("utc") - loopStart

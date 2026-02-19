@@ -4,83 +4,11 @@
 local BaseView = mpm('views/BaseView')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Yield = mpm('utils/Yield')
-local Peripherals = mpm('utils/Peripherals')
-
--- Generator peripheral types
-local GENERATOR_TYPES = {
-    "solarGenerator", "advancedSolarGenerator", "windGenerator",
-    "heatGenerator", "bioGenerator", "gasBurningGenerator"
-}
+local MekSnapshotBus = mpm('peripherals/MekSnapshotBus')
 
 -- Get available generators
 local function getGeneratorOptions()
-    local options = {}
-    local names = Peripherals.getNames()
-    local typeCounts = {}
-
-    for _, name in ipairs(names) do
-        local pType = Peripherals.getType(name)
-        if pType then
-            for _, genType in ipairs(GENERATOR_TYPES) do
-                if pType == genType then
-                    typeCounts[genType] = (typeCounts[genType] or 0) + 1
-                end
-            end
-        end
-    end
-
-    -- Add "all" option first
-    local totalCount = 0
-    for _, count in pairs(typeCounts) do
-        totalCount = totalCount + count
-    end
-
-    if totalCount > 0 then
-        table.insert(options, { value = "all", label = "All Generators (" .. totalCount .. ")" })
-    end
-
-    -- Add individual types
-    for _, genType in ipairs(GENERATOR_TYPES) do
-        if typeCounts[genType] then
-            local label = genType:gsub("(%l)(%u)", "%1 %2"):gsub("^%l", string.upper)
-            table.insert(options, {
-                value = genType,
-                label = label .. " (" .. typeCounts[genType] .. ")"
-            })
-        end
-    end
-
-    return options
-end
-
--- Find generators of specified type
-local function findGenerators(filterType)
-    local generators = {}
-    local names = Peripherals.getNames()
-
-    for _, name in ipairs(names) do
-        local pType = Peripherals.getType(name)
-        if pType then
-            local matches = false
-            if filterType == "all" then
-                for _, genType in ipairs(GENERATOR_TYPES) do
-                    if pType == genType then matches = true break end
-                end
-            else
-                matches = (pType == filterType)
-            end
-
-            if matches then
-                table.insert(generators, {
-                    peripheral = Peripherals.wrap(name),
-                    name = name,
-                    type = pType
-                })
-            end
-        end
-    end
-
-    return generators
+    return MekSnapshotBus.getGeneratorOptions()
 end
 
 -- Format energy rate
@@ -108,8 +36,7 @@ return BaseView.custom({
     },
 
     mount = function()
-        local options = getGeneratorOptions()
-        return #options > 0
+        return #MekSnapshotBus.getGeneratorOptions() > 0
     end,
 
     init = function(self, config)
@@ -117,7 +44,7 @@ return BaseView.custom({
     end,
 
     getData = function(self)
-        local generators = findGenerators(self.filterType)
+        local generators = MekSnapshotBus.getGenerators(self.filterType)
         local data = {
             generators = {},
             totalProduction = 0,
@@ -125,51 +52,20 @@ return BaseView.custom({
         }
 
         for idx, gen in ipairs(generators) do
-            local p = gen.peripheral
-
-            local productionOk, production = pcall(p.getProductionRate)
-            if not productionOk then production = 0 end
-
-            local maxOutputOk, maxOutput = pcall(p.getMaxOutput)
-            if not maxOutputOk then maxOutput = 0 end
-
-            local energyPctOk, energyPct = pcall(p.getEnergyFilledPercentage)
-            if not energyPctOk then energyPct = 0 end
-
-            -- Type-specific data
-            local extra = {}
-            if gen.type == "solarGenerator" or gen.type == "advancedSolarGenerator" then
-                local sunOk, canSeeSun = pcall(p.canSeeSun)
-                extra.canSeeSun = sunOk and canSeeSun
-            elseif gen.type == "heatGenerator" then
-                local tempOk, temp = pcall(p.getTemperature)
-                extra.temperature = tempOk and temp or 0
-                local lavaOk, lavaPct = pcall(p.getLavaFilledPercentage)
-                extra.lavaPct = lavaOk and lavaPct or 0
-            elseif gen.type == "bioGenerator" then
-                local bioOk, bioPct = pcall(p.getBioFuelFilledPercentage)
-                extra.fuelPct = bioOk and bioPct or 0
-            elseif gen.type == "gasBurningGenerator" then
-                local fuelOk, fuelPct = pcall(p.getFuelFilledPercentage)
-                extra.fuelPct = fuelOk and fuelPct or 0
-                local burnOk, burnRate = pcall(p.getBurnRate)
-                extra.burnRate = burnOk and burnRate or 0
-            end
-
             local shortName = gen.name:match("_(%d+)$") or tostring(idx)
 
             table.insert(data.generators, {
                 name = shortName,
                 type = gen.type,
-                production = production,
-                maxOutput = maxOutput,
-                energyPct = energyPct,
-                isActive = production > 0,
-                extra = extra
+                production = gen.production or 0,
+                maxOutput = gen.maxOutput or 0,
+                energyPct = gen.energyPct or 0,
+                isActive = gen.isActive == true,
+                extra = gen.extra or {}
             })
 
-            data.totalProduction = data.totalProduction + production
-            data.maxProduction = data.maxProduction + maxOutput
+            data.totalProduction = data.totalProduction + (gen.production or 0)
+            data.maxProduction = data.maxProduction + (gen.maxOutput or 0)
 
             Yield.check(idx, 5)
         end
