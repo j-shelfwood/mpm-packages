@@ -160,10 +160,10 @@ On each zone computer (with monitors):
 2. You'll see: "Not in swarm - Press L -> Accept from pocket"
 3. Press `L` -> **"Accept from pocket"**
 4. A pairing code appears on the zone's screen (e.g., `ABCD-EFGH`)
-5. On your pocket: Select **[A] Add Zone**
-6. Select the zone from the list
+5. On your pocket: Select **[A] Add Computer**
+6. Select the computer from the list
 7. **Enter the code** shown on the zone's screen
-8. Zone receives credentials and connects automatically
+8. Zone receives swarm secret + computer ID and connects automatically
 
 #### Step 3: Verify Connection
 

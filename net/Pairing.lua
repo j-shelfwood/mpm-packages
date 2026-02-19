@@ -91,6 +91,15 @@ end
 -- @return success, secret, computerId
 function Pairing.acceptFromPocket(callbacks)
     callbacks = callbacks or {}
+    local cancelled = false
+
+    local function emitCancel(reason)
+        if cancelled then return end
+        cancelled = true
+        if callbacks.onCancel then
+            callbacks.onCancel(reason)
+        end
+    end
 
     -- Open modem with wireless preference (also closes other modems)
     local ok, modemName, modemType = ModemUtils.open(true)
@@ -158,7 +167,7 @@ function Pairing.acceptFromPocket(callbacks)
 
                     if data and data.type == Protocol.MessageType.PAIR_DELIVER then
                         -- Signature valid - extract credentials
-                        -- Support both formats: simple (secret, computerId) and full (credentials table)
+                        -- Support both formats: simple (secret, computerId) and legacy full credentials table.
                         local creds = data.data and data.data.credentials
                         if creds then
                             -- Full credentials from SwarmAuthority
@@ -181,9 +190,7 @@ function Pairing.acceptFromPocket(callbacks)
                     end
                     -- Invalid signature = wrong code entered, ignore silently
                 elseif envelope.type == Protocol.MessageType.PAIR_REJECT then
-                    if callbacks.onCancel then
-                        callbacks.onCancel("Rejected by pocket")
-                    end
+                    emitCancel("Rejected by pocket")
                     break
                 end
             end
@@ -191,12 +198,14 @@ function Pairing.acceptFromPocket(callbacks)
             if p1 == keys.q then
                 local reject = Protocol.createPairReject("User cancelled")
                 rednet.broadcast(reject, Pairing.PROTOCOL)
-                if callbacks.onCancel then
-                    callbacks.onCancel("User cancelled")
-                end
+                emitCancel("User cancelled")
                 break
             end
         end
+    end
+
+    if not success and not cancelled then
+        emitCancel("Timed out waiting for pocket pairing")
     end
 
     -- Note: Leave modem open - caller will use it for network init after pairing

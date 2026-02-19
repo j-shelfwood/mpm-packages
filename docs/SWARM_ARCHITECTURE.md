@@ -88,9 +88,9 @@ POCKET (configured as controller)
 ```
 ZONE                                    POCKET
   |                                       |
-  | L -> Accept from pocket               | Menu: [A] Add Zone
+  | L -> Accept from pocket               | Menu: [A] Add Computer
   v                                       v
-Kernel:acceptPocketPairing()            App:addZone()
+KernelPairing.acceptFromPocket()        AddComputer screen
   |                                       |
   +-- Generate display code               |
   +-- Show code on screen                 |
@@ -104,17 +104,18 @@ Kernel:acceptPocketPairing()            App:addZone()
   |                                       | Shows "Enter code from screen"
   |                                       | User types code they see
   |                                       |
-  |                                       | SwarmAuthority:issueCredentials()
-  |                                       |   +-- Generate zoneSecret
-  |                                       |   +-- Add to Registry
+  |                                       | SwarmAuthority:reservePairingCredentials()
+  |                                       |   +-- Reuse/prepare computer secret
+  |                                       |   +-- Keep change pending
   |                                       |
   |<------ PAIR_DELIVER (signed) ---------+
   |        Signed with code as key        |
-  |        Contains credentials           |
+  |        Contains swarm secret + id     |
   |                                       |
   +-- Verify with display code            |
   +-- Extract secret, save to config      |
   +-- send PAIR_COMPLETE ---------------->|
+  |                                       | SwarmAuthority:commitPairingCredentials()
   |                                       |
   v                                       v
 ZONE (in swarm)                         Shows fingerprint
@@ -130,18 +131,15 @@ transmitted. An attacker would need physical access to complete pairing.
 | Message | Direction | Data | Notes |
 |---------|-----------|------|-------|
 | `PAIR_READY` | Zone -> Pocket | `{label, computerId}` | **No code** - code is display-only |
-| `PAIR_DELIVER` | Pocket -> Zone | `{credentials}` | **Signed envelope** using display code as key |
+| `PAIR_DELIVER` | Pocket -> Zone | `{secret, computerId}` | **Signed envelope** using display code as key |
 | `PAIR_COMPLETE` | Zone -> Pocket | `{label, success}` | Confirmation |
 | `PAIR_REJECT` | Any | `{reason}` | Cancellation |
 
-**Credentials structure:**
+**PAIR_DELIVER data:**
 ```lua
 {
-    zoneId = "zone_123_...",
-    zoneSecret = "...",        -- Per-zone secret
-    swarmId = "swarm_456_...",
-    swarmSecret = "...",       -- Shared swarm secret
-    swarmFingerprint = "XXXX-XXXX-XXXX"
+    secret = "...",            -- Shared swarm secret
+    computerId = "computer_123_..."
 }
 ```
 
@@ -207,9 +205,10 @@ mpm run shelfos-swarm
   +-- initNetwork() (rednet.host)
   +-- run() event loop
           |
-          +-- [A] Add Zone
-          +-- [Z] View Zones
+          +-- [A] Add Computer
+          +-- [C] View Computers
           +-- [D] Delete Swarm
+          +-- [P] Peripherals
           +-- [Q] Quit
 ```
 
@@ -236,7 +235,7 @@ ZONE                                    POCKET
   |                                       |
   |<------ PAIR_DELIVER (signed) ---------|
   |   Signed with code as ephemeral key   |
-  |   Contains: credentials               |
+  |   Contains: secret + computerId       |
   |                                       |
   | Verifies signature with display code  |
   | If valid: extracts secret, saves      |
@@ -249,7 +248,7 @@ ZONE                                    POCKET
 - The pairing code is NEVER transmitted over the network
 - An attacker would need physical access to see the code on the zone's screen
 - PAIR_DELIVER is signed with the code as an ephemeral HMAC key
-- Even if intercepted, the credentials cannot be extracted without the code
+- Invalid/forged deliveries are rejected without the code
 - The code is single-use and expires after 60 seconds
 
 **Crypto functions used:**

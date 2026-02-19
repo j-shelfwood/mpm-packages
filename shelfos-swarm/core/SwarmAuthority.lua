@@ -19,12 +19,25 @@ SwarmAuthority.__index = SwarmAuthority
 local REGISTRY_PATH = "/swarm_registry.dat"
 local IDENTITY_PATH = "/swarm_identity.dat"
 
+local function copyEntry(entry)
+    if type(entry) ~= "table" then
+        return nil
+    end
+
+    local out = {}
+    for k, v in pairs(entry) do
+        out[k] = v
+    end
+    return out
+end
+
 -- Create new swarm authority
 function SwarmAuthority.new()
     local self = setmetatable({}, SwarmAuthority)
     self.registry = Registry.new(REGISTRY_PATH)
     self.identity = nil  -- { id, secret, fingerprint }
     self.initialized = false
+    self.pendingPairings = {}
 
     return self
 end
@@ -136,39 +149,113 @@ function SwarmAuthority:getInfo()
     }
 end
 
--- Generate credentials for a new computer
--- Called during pairing when computer is verified
+-- Prepare credentials for a computer without mutating persistent registry.
+-- Caller must finalize via commitPairingCredentials() on successful handshake
+-- or cancelPairingCredentials() on failure.
 -- @param computerId Computer identifier
 -- @param computerLabel Human-readable label
--- @return credentials table { computerSecret, swarmId, swarmFingerprint }
-function SwarmAuthority:issueCredentials(computerId, computerLabel)
+-- @return credentials table
+function SwarmAuthority:reservePairingCredentials(computerId, computerLabel)
     if not self.initialized then
         return nil, "Swarm not initialized"
     end
+    if not computerId then
+        return nil, "Missing computer ID"
+    end
 
     local existing = self.registry:get(computerId)
+    local previous = copyEntry(existing)
     local computerSecret = existing and existing.secret or nil
     if not computerSecret or (existing and existing.status ~= "active") then
         computerSecret = self.registry:generateSecret()
     end
 
-    -- Add or update registry entry (re-pair support)
-    local entry, err = self.registry:upsert(computerId, computerLabel, computerSecret)
-    if not entry then
-        return nil, err
-    end
-
-    -- Save registry
-    self:save()
-
-    -- Return credentials for computer
-    return {
+    local creds = {
         computerId = computerId,
-        computerSecret = entry.secret,
+        computerSecret = computerSecret,
         swarmId = self.identity.id,
         swarmSecret = self.identity.secret,  -- Computer needs this to verify pocket messages
         swarmFingerprint = self.identity.fingerprint
     }
+
+    self.pendingPairings[computerId] = {
+        computerId = computerId,
+        computerLabel = computerLabel,
+        previous = previous,
+        creds = creds
+    }
+
+    return creds
+end
+
+-- Commit a previously reserved credential issuance after successful handshake.
+-- @param computerId Computer identifier
+-- @param computerLabel Optional latest human-readable label
+-- @return committed credentials table
+function SwarmAuthority:commitPairingCredentials(computerId, computerLabel)
+    if not self.initialized then
+        return nil, "Swarm not initialized"
+    end
+
+    local pending = self.pendingPairings[computerId]
+    if not pending then
+        return nil, "No pending pairing"
+    end
+
+    local entry, err = self.registry:upsert(
+        computerId,
+        computerLabel or pending.computerLabel,
+        pending.creds.computerSecret
+    )
+    if not entry then
+        return nil, err
+    end
+
+    self.pendingPairings[computerId] = nil
+    self:save()
+
+    return {
+        computerId = computerId,
+        computerSecret = entry.secret,
+        swarmId = self.identity.id,
+        swarmSecret = self.identity.secret,
+        swarmFingerprint = self.identity.fingerprint
+    }
+end
+
+-- Roll back a pending pairing reservation.
+-- @param computerId Computer identifier
+-- @return true if rollback was applied (or no pending reservation)
+function SwarmAuthority:cancelPairingCredentials(computerId)
+    local pending = self.pendingPairings[computerId]
+    if not pending then
+        return true
+    end
+
+    if pending.previous then
+        self.registry.entries[computerId] = pending.previous
+    else
+        self.registry:remove(computerId)
+    end
+
+    self.pendingPairings[computerId] = nil
+    self:save()
+    return true
+end
+
+-- Backward-compatible single-step issuance used by legacy call sites/tests.
+function SwarmAuthority:issueCredentials(computerId, computerLabel)
+    local creds, err = self:reservePairingCredentials(computerId, computerLabel)
+    if not creds then
+        return nil, err
+    end
+
+    local committed, commitErr = self:commitPairingCredentials(computerId, computerLabel)
+    if not committed then
+        return nil, commitErr
+    end
+
+    return committed
 end
 
 -- Get secret for a computer (for message verification)
@@ -226,12 +313,14 @@ end
 -- Remove a computer completely
 -- @param computerId Computer identifier
 function SwarmAuthority:removeComputer(computerId)
+    self.pendingPairings[computerId] = nil
     self.registry:remove(computerId)
     self:save()
 end
 
 -- Delete the entire swarm
 function SwarmAuthority:deleteSwarm()
+    self.pendingPairings = {}
     self.registry:delete()
     if fs.exists(IDENTITY_PATH) then
         fs.delete(IDENTITY_PATH)

@@ -22,11 +22,52 @@ local state = {
     errorMsg = nil,
     successMsg = nil,
     pairingCreds = nil,
-    spinnerTimer = nil
+    spinnerTimer = nil,
+    scanStartedAt = 0
 }
 
 local PAIR_PROTOCOL = "shelfos_pair"
 local SCAN_TIMEOUT_MS = 60000
+local PENDING_STALE_MS = 15000
+
+local function prunePending()
+    local cutoff = os.epoch("utc") - PENDING_STALE_MS
+    local removed = false
+    for i = #state.pendingComputers, 1, -1 do
+        if (state.pendingComputers[i].lastSeen or 0) < cutoff then
+            table.remove(state.pendingComputers, i)
+            removed = true
+        end
+    end
+    return removed
+end
+
+local function upsertPending(senderId, msg)
+    if type(msg) ~= "table" or msg.type ~= Protocol.MessageType.PAIR_READY then
+        return false
+    end
+
+    local computerId = msg.data.computerId or ("computer_" .. senderId)
+    local computerLabel = msg.data.label or ("Computer " .. senderId)
+    local now = os.epoch("utc")
+
+    for _, c in ipairs(state.pendingComputers) do
+        if c.id == computerId then
+            c.lastSeen = now
+            c.senderId = senderId
+            c.label = computerLabel
+            return false
+        end
+    end
+
+    table.insert(state.pendingComputers, {
+        id = computerId,
+        senderId = senderId,
+        label = computerLabel,
+        lastSeen = now
+    })
+    return true
+end
 
 function AddComputer.onEnter(ctx, args)
     state.phase = "scanning"
@@ -37,6 +78,7 @@ function AddComputer.onEnter(ctx, args)
     state.successMsg = nil
     state.pairingCreds = nil
     state.spinnerTimer = nil
+    state.scanStartedAt = os.epoch("utc")
 
     -- Open modem
     local ok, modemName, modemType = ModemUtils.open(true)
@@ -82,6 +124,11 @@ function AddComputer.drawScanning(ctx)
     y = y + 2
 
     -- Computer count
+    local elapsedMs = os.epoch("utc") - state.scanStartedAt
+    local remaining = math.max(0, math.ceil((SCAN_TIMEOUT_MS - elapsedMs) / 1000))
+    TermUI.drawText(2, y, "Timeout in: " .. remaining .. "s", colors.gray)
+    y = y + 1
+
     local computerCount = #state.pendingComputers
     if computerCount > 0 then
         local countColor = colors.lime
@@ -175,35 +222,32 @@ function AddComputer.drawCodeEntry(ctx)
     state.phase = "pairing"
     AddComputer.draw(ctx)
 
-    -- Issue credentials
-    local creds, err = ctx.app.authority:issueCredentials(computer.id, computer.label)
+    -- Reserve credentials; commit only after PAIR_COMPLETE.
+    local authority = ctx.app.authority
+    local hasReserve = type(authority.reservePairingCredentials) == "function"
+    local hasCommit = type(authority.commitPairingCredentials) == "function"
+    local hasCancel = type(authority.cancelPairingCredentials) == "function"
+    local isLegacySingleStep = false
+
+    local creds, err
+    if hasReserve then
+        creds, err = authority:reservePairingCredentials(computer.id, computer.label)
+    else
+        isLegacySingleStep = true
+        creds, err = authority:issueCredentials(computer.id, computer.label)
+    end
+
     if not creds then
-        if err == "Computer already exists" then
-            local existing = ctx.app.authority:getComputer(computer.id)
-            local identity = ctx.app.authority.identity
-            if existing and identity and identity.secret then
-                creds = {
-                    computerId = existing.id or computer.id,
-                    computerSecret = existing.secret,
-                    swarmId = identity.id,
-                    swarmSecret = identity.secret,
-                    swarmFingerprint = identity.fingerprint
-                }
-            end
-        end
-        if not creds then
-            state.errorMsg = "Failed: " .. (err or "Unknown error")
-            state.phase = "error"
-            AddComputer.draw(ctx)
-            return
-        end
+        state.errorMsg = "Failed: " .. (err or "Unknown error")
+        state.phase = "error"
+        AddComputer.draw(ctx)
+        return
     end
 
     state.pairingCreds = creds
 
     -- Create and send PAIR_DELIVER
     local deliverMsg = Protocol.createPairDeliver(creds.swarmSecret, creds.computerId)
-    deliverMsg.data.credentials = creds
 
     -- Send equivalent key-format variants (raw/compact/dashed) so formatting
     -- differences in user input cannot break pairing.
@@ -221,6 +265,20 @@ function AddComputer.drawCodeEntry(ctx)
         if event == "rednet_message" and p1 == computer.senderId then
             if p3 == PAIR_PROTOCOL and type(p2) == "table" then
                 if p2.type == Protocol.MessageType.PAIR_COMPLETE then
+                    if hasCommit then
+                        local committed, commitErr = authority:commitPairingCredentials(computer.id, computer.label)
+                        if not committed then
+                            if hasCancel then
+                                authority:cancelPairingCredentials(computer.id)
+                            end
+                            state.errorMsg = "Pairing acknowledged but save failed: " .. (commitErr or "Unknown error")
+                            state.phase = "error"
+                            AddComputer.draw(ctx)
+                            return
+                        end
+                        state.pairingCreds = committed
+                    end
+
                     state.successMsg = computer.label .. " joined swarm"
                     state.phase = "success"
                     AddComputer.draw(ctx)
@@ -232,7 +290,11 @@ function AddComputer.drawCodeEntry(ctx)
 
     -- Timeout: wrong code
     state.errorMsg = "No response - check code was correct"
-    ctx.app.authority:removeComputer(computer.id)
+    if hasCancel then
+        authority:cancelPairingCredentials(computer.id)
+    elseif isLegacySingleStep and type(authority.removeComputer) == "function" then
+        authority:removeComputer(computer.id)
+    end
     state.phase = "error"
     AddComputer.draw(ctx)
 end
@@ -293,6 +355,19 @@ function AddComputer.handleEvent(ctx, event, p1, p2, p3)
 end
 
 function AddComputer.handleScanning(ctx, event, p1, p2, p3)
+    local changedByPrune = prunePending()
+    if changedByPrune then
+        AddComputer.draw(ctx)
+    end
+
+    local elapsedMs = os.epoch("utc") - state.scanStartedAt
+    if elapsedMs >= SCAN_TIMEOUT_MS and #state.pendingComputers == 0 then
+        state.errorMsg = "No pairing requests detected. Start pairing on the target computer, then retry."
+        state.phase = "error"
+        AddComputer.draw(ctx)
+        return nil
+    end
+
     if event == "key" then
         local keyName = keys.getName(p1)
         if keyName then
@@ -314,30 +389,8 @@ function AddComputer.handleScanning(ctx, event, p1, p2, p3)
     elseif event == "rednet_message" and p3 == PAIR_PROTOCOL then
         local senderId = p1
         local msg = p2
-
-        if type(msg) == "table" and msg.type == Protocol.MessageType.PAIR_READY then
-            local computerId = msg.data.computerId or ("computer_" .. senderId)
-            local computerLabel = msg.data.label or ("Computer " .. senderId)
-
-            -- Check if already in list
-            local found = false
-            for _, c in ipairs(state.pendingComputers) do
-                if c.id == computerId then
-                    found = true
-                    c.lastSeen = os.epoch("utc")
-                    break
-                end
-            end
-
-            if not found then
-                table.insert(state.pendingComputers, {
-                    id = computerId,
-                    senderId = senderId,
-                    label = computerLabel,
-                    lastSeen = os.epoch("utc")
-                })
-            end
-
+        local changed = upsertPending(senderId, msg)
+        if changed then
             AddComputer.draw(ctx)
         end
     end
@@ -352,6 +405,13 @@ function AddComputer.handleScanning(ctx, event, p1, p2, p3)
 end
 
 function AddComputer.handleSelecting(ctx, event, p1, p2, p3)
+    if prunePending() then
+        if #state.pendingComputers == 0 then
+            state.phase = "scanning"
+        end
+        AddComputer.draw(ctx)
+    end
+
     if event == "key" then
         local keyName = keys.getName(p1)
         if not keyName then return nil end
@@ -377,28 +437,8 @@ function AddComputer.handleSelecting(ctx, event, p1, p2, p3)
         local senderId = p1
         local msg = p2
 
-        if type(msg) == "table" and msg.type == Protocol.MessageType.PAIR_READY then
-            local computerId = msg.data.computerId or ("computer_" .. senderId)
-            local computerLabel = msg.data.label or ("Computer " .. senderId)
-
-            local found = false
-            for _, c in ipairs(state.pendingComputers) do
-                if c.id == computerId then
-                    found = true
-                    c.lastSeen = os.epoch("utc")
-                    break
-                end
-            end
-
-            if not found then
-                table.insert(state.pendingComputers, {
-                    id = computerId,
-                    senderId = senderId,
-                    label = computerLabel,
-                    lastSeen = os.epoch("utc")
-                })
-                AddComputer.draw(ctx)
-            end
+        if upsertPending(senderId, msg) then
+            AddComputer.draw(ctx)
         end
     end
 
