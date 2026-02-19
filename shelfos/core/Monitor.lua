@@ -313,12 +313,12 @@ function Monitor:closeConfigMenu(skipImmediateRender)
     if self.buffer then
         self.buffer.setVisible(true)
     end
-    -- Clear peripheral and trigger immediate buffered render when view wasn't reloaded.
+    -- Clear peripheral and always resume buffered rendering immediately.
+    -- loadView() can run while inConfigMenu=true, which suppresses its internal
+    -- render/schedule path; therefore close must always re-prime the render loop.
     self.peripheral.clear()
-    if not skipImmediateRender then
-        self:render()
-        self:scheduleRender()
-    end
+    self:render()
+    self:scheduleRender()
 end
 
 -- Render the view using window buffering for flicker-free updates
