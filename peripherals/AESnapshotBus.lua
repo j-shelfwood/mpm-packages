@@ -3,7 +3,6 @@
 -- Decouples heavy bridge reads from monitor render loops.
 
 local Peripherals = mpm('utils/Peripherals')
-local Yield = mpm('utils/Yield')
 
 local AESnapshotBus = {}
 
@@ -58,6 +57,13 @@ local POLL_PLAN = {
 
 local function nowMs()
     return os.epoch("utc")
+end
+
+local function pause(seconds)
+    local t = os.startTimer(seconds or 0)
+    repeat
+        local _, tid = os.pullEvent("timer")
+    until tid == t
 end
 
 local function bridgeName(bridge)
@@ -156,16 +162,13 @@ function AESnapshotBus.runLoop(runningRef)
             for _, spec in ipairs(POLL_PLAN) do
                 if pollOne(entry, spec, now) then
                     didWork = true
-                    Yield.yield()
+                    pause(0)
                 end
             end
         end
 
         if not didWork then
-            local t = os.startTimer(0.1)
-            repeat
-                local _, tid = os.pullEvent("timer")
-            until tid == t
+            pause(0.1)
         end
     end
 

@@ -144,7 +144,6 @@ end
 -- @param kernel Kernel instance with channel, discovery, peripheralHost, monitors
 -- @param runningRef Shared running flag table { value = true/false }
 function KernelNetwork.loop(kernel, runningRef)
-    local Yield = mpm('utils/Yield')
     local lastHostAnnounce = 0
     local hostAnnounceInterval = 10000  -- 10 seconds
     local lastPeriphDiscovery = 0
@@ -152,6 +151,12 @@ function KernelNetwork.loop(kernel, runningRef)
     local maxDiscoveryInterval = 30000     -- Slow down to 30s once found
     local lastCleanup = 0
     local cleanupInterval = 5000           -- Clean expired requests every 5s
+    local function pause(seconds)
+        local timer = os.startTimer(seconds or 0)
+        repeat
+            local _, tid = os.pullEvent("timer")
+        until tid == timer
+    end
 
     while runningRef.value do
         if kernel.channel then
@@ -216,9 +221,9 @@ function KernelNetwork.loop(kernel, runningRef)
             -- CRITICAL: Yield after each iteration to prevent "too long without yielding"
             -- channel:poll() yields via rednet.receive(), but the subsequent announce/broadcast
             -- work can accumulate CPU time across iterations when poll returns quickly
-            Yield.yield()
+            pause(0)
         else
-            Yield.yield()
+            pause(0.1)
         end
     end
 end

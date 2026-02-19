@@ -4,7 +4,6 @@
 
 local Activity = mpm('peripherals/MachineActivity')
 local Text = mpm('utils/Text')
-local Yield = mpm('utils/Yield')
 
 local MachineSnapshotBus = {}
 
@@ -34,6 +33,13 @@ end
 
 local function nowMs()
     return os.epoch("utc")
+end
+
+local function pause(seconds)
+    local timer = os.startTimer(seconds or 0)
+    repeat
+        local _, tid = os.pullEvent("timer")
+    until tid == timer
 end
 
 local function clamp01(value)
@@ -328,7 +334,9 @@ local function pollSweep()
         if entry then
             pollEntry(entry, now)
         end
-        Yield.check(i, 4)
+        if i % 4 == 0 then
+            pause(0)
+        end
     end
 
     st.pollCursor = cursor
@@ -367,10 +375,7 @@ function MachineSnapshotBus.runLoop(runningRef)
     while runningRef.value do
         local didWork = MachineSnapshotBus.tick(false)
         if not didWork then
-            local timer = os.startTimer(0.1)
-            repeat
-                local _, tid = os.pullEvent("timer")
-            until tid == timer
+            pause(0.1)
         end
     end
 
