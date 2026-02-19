@@ -67,6 +67,25 @@ local function buildTaskDetail(task)
     return table.concat(parts, " ")
 end
 
+local function buildTasksFromCPUJobs(cpus)
+    local derived = {}
+    for index, cpu in ipairs(cpus or {}) do
+        if cpu.isBusy and type(cpu.craftingJob) == "table" then
+            local task = {}
+            for k, v in pairs(cpu.craftingJob) do
+                task[k] = v
+            end
+            task.cpu = task.cpu or {
+                name = cpu.name,
+                storage = cpu.storage,
+                index = index
+            }
+            table.insert(derived, task)
+        end
+    end
+    return derived
+end
+
 -- Get available CPUs for config picker
 local function getCPUOptions()
     if not AEViewSupport.mount() then return {} end
@@ -136,7 +155,13 @@ return BaseView.custom({
         if cpu.isBusy then
             local tasksOk, tasks = pcall(function() return self.interface:getCraftingTasks() end)
             Yield.yield()
-            if tasksOk and tasks then
+            tasks = (tasksOk and type(tasks) == "table") and tasks or {}
+
+            if #tasks == 0 then
+                tasks = buildTasksFromCPUJobs(cpus)
+            end
+
+            if #tasks > 0 then
                 -- Prefer explicit name match when available and meaningful.
                 for _, task in ipairs(tasks) do
                     local taskCpuName = type(task.cpu) == "table" and task.cpu.name or task.cpu

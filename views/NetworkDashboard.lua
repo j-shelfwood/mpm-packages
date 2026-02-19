@@ -11,6 +11,16 @@ local AEViewSupport = mpm('views/AEViewSupport')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Renderers = mpm('views/NetworkDashboardRenderers')
 
+local function countCPUCraftingJobs(cpus)
+    local count = 0
+    for _, cpu in ipairs(cpus or {}) do
+        if cpu.isBusy and type(cpu.craftingJob) == "table" then
+            count = count + 1
+        end
+    end
+    return count
+end
+
 return BaseView.custom({
     sleepTime = 2,
 
@@ -86,8 +96,12 @@ return BaseView.custom({
         end
 
         -- Active crafting tasks
-        local tasks = self.interface:getCraftingTasks()
-        data.activeCrafts = #tasks
+        local tasksOk, tasks = pcall(function()
+            return self.interface:getCraftingTasks()
+        end)
+        tasks = (tasksOk and type(tasks) == "table") and tasks or {}
+        local fallbackCount = countCPUCraftingJobs(cpus)
+        data.activeCrafts = math.max(#tasks, fallbackCount)
 
         return data
     end,

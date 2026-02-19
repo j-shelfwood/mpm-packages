@@ -9,6 +9,40 @@ local Core = mpm('ui/Core')
 local Yield = mpm('utils/Yield')
 local ModalOverlay = mpm('ui/ModalOverlay')
 
+local function getTaskResource(task)
+    if type(task) ~= "table" then return nil end
+    if type(task.resource) == "table" then
+        return task.resource
+    end
+    return nil
+end
+
+local function getTaskDisplayName(task)
+    local resource = getTaskResource(task)
+    if resource and resource.displayName then
+        return resource.displayName
+    end
+    if resource and resource.name then
+        return Text.prettifyName(resource.name)
+    end
+    if task and (task.name or task.item) then
+        return Text.prettifyName(task.name or task.item)
+    end
+    return "Unknown"
+end
+
+local function getTaskQuantity(task)
+    if not task then return 0 end
+    if task.quantity ~= nil then
+        return task.quantity
+    end
+    local resource = getTaskResource(task)
+    if resource and resource.count ~= nil then
+        return resource.count
+    end
+    return 0
+end
+
 local function getTaskCpuName(task)
     if not task or not task.cpu then return nil end
     if type(task.cpu) == "table" then
@@ -93,14 +127,51 @@ local function assignCPULabelsToTasks(tasks, cpus, lookup)
     end
 end
 
+local function buildTasksFromCPUJobs(cpus)
+    local derived = {}
+    local total = #(cpus or {})
+
+    for index, cpu in ipairs(cpus or {}) do
+        if cpu.isBusy and type(cpu.craftingJob) == "table" then
+            local task = {}
+            for k, v in pairs(cpu.craftingJob) do
+                task[k] = v
+            end
+
+            task.cpu = task.cpu or {
+                name = cpu.name,
+                storage = cpu.storage,
+                index = index
+            }
+            task._cpuLabel = makeCPULabel(index, total, cpu.storage)
+            table.insert(derived, task)
+        end
+    end
+
+    return derived
+end
+
+local function filterTasks(tasks, showCompleted)
+    if showCompleted then
+        return tasks
+    end
+
+    local filtered = {}
+    for _, task in ipairs(tasks or {}) do
+        local keep = true
+        if type(task.completion) == "number" and task.completion >= 0.999 then
+            keep = false
+        end
+        if keep then
+            table.insert(filtered, task)
+        end
+    end
+    return filtered
+end
+
 -- Task detail overlay with cancel button (blocking)
 local function showTaskDetail(self, task)
-    local itemName = "Unknown"
-    if task.resource and task.resource.displayName then
-        itemName = task.resource.displayName
-    elseif task.resource and task.resource.name then
-        itemName = Text.prettifyName(task.resource.name)
-    end
+    local itemName = getTaskDisplayName(task)
 
     ModalOverlay.show(self, {
         maxWidth = 32,
@@ -115,7 +186,7 @@ local function showTaskDetail(self, task)
         },
         render = function(monitor, frame, state, addAction)
             local contentY = frame.y1 + 2
-            local quantity = task.quantity or (task.resource and task.resource.count) or 0
+            local quantity = getTaskQuantity(task)
 
             monitor.setTextColor(colors.white)
             monitor.setCursorPos(frame.x1 + 1, contentY)
@@ -187,8 +258,9 @@ local function showTaskDetail(self, task)
             if action == "cancel" then
                 if self.interface then
                     local filter = {}
-                    if task.resource and task.resource.name then
-                        filter.name = task.resource.name
+                    local resource = getTaskResource(task)
+                    if resource and resource.name then
+                        filter.name = resource.name
                     end
 
                     local ok, result = pcall(function()
@@ -250,9 +322,12 @@ return BaseView.interactive({
         -- Lazy re-init: retry if host not yet discovered at init time
         if not AEViewSupport.ensureInterface(self) then return nil end
 
-        -- Get all crafting tasks
-        local tasks = self.interface:getCraftingTasks()
-        if not tasks then return {} end
+        -- Bridge task list is sometimes empty unless jobs were started from this bridge.
+        -- We'll fallback to busy CPUs' craftingJob data below.
+        local tasksOk, tasks = pcall(function()
+            return self.interface:getCraftingTasks()
+        end)
+        tasks = (tasksOk and type(tasks) == "table") and tasks or {}
 
         Yield.yield()
 
@@ -274,9 +349,15 @@ return BaseView.interactive({
             end
 
             assignCPULabelsToTasks(tasks, cpus, lookup)
+
+            -- Fallback for AP/AE2 behavior where getCraftingTasks() can be empty:
+            -- derive active jobs from each busy CPU's embedded craftingJob.
+            if #tasks == 0 then
+                tasks = buildTasksFromCPUJobs(cpus)
+            end
         end
 
-        return tasks
+        return filterTasks(tasks, self.showCompleted)
     end,
 
     header = function(self, data)
@@ -289,20 +370,13 @@ return BaseView.interactive({
     end,
 
     formatItem = function(self, task)
-        -- Extract item name
-        local itemName = "Unknown"
-        if task.resource and task.resource.displayName then
-            itemName = task.resource.displayName
-        elseif task.resource and task.resource.name then
-            itemName = Text.prettifyName(task.resource.name)
-        end
+        local itemName = getTaskDisplayName(task)
 
         -- Build detail string
         local detailParts = {}
-        if task.quantity then
-            table.insert(detailParts, "x" .. Text.formatNumber(task.quantity, 0))
-        elseif task.resource and task.resource.count then
-            table.insert(detailParts, "x" .. Text.formatNumber(task.resource.count, 0))
+        local quantity = getTaskQuantity(task)
+        if quantity and quantity > 0 then
+            table.insert(detailParts, "x" .. Text.formatNumber(quantity, 0))
         end
         if type(task.completion) == "number" then
             local percent = math.floor(task.completion * 100 + 0.5)

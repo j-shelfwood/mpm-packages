@@ -78,6 +78,25 @@ local function buildTaskMap(cpus, tasks)
     return map
 end
 
+local function buildTasksFromCPUJobs(cpus)
+    local derived = {}
+    for index, cpu in ipairs(cpus or {}) do
+        if cpu.isBusy and type(cpu.craftingJob) == "table" then
+            local task = {}
+            for k, v in pairs(cpu.craftingJob) do
+                task[k] = v
+            end
+            task.cpu = task.cpu or {
+                name = cpu.name,
+                storage = cpu.storage,
+                index = index
+            }
+            table.insert(derived, task)
+        end
+    end
+    return derived
+end
+
 local function getCPULabel(cpu, index, total)
     return "CPU " .. index .. "/" .. total .. " (" .. Text.formatBytesAsK(cpu.storage or 0) .. ")"
 end
@@ -120,7 +139,10 @@ return BaseView.grid({
         local tasksOk, tasksData = pcall(function()
             return self.interface:getCraftingTasks()
         end)
-        local tasks = tasksOk and tasksData or {}
+        local tasks = (tasksOk and type(tasksData) == "table") and tasksData or {}
+        if #tasks == 0 then
+            tasks = buildTasksFromCPUJobs(cpus)
+        end
         local tasksByCpuIndex = buildTaskMap(cpus, tasks)
 
         self.totalStorage = 0
