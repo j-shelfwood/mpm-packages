@@ -9,6 +9,31 @@ local Yield = mpm('utils/Yield')
 local PeripheralClient = {}
 PeripheralClient.__index = PeripheralClient
 
+local function normalizeTypeToken(typeName)
+    if type(typeName) ~= "string" or typeName == "" then
+        return nil
+    end
+    return typeName:lower():gsub("[^%w]", "")
+end
+
+local function typeMatches(actual, expected)
+    local a = normalizeTypeToken(actual)
+    local b = normalizeTypeToken(expected)
+    if not a or not b then
+        return false
+    end
+    if a == b then
+        return true
+    end
+
+    local suffixA = tostring(actual):match(":(.+)$")
+    local suffixB = tostring(expected):match(":(.+)$")
+    local sa = normalizeTypeToken(suffixA)
+    local sb = normalizeTypeToken(suffixB)
+
+    return (sa and sa == b) or (a == sb) or (sa and sb and sa == sb) or false
+end
+
 -- Create a new peripheral client
 -- @param channel Channel instance for network communication
 function PeripheralClient.new(channel)
@@ -150,8 +175,9 @@ function PeripheralClient:handleAnnounce(senderId, msg)
 
     -- Register peripherals
     for _, pInfo in ipairs(data.peripherals) do
-        self:registerRemote(senderId, pInfo.name, pInfo.type, pInfo.methods, data.computerName)
+        self:registerRemote(senderId, pInfo.name, pInfo.type, pInfo.methods, data.computerName, true)
     end
+    self:rebuildNameIndexes()
 end
 
 -- Handle peripheral list response
@@ -173,8 +199,9 @@ function PeripheralClient:handlePeriphList(senderId, msg)
 
     -- Register peripherals
     for _, pInfo in ipairs(data.peripherals) do
-        self:registerRemote(senderId, pInfo.name, pInfo.type, pInfo.methods)
+        self:registerRemote(senderId, pInfo.name, pInfo.type, pInfo.methods, nil, true)
     end
+    self:rebuildNameIndexes()
 
     -- Resolve pending request if any
     if msg.requestId and self.pendingRequests[msg.requestId] then
@@ -213,7 +240,7 @@ function PeripheralClient:handleError(senderId, msg)
 end
 
 -- Register a remote peripheral
-function PeripheralClient:registerRemote(hostId, name, pType, methods)
+function PeripheralClient:registerRemote(hostId, name, pType, methods, _, deferIndexRebuild)
     local key = makeRemoteKey(hostId, name)
     local hostComputer = self.hostComputers[hostId]
     local hostComputerName = hostComputer and hostComputer.computerName or nil
@@ -235,7 +262,9 @@ function PeripheralClient:registerRemote(hostId, name, pType, methods)
 
     self.hostPeripheralKeys[hostId] = self.hostPeripheralKeys[hostId] or {}
     self.hostPeripheralKeys[hostId][key] = true
-    self:rebuildNameIndexes()
+    if not deferIndexRebuild then
+        self:rebuildNameIndexes()
+    end
 end
 
 -- Discover remote peripherals (broadcast and wait)
@@ -293,7 +322,7 @@ end
 function PeripheralClient:find(pType)
     for _, key in ipairs(sortedRemoteKeys(self.remotePeripherals)) do
         local info = self.remotePeripherals[key]
-        if info.type == pType then
+        if typeMatches(info.type, pType) then
             return info.proxy
         end
     end
@@ -307,7 +336,7 @@ function PeripheralClient:findAll(pType)
     local results = {}
     for _, key in ipairs(sortedRemoteKeys(self.remotePeripherals)) do
         local info = self.remotePeripherals[key]
-        if info.type == pType then
+        if typeMatches(info.type, pType) then
             table.insert(results, info.proxy)
         end
     end
@@ -361,7 +390,7 @@ end
 function PeripheralClient:hasType(name, pType)
     local info = self:resolveInfo(name)
     if info then
-        return info.type == pType
+        return typeMatches(info.type, pType)
     end
     return nil
 end

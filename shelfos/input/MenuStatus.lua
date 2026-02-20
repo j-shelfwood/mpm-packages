@@ -74,7 +74,8 @@ function MenuStatus.buildLines(config)
             me_bridge = true, rsBridge = true, energyStorage = true,
             energy_storage = true, inventory = true, chest = true,
             fluid_storage = true, environment_detector = true,
-            player_detector = true, colony_integrator = true, chat_box = true
+            player_detector = true, colony_integrator = true, chat_box = true,
+            energy_detector = true, energyDetector = true
         }
         local shared = {}
         for _, name in ipairs(peripheral.getNames()) do

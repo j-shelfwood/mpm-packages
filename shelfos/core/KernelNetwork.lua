@@ -33,8 +33,8 @@ function KernelNetwork.drainChannel(channel, blockTimeout, maxDrain)
     local drained = 0
 
     while drained < limit do
-        local handled = channel:poll(drained == 0 and timeout or 0)
-        if not handled then break end
+        local handled, received = channel:poll(drained == 0 and timeout or 0)
+        if not received then break end
         drained = drained + 1
     end
 
@@ -157,6 +157,8 @@ function KernelNetwork.loop(kernel, runningRef)
     local maxDiscoveryInterval = 30000     -- Slow down to 30s once found
     local lastCleanup = 0
     local cleanupInterval = 5000           -- Clean expired requests every 5s
+    local lastDiscoveryCleanup = 0
+    local discoveryCleanupInterval = 30000
     local function pause(seconds)
         local timer = os.startTimer(seconds or 0)
         repeat
@@ -185,6 +187,11 @@ function KernelNetwork.loop(kernel, runningRef)
                 if kernel.dashboard then
                     kernel.dashboard:markActivity("announce", "Swarm metadata announce", colors.cyan)
                 end
+            end
+
+            if kernel.discovery and (os.epoch("utc") - lastDiscoveryCleanup) > discoveryCleanupInterval then
+                kernel.discovery:cleanup()
+                lastDiscoveryCleanup = os.epoch("utc")
             end
 
             -- Periodic peripheral host announce

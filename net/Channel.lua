@@ -190,7 +190,7 @@ end
 
 -- Process incoming messages (call in event loop)
 -- @param timeout How long to wait for messages
--- @return true if message was handled
+-- @return handled:boolean, received:boolean
 function Channel:poll(timeout)
     local senderId, message = self:receive(timeout or 0)
 
@@ -198,18 +198,20 @@ function Channel:poll(timeout)
         -- Validate message
         local valid, err = Protocol.validate(message)
         if not valid then
-            return false
+            return false, true
         end
 
         -- Call handler if registered
         local handler = self.handlers[message.type]
         if handler then
             local ok, result = pcall(handler, senderId, message, self)
-            return ok
+            return ok, true
         end
+
+        return false, true
     end
 
-    return false
+    return false, false
 end
 
 -- Run message loop (blocking)

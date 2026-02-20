@@ -27,7 +27,19 @@ local function hasEnergyStorage()
 end
 
 local function hasEnergyDetector()
-    return Peripherals.find("energy_detector")
+    local detector = Peripherals.find("energy_detector")
+    if detector then
+        return detector
+    end
+
+    -- Fallback for detector type alias drift across remote hosts.
+    for _, name in ipairs(Peripherals.getNames()) do
+        local p = Peripherals.wrap(name)
+        if p and type(p.getTransferRate) == "function" and type(p.getTransferRateLimit) == "function" then
+            return p
+        end
+    end
+    return nil
 end
 
 -- Get list of all available views from manifest

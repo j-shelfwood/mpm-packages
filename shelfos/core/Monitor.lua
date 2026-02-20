@@ -49,6 +49,9 @@ local DependencyStatus = mpm('net/DependencyStatus')
 local Monitor = {}
 Monitor.__index = Monitor
 
+local TOUCH_DEBOUNCE_MS = 350
+local CONFIG_EXIT_TOUCH_GUARD_MS = 700
+
 local function copyArray(arr)
     local copy = {}
     for i, v in ipairs(arr or {}) do
@@ -124,6 +127,7 @@ function Monitor.new(config, onViewChange, settings, index, availableViews)
     self.currentIndex = 1
     self.settingsButton = nil
     self.pairingMode = false  -- When true, skip rendering (pairing code displayed)
+    self.touchDebounceUntil = 0
 
     -- Window buffer for flicker-free rendering
     self.buffer = nil
@@ -282,6 +286,7 @@ function Monitor:openConfigMenu()
         return
     end
 
+    self.touchDebounceUntil = os.epoch("utc") + TOUCH_DEBOUNCE_MS
     self.inConfigMenu = true
     self.showingSettings = false
     self.settingsButton = nil
@@ -326,6 +331,7 @@ end
 -- Close config menu
 function Monitor:closeConfigMenu(skipImmediateRender)
     self.inConfigMenu = false
+    self.touchDebounceUntil = os.epoch("utc") + CONFIG_EXIT_TOUCH_GUARD_MS
     if self.buffer then
         self.buffer.setVisible(true)
     end
@@ -511,6 +517,11 @@ function Monitor:handleTouch(monitorName, x, y)
     -- Config menu is now handled synchronously in openConfigMenu
     if self.inConfigMenu then
         return false
+    end
+
+    local now = os.epoch("utc")
+    if now < (self.touchDebounceUntil or 0) then
+        return true
     end
 
     -- Header touch (y=1) always opens view selector

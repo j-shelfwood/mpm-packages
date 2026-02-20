@@ -73,15 +73,17 @@ local function findDetectors()
     local names = Peripherals.getNames()
 
     for idx, name in ipairs(names) do
-        if Peripherals.hasType(name, "energy_detector") or Peripherals.getType(name) == "energy_detector" then
-            local p = Peripherals.wrap(name)
-            if p and p.getTransferRate and p.getTransferRateLimit then
-                table.insert(detectors, {
-                    name = name,
-                    displayName = Peripherals.getDisplayName(name) or name,
-                    peripheral = p
-                })
-            end
+        local p = Peripherals.wrap(name)
+        local hasDetectorMethods = p and type(p.getTransferRate) == "function" and type(p.getTransferRateLimit) == "function"
+        local hasDetectorType = Peripherals.hasType(name, "energy_detector")
+            or Peripherals.typeMatches(Peripherals.getType(name), "energy_detector")
+
+        if hasDetectorMethods or hasDetectorType then
+            table.insert(detectors, {
+                name = name,
+                displayName = Peripherals.getDisplayName(name) or name,
+                peripheral = p
+            })
         end
         Yield.check(idx, 10)
     end

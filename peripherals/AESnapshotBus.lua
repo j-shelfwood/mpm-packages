@@ -8,7 +8,8 @@ local AESnapshotBus = {}
 
 _G._shelfos_aeSnapshotBus = _G._shelfos_aeSnapshotBus or {
     entries = {},
-    running = false
+    running = false,
+    lastPruneAt = 0
 }
 
 local POLL_PLAN = {
@@ -54,6 +55,9 @@ local POLL_PLAN = {
         return (bridge.getAverageEnergyInput and bridge.getAverageEnergyInput()) or 0
     end },
 }
+
+local BRIDGE_ENTRY_TTL_MS = 120000
+local PRUNE_INTERVAL_MS = 30000
 
 local function nowMs()
     return os.epoch("utc")
@@ -157,6 +161,16 @@ function AESnapshotBus.runLoop(runningRef)
     while runningRef.value do
         local now = nowMs()
         local didWork = false
+
+        if (now - (store.lastPruneAt or 0)) >= PRUNE_INTERVAL_MS then
+            for name, entry in pairs(store.entries) do
+                if (now - (entry.lastSeenAt or 0)) > BRIDGE_ENTRY_TTL_MS then
+                    store.entries[name] = nil
+                    didWork = true
+                end
+            end
+            store.lastPruneAt = now
+        end
 
         for _, entry in pairs(store.entries) do
             for _, spec in ipairs(POLL_PLAN) do

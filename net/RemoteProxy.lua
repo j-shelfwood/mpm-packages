@@ -28,6 +28,8 @@ local CACHE_TTL_MS = 2000            -- Return cache if fresher than 2s (covers 
 local CACHE_STALE_MS = 5000          -- Fire async refresh after 5s staleness
 local CACHE_EXPIRE_MS = 30000        -- Discard cache after 30s (peripheral may be gone)
 local ASYNC_RETRY_MS = 1000          -- Avoid burst retries when refresh fails/lag spikes
+local CACHE_SWEEP_INTERVAL_MS = 5000 -- Sweep expired cache entries periodically
+local MAX_CACHE_ENTRIES = 256        -- Hard cap per peripheral proxy cache
 
 -- Default RPC timeout in seconds (only used for initial blocking call)
 -- 3s allows time for host to process if busy with another heavy request
@@ -93,6 +95,7 @@ function RemoteProxy.create(client, hostId, name, pType, methods, key, displayNa
     -- Track in-flight async requests to avoid duplicate sends
     proxy._pending = {}
     proxy._nextRefreshAt = {}
+    proxy._lastCacheSweepAt = 0
 
     -- Auto-reconnect if disconnected and cooldown has elapsed
     local function ensureConnected()
@@ -137,6 +140,49 @@ function RemoteProxy.create(client, hostId, name, pType, methods, key, displayNa
         return table.concat(parts, "_")
     end
 
+    local function pruneCache(now)
+        if (now - (proxy._lastCacheSweepAt or 0)) < CACHE_SWEEP_INTERVAL_MS and next(proxy._cache) ~= nil then
+            return
+        end
+        proxy._lastCacheSweepAt = now
+
+        local count = 0
+        local oldestKey = nil
+        local oldestAt = math.huge
+
+        for key, entry in pairs(proxy._cache) do
+            local ts = entry and entry.timestamp or 0
+            if (now - ts) >= CACHE_EXPIRE_MS then
+                proxy._cache[key] = nil
+                proxy._pending[key] = nil
+                proxy._nextRefreshAt[key] = nil
+            else
+                count = count + 1
+                if ts < oldestAt then
+                    oldestAt = ts
+                    oldestKey = key
+                end
+            end
+        end
+
+        while count > MAX_CACHE_ENTRIES and oldestKey do
+            proxy._cache[oldestKey] = nil
+            proxy._pending[oldestKey] = nil
+            proxy._nextRefreshAt[oldestKey] = nil
+            count = count - 1
+
+            oldestKey = nil
+            oldestAt = math.huge
+            for key, entry in pairs(proxy._cache) do
+                local ts = entry and entry.timestamp or 0
+                if ts < oldestAt then
+                    oldestAt = ts
+                    oldestKey = key
+                end
+            end
+        end
+    end
+
     -- Generate method stubs for each available method
     for _, methodName in ipairs(methods) do
         proxy[methodName] = function(...)
@@ -179,6 +225,7 @@ function RemoteProxy.create(client, hostId, name, pType, methods, key, displayNa
             -- Read methods: use cache-first pattern
             local key = cacheKey(methodName, args)
             local now = os.epoch("utc")
+            pruneCache(now)
             local cached = proxy._cache[key]
             local age = cached and (now - cached.timestamp) or nil
 

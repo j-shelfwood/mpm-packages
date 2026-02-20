@@ -41,7 +41,7 @@ function Menu.showStatus(config, target)
 end
 
 -- Show monitors overview dialog
--- Returns: action, monitorIndex, newView (e.g., "change_view", 1, "StorageCapacityDisplay")
+-- Returns: action, monitorIndex, newView (e.g., "change_view", 1, "StorageGraph")
 -- @param monitors Array of Monitor instances
 -- @param availableViews Array of view names
 -- @param target Term-like object (default: term.current())

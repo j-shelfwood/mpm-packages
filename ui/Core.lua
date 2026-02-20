@@ -90,7 +90,7 @@ function Core.truncateMiddle(text, maxLen)
 end
 
 -- Draw a full-width bar (title bar, button bar)
--- @param monitor Monitor peripheral
+-- @param monitor Term-like target (monitor/window/redirect)
 -- @param y Y position
 -- @param text Text to display (centered)
 -- @param bgColor Background color
@@ -105,7 +105,7 @@ end
 
 -- Draw a clickable bar (like a button spanning full width)
 -- Returns bounds for hit detection
--- @param monitor Monitor peripheral
+-- @param monitor Term-like target (monitor/window/redirect)
 -- @param y Y position
 -- @param text Text to display (centered)
 -- @param bgColor Background color
@@ -126,22 +126,22 @@ function Core.inBounds(x, y, bounds)
     return x >= bounds.x1 and x <= bounds.x2 and y >= bounds.y1 and y <= bounds.y2
 end
 
--- Reset monitor colors to defaults
--- @param monitor Monitor peripheral
+-- Reset target colors to defaults
+-- @param monitor Term-like target (monitor/window/redirect)
 function Core.resetColors(monitor)
     monitor.setBackgroundColor(Core.COLORS.background)
     monitor.setTextColor(Core.COLORS.text)
 end
 
--- Clear monitor with background color
--- @param monitor Monitor peripheral
+-- Clear target with background color
+-- @param monitor Term-like target (monitor/window/redirect)
 function Core.clear(monitor)
     Core.resetColors(monitor)
     monitor.clear()
 end
 
 -- Draw left label and right value on the same row.
--- @param monitor Monitor peripheral
+-- @param monitor Term-like target (monitor/window/redirect)
 -- @param y Row number
 -- @param label Left text
 -- @param value Right text
@@ -149,18 +149,25 @@ end
 -- @return valueX Start x-position for value
 function Core.drawLabelValue(monitor, y, label, value, opts)
     opts = opts or {}
-    local x = opts.x or 1
-    local width = opts.width or select(1, monitor.getSize())
-    local gap = opts.gap or 1
+    local x = math.max(1, math.floor(tonumber(opts.x) or 1))
+    local width = tonumber(opts.width) or select(1, monitor.getSize())
+    local gap = math.max(0, math.floor(tonumber(opts.gap) or 1))
     local labelColor = opts.labelColor or Core.COLORS.text
     local valueColor = opts.valueColor or Core.COLORS.text
 
     label = tostring(label or "")
     value = tostring(value or "")
 
-    local maxLabelLen = math.max(0, width - #value - gap)
+    local safeWidth = math.max(0, math.floor(tonumber(width) or 0))
+    if safeWidth <= 0 then
+        return x
+    end
+
+    local maxValueLen = math.max(0, safeWidth - gap)
+    local displayValue = Core.truncate(value, maxValueLen)
+    local maxLabelLen = math.max(0, safeWidth - #displayValue - gap)
     local displayLabel = Core.truncate(label, maxLabelLen)
-    local valueX = x + width - #value
+    local valueX = math.max(x, x + safeWidth - #displayValue)
 
     monitor.setTextColor(labelColor)
     monitor.setCursorPos(x, y)
@@ -168,7 +175,7 @@ function Core.drawLabelValue(monitor, y, label, value, opts)
 
     monitor.setTextColor(valueColor)
     monitor.setCursorPos(valueX, y)
-    monitor.write(value)
+    monitor.write(displayValue)
 
     return valueX
 end

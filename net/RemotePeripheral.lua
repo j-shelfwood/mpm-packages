@@ -6,6 +6,31 @@ local RemoteProxy = mpm('net/RemoteProxy')
 
 local RemotePeripheral = {}
 
+local function normalizeTypeToken(typeName)
+    if type(typeName) ~= "string" or typeName == "" then
+        return nil
+    end
+    return typeName:lower():gsub("[^%w]", "")
+end
+
+local function typeMatches(actual, expected)
+    local a = normalizeTypeToken(actual)
+    local b = normalizeTypeToken(expected)
+    if not a or not b then
+        return false
+    end
+    if a == b then
+        return true
+    end
+
+    local suffixA = tostring(actual):match(":(.+)$")
+    local suffixB = tostring(expected):match(":(.+)$")
+    local sa = normalizeTypeToken(suffixA)
+    local sb = normalizeTypeToken(suffixB)
+
+    return (sa and sa == b) or (a == sb) or (sa and sb and sa == sb) or false
+end
+
 -- Client instance stored in _G for truly global state
 -- This ensures setClient() in one module is visible to all others
 -- even if mpm() doesn't cache modules properly
@@ -178,7 +203,7 @@ function RemotePeripheral.hasType(name, pType)
     -- Handle wrapped peripheral
     if type(name) == "table" then
         if RemoteProxy.isProxy(name) then
-            return name._type == pType
+            return typeMatches(name._type, pType)
         end
         return peripheral.hasType(name, pType)
     end
