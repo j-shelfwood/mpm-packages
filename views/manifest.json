@@ -4,6 +4,8 @@
   "dependencies": ["utils", "peripherals", "ui"],
   "files": [
     "BaseView.lua",
+    "mixins/WithGrid.lua",
+    "mixins/WithScroll.lua",
     "BaseViewRenderers.lua",
     "AEViewSupport.lua",
     "Manager.lua",

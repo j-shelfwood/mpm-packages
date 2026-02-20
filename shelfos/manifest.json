@@ -5,6 +5,8 @@
   "files": [
     "start.lua",
     "core/Kernel.lua",
+    "core/KernelBoot.lua",
+    "core/KernelDispatcher.lua",
     "core/KernelNetwork.lua",
     "core/KernelPairing.lua",
     "core/KernelMenu.lua",
@@ -13,6 +15,9 @@
     "core/ConfigUI.lua",
     "core/ConfigUIInputs.lua",
     "core/Monitor.lua",
+    "core/MonitorBuffer.lua",
+    "core/MonitorRenderer.lua",
+    "core/MonitorTouch.lua",
     "core/MonitorConfigMenu.lua",
     "core/Paths.lua",
     "core/Identity.lua",
