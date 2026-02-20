@@ -249,10 +249,9 @@ function Kernel:keyboardLoop(runningRef)
 
             -- Rescan shared peripherals when hardware changes
             if self.peripheralHost then
-                local count = self.peripheralHost:rescan()
+                self.peripheralHost:rescan()
                 if self.dashboard then
                     local action = (event == "peripheral") and "attached" or "detached"
-                    self.dashboard:setSharedCount(count)
                     self.dashboard:setMessage("Peripheral " .. action .. ": " .. tostring(p1), colors.lightBlue)
                 end
             end
@@ -284,9 +283,6 @@ function Kernel:dashboardLoop(runningRef)
         if event == "timer" and p1 == dashboardTimer then
             dashboardTimer = nil
             if self.dashboard and not Terminal.isDialogOpen() then
-                if self.peripheralClient then
-                    self.dashboard:setRemoteCount(self.peripheralClient:getCount())
-                end
                 self.dashboard:tick()
                 if self.dashboard:shouldRender() then
                     self.dashboard:render(self)

@@ -62,8 +62,6 @@ return BaseView.custom({
         local chemicals = self.interface:chemicals()
         if not chemicals then return nil end
 
-        Yield.yield()
-
         local amount = 0
         local isCraftable = false
         local chemicalId = self.chemicalId

@@ -17,8 +17,6 @@ function TerminalDashboard.new()
     self.networkColor = colors.lightGray
     self.networkState = "booting" -- booting|connected|offline
     self.modemType = "n/a"
-    self.sharedCount = 0
-    self.remoteCount = 0
     self.lastActivity = {}
     self.stats = {
         announce = 0,
@@ -37,19 +35,19 @@ function TerminalDashboard.new()
     self.message = "Booting..."
     self.messageColor = colors.lightGray
     self.messageAt = os.epoch("utc")
-    self.needsRedraw = true
+    self.redrawPending = true
     self.lastRenderAt = 0
     return self
 end
 
 function TerminalDashboard:requestRedraw()
-    self.needsRedraw = true
+    self.redrawPending = true
 end
 
 function TerminalDashboard:setIdentity(name, id)
     self.identityName = name or self.identityName
     self.identityId = id or self.identityId
-    self.needsRedraw = true
+    self.redrawPending = true
 end
 
 function TerminalDashboard:setNetwork(label, color, modemType, state)
@@ -57,30 +55,14 @@ function TerminalDashboard:setNetwork(label, color, modemType, state)
     self.networkColor = color or self.networkColor
     self.networkState = state or ((label == "Connected") and "connected" or "offline")
     if modemType then self.modemType = modemType end
-    self.needsRedraw = true
-end
-
-function TerminalDashboard:setSharedCount(count)
-    local nextCount = count or 0
-    if self.sharedCount ~= nextCount then
-        self.sharedCount = nextCount
-        self.needsRedraw = true
-    end
-end
-
-function TerminalDashboard:setRemoteCount(count)
-    local nextCount = count or 0
-    if self.remoteCount ~= nextCount then
-        self.remoteCount = nextCount
-        self.needsRedraw = true
-    end
+    self.redrawPending = true
 end
 
 function TerminalDashboard:setMessage(message, color)
     self.message = message or self.message
     self.messageColor = color or colors.lightGray
     self.messageAt = os.epoch("utc")
-    self.needsRedraw = true
+    self.redrawPending = true
 end
 
 function TerminalDashboard:markActivity(key, message, color)
@@ -95,7 +77,7 @@ function TerminalDashboard:recordNetworkDrain(drained)
     if (drained or 0) > 0 then
         self.stats.rx = self.stats.rx + drained
         self.lastActivity.rx = os.epoch("utc")
-        self.needsRedraw = true
+        self.redrawPending = true
     end
 end
 
@@ -125,9 +107,7 @@ function TerminalDashboard:onHostActivity(activity, data)
         self:markActivity("announce", "Announced " .. tostring(data.peripheralCount or 0) .. " peripheral(s)", colors.cyan)
     elseif activity == "rescan" then
         self:markActivity("rescan", "Rescan " .. tostring(data.oldCount or 0) .. " -> " .. tostring(data.newCount or 0), colors.orange)
-        self:setSharedCount(data.newCount or self.sharedCount)
     elseif activity == "start" then
-        self:setSharedCount(data.peripheralCount or self.sharedCount)
         self:setMessage("Sharing " .. tostring(data.peripheralCount or 0) .. " local peripheral(s)", colors.lightGray)
     end
 end
@@ -147,7 +127,7 @@ end
 -- Keeps live metrics/uptime fresh while avoiding unnecessary redraw churn.
 function TerminalDashboard:shouldRender(nowMs)
     local now = nowMs or os.epoch("utc")
-    if self.needsRedraw then
+    if self.redrawPending then
         return true
     end
     return (now - self.lastRenderAt) >= 1000
@@ -186,8 +166,16 @@ function TerminalDashboard:render(kernel)
     end
 
     local monitorCount = kernel and #kernel.monitors or 0
+    local sharedCount = 0
+    local remoteCount = 0
+    if kernel and kernel.peripheralHost then
+        sharedCount = kernel.peripheralHost:getPeripheralCount()
+    end
+    if kernel and kernel.peripheralClient then
+        remoteCount = kernel.peripheralClient:getCount()
+    end
     TermUI.drawMetric(2, y, "Monitors", monitorCount, colors.white)
-    TermUI.drawMetric(rightCol, y, "Remote", swarmOnline and self.remoteCount or "n/a", swarmOnline and colors.white or colors.gray)
+    TermUI.drawMetric(rightCol, y, "Remote", swarmOnline and remoteCount or "n/a", swarmOnline and colors.white or colors.gray)
     y = y + 2
 
     TermUI.drawSeparator(y, colors.gray)
@@ -220,7 +208,7 @@ function TerminalDashboard:render(kernel)
     y = y + 1
     TermUI.drawMetric(2, y, "Handler avg/peak", string.format("%.0f/%.0f ms", avgHandlerMs, peakHandlerMs), loopColor)
     y = y + 1
-    TermUI.drawMetric(2, y, "Shared Local", swarmOnline and self.sharedCount or "n/a", swarmOnline and colors.white or colors.gray)
+    TermUI.drawMetric(2, y, "Shared Local", swarmOnline and sharedCount or "n/a", swarmOnline and colors.white or colors.gray)
     y = y + 2
 
     if kernel and #kernel.monitors > 0 and y < h - 3 then
@@ -242,7 +230,7 @@ function TerminalDashboard:render(kernel)
     TermUI.drawText(2, h, DashboardUtils.truncateText(self.message, math.max(1, w - 2)), statusColor)
 
     term.redirect(old)
-    self.needsRedraw = false
+    self.redrawPending = false
     self.lastRenderAt = now
 end
 

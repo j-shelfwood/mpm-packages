@@ -11,7 +11,6 @@
 local BaseView = mpm('views/BaseView')
 local AEViewSupport = mpm('views/AEViewSupport')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
-local Yield = mpm('utils/Yield')
 local Renderers = mpm('views/EnergyStatusRenderers')
 
 return BaseView.custom({
@@ -63,8 +62,6 @@ return BaseView.custom({
         -- Get energy stats
         local energy = self.interface:energy()
         if not energy then return nil end
-
-        Yield.yield()
 
         -- Get input rate
         local input = 0

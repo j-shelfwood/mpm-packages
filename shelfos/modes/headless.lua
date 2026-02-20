@@ -41,7 +41,7 @@ local function newDashboardState()
         message = "Waiting for activity...",
         messageColor = colors.lightGray,
         messageAt = os.epoch("utc"),
-        needsRedraw = true
+        redrawPending = true
     }
 end
 
@@ -49,7 +49,7 @@ local function setMessage(state, message, color)
     state.message = message or state.message
     state.messageColor = color or colors.lightGray
     state.messageAt = os.epoch("utc")
-    state.needsRedraw = true
+    state.redrawPending = true
 end
 
 local function markActivity(state, key, message, color)
@@ -65,7 +65,7 @@ local function recordNetworkDrain(state, drained)
     if (drained or 0) > 0 then
         state.stats.rx = state.stats.rx + drained
         state.lastActivity.rx = os.epoch("utc")
-        state.needsRedraw = true
+        state.redrawPending = true
     end
 end
 
@@ -78,6 +78,7 @@ local function updateRates(state)
     state.rate.msgPerSec = (rxDelta * 1000) / elapsed
     state.prevRxCount = state.stats.rx
     state.lastRateSampleAt = now
+    state.redrawPending = true
 end
 
 local function drawDashboard(host, channel, config, modemType, state)
@@ -417,8 +418,6 @@ function headless.run()
     local running = true
     local lastAnnounce = os.epoch("utc")
     local announceInterval = 10000  -- 10 seconds
-    local redrawInterval = 250
-    local nextRedrawAt = os.epoch("utc")
     local loopTimer = nil
 
     local function ensureLoopTimer()
@@ -482,7 +481,7 @@ function headless.run()
 
         elseif event == "term_resize" then
             TermUI.refreshSize()
-            state.needsRedraw = true
+            state.redrawPending = true
             ensureLoopTimer()
         end
 
@@ -491,11 +490,9 @@ function headless.run()
         DashboardUtils.appendSample(state.handlerMsSamples, handlerDuration, 80)
         updateRates(state)
 
-        local now = os.epoch("utc")
-        if state.needsRedraw or now >= nextRedrawAt then
+        if state.redrawPending then
             drawDashboard(host, channel, config, modemType, state)
-            state.needsRedraw = false
-            nextRedrawAt = now + redrawInterval
+            state.redrawPending = false
         end
     end
 

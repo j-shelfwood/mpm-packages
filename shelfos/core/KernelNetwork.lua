@@ -67,8 +67,6 @@ function KernelNetwork.initialize(kernel, config, identity)
         RemotePeripheral.setClient(nil)
         if kernel.dashboard then
             kernel.dashboard:setNetwork("Not in swarm", colors.orange, "n/a", "offline")
-            kernel.dashboard:setSharedCount(0)
-            kernel.dashboard:setRemoteCount(0)
             kernel.dashboard:setMessage("Press L -> Accept from pocket to join", colors.orange)
         else
             print("[ShelfOS] Network: not in swarm")
@@ -82,8 +80,6 @@ function KernelNetwork.initialize(kernel, config, identity)
         RemotePeripheral.setClient(nil)
         if kernel.dashboard then
             kernel.dashboard:setNetwork("No modem found", colors.red, "n/a", "offline")
-            kernel.dashboard:setSharedCount(0)
-            kernel.dashboard:setRemoteCount(0)
             kernel.dashboard:setMessage("Network unavailable: no modem found", colors.red)
         else
             print("[ShelfOS] Network: no modem found")
@@ -117,9 +113,7 @@ function KernelNetwork.initialize(kernel, config, identity)
         end)
     end
     local hostCount = peripheralHost:start()
-    if kernel.dashboard then
-        kernel.dashboard:setSharedCount(hostCount)
-    elseif hostCount > 0 then
+    if not kernel.dashboard and hostCount > 0 then
         print("[ShelfOS] Sharing " .. hostCount .. " local peripheral(s)")
     end
 
@@ -146,7 +140,6 @@ function KernelNetwork.initialize(kernel, config, identity)
     -- Kick off async discovery. KernelNetwork.loop will poll responses.
     peripheralClient:discoverAsync()
     if kernel.dashboard then
-        kernel.dashboard:setRemoteCount(peripheralClient:getCount())
         kernel.dashboard:setMessage("Network initialized; discovering peers...", colors.cyan)
     end
 
@@ -225,9 +218,6 @@ function KernelNetwork.loop(kernel, runningRef)
                 if now - lastCleanup > cleanupInterval then
                     kernel.peripheralClient:cleanupExpired()
                     lastCleanup = now
-                end
-                if kernel.dashboard then
-                    kernel.dashboard:setRemoteCount(kernel.peripheralClient:getCount())
                 end
             end
 

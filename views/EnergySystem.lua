@@ -11,7 +11,6 @@ local EnergyInterface = mpm('peripherals/EnergyInterface')
 
 local DETECTOR_REFRESH_SECONDS = 2
 local STORAGE_REFRESH_SECONDS = 3
-local FLOW_HISTORY_SIZE = 12
 local RATE_HISTORY_SIZE = 6
 local OUTLIER_FACTOR = 16
 
@@ -264,38 +263,15 @@ local function hasOverlap(left, right)
     return false
 end
 
-local function classifyState(flowHistory, netRate)
-    if #flowHistory == 0 then
-        return "PASSIVE", colors.lightBlue
-    end
-
-    local sum = 0
-    local absSum = 0
-    local minValue = flowHistory[1]
-    local maxValue = flowHistory[1]
-    for _, value in ipairs(flowHistory) do
-        sum = sum + value
-        absSum = absSum + math.abs(value)
-        if value < minValue then minValue = value end
-        if value > maxValue then maxValue = value end
-    end
-
-    local avg = sum / #flowHistory
-    local avgAbs = absSum / #flowHistory
-    local spread = maxValue - minValue
-    local passiveThreshold = math.max(25, avgAbs * 0.15)
-    local spikeThreshold = math.max(250, avgAbs * 1.2)
-
-    if spread >= spikeThreshold and #flowHistory >= 4 then
-        return "SPIKING", colors.orange
-    end
+local function classifyState(netRate)
+    local passiveThreshold = 25
     if math.abs(netRate) <= passiveThreshold then
         return "PASSIVE", colors.lightBlue
     end
-    if avg > passiveThreshold then
+    if netRate > passiveThreshold then
         return "CHARGING", colors.lime
     end
-    if avg < -passiveThreshold then
+    if netRate < -passiveThreshold then
         return "DISCHARGING", colors.red
     end
     return "STABLE", colors.cyan
@@ -429,7 +405,6 @@ return BaseView.custom({
         self.outputDetectorNames = normalizeDetectorSelection(config.output_detectors)
         self.storageModFilter = config.storage_mod_filter or "all"
         self.storageNameFilter = config.storage_name_filter or ""
-        self.flowHistory = {}
         self.rateHistoryByName = {}
         self.detectorCache = {}
         self.lastDetectorScanAt = nil
@@ -465,18 +440,13 @@ return BaseView.custom({
         local outRate = collectDetectorTotals(outputDetectors, sampled)
         local netRate = inRate - outRate
 
-        table.insert(self.flowHistory, netRate)
-        if #self.flowHistory > FLOW_HISTORY_SIZE then
-            table.remove(self.flowHistory, 1)
-        end
-
         local storage = self.storageCache
         if not self.lastStoragePollAt or (now - self.lastStoragePollAt) >= STORAGE_REFRESH_SECONDS then
             storage = getStorageTotals(self.storageModFilter, self.storageNameFilter)
             self.storageCache = storage
             self.lastStoragePollAt = now
         end
-        local stateName, stateColor = classifyState(self.flowHistory, netRate)
+        local stateName, stateColor = classifyState(netRate)
 
         local etaToFull = nil
         local etaToEmpty = nil

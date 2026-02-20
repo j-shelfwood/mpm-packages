@@ -7,7 +7,6 @@ local BaseView = mpm('views/BaseView')
 local AEViewSupport = mpm('views/AEViewSupport')
 local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
-local Yield = mpm('utils/Yield')
 local Core = mpm('ui/Core')
 
 return BaseView.custom({
@@ -54,8 +53,6 @@ return BaseView.custom({
         -- Get energy data
         local energy = self.interface:energy()
         if not energy then return nil end
-
-        Yield.yield()
 
         local stored = energy.stored or 0
         local capacity = energy.capacity or 1
