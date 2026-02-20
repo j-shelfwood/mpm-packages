@@ -28,15 +28,15 @@ return function(h)
     h:test("pairing contract: shelfos and shelfos-swarm share protocol constant", function()
         local Pairing = mpm("net/Pairing")
         local addComputerPath = h.workspace .. "/shelfos-swarm/screens/AddComputer.lua"
-        local pairAcceptPath = h.workspace .. "/shelfos/tools/pair_accept.lua"
+        local kernelPairingPath = h.workspace .. "/shelfos/core/KernelPairing.lua"
 
         local addComputerSrc, errA = h:read_file(addComputerPath)
-        local pairAcceptSrc, errB = h:read_file(pairAcceptPath)
+        local kernelPairingSrc, errB = h:read_file(kernelPairingPath)
         h:assert_not_nil(addComputerSrc, "Failed to read AddComputer.lua: " .. tostring(errA))
-        h:assert_not_nil(pairAcceptSrc, "Failed to read pair_accept.lua: " .. tostring(errB))
+        h:assert_not_nil(kernelPairingSrc, "Failed to read KernelPairing.lua: " .. tostring(errB))
 
         h:assert_contains(addComputerSrc, "shelfos_pair", "AddComputer should target pairing protocol")
-        h:assert_contains(pairAcceptSrc, "Pairing.acceptFromPocket", "pair_accept should use Pairing module")
+        h:assert_contains(kernelPairingSrc, "Pairing.acceptFromPocket", "KernelPairing should use Pairing module")
         h:assert_eq("shelfos_pair", Pairing.PROTOCOL, "Pairing.PROTOCOL unexpectedly changed")
     end)
 

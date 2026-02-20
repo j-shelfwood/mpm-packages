@@ -57,7 +57,7 @@ ShelfOS uses a **pocket-as-queen** architecture where a pocket computer acts as 
 | `shelfos/core/Kernel.lua` | Network init, pairing menu handlers |
 | `shelfos-swarm/App.lua` | Swarm creation, zone management |
 | `shelfos-swarm/core/SwarmAuthority.lua` | Zone registry, credential issuance |
-| `shelfos/tools/pair_accept.lua` | Standalone bootstrap pairing |
+| `shelfos/core/KernelPairing.lua` | Pairing flow with monitor + terminal code display |
 
 ## Pairing Flow
 
@@ -165,30 +165,25 @@ All messages wrapped with `Crypto.wrap()`:
 
 ## Boot Sequence
 
-### Zone Computer (with monitors)
+### Zone Computer (unified runtime)
 
 ```
 mpm run shelfos
   |
   +-- pocket API exists? --> "Use: mpm run shelfos-swarm"
   |
-  +-- monitors exist? --> display mode (Kernel)
-  |         |
-  |         +-- Config.load()
-  |         +-- Config.isInSwarm()?
-  |         |       |
-  |         |       +-- NO: "Not in swarm, press L"
-  |         |       +-- YES: initializeNetwork()
-  |         |
-  |         +-- initializeMonitors()
-  |         +-- run() parallel event loops
-  |
-  +-- no monitors --> headless mode
-            |
-            +-- Config.isInSwarm()?
-            |       |
-            |       +-- NO: "Run pair_accept tool"
-            |       +-- YES: start peripheral hosting
+  +-- Kernel boot (always)
+          |
+          +-- Config.load()/create
+          +-- Config.isInSwarm()?
+          |       |
+          |       +-- NO: "Not in swarm, press L"
+          |       +-- YES: initializeNetwork()
+          |
+          +-- initializeMonitors() (may be zero)
+          +-- run() parallel event loops
+                  |
+                  +-- 0 monitors => terminal-only mode, network host/client still active
 ```
 
 ### Pocket Computer
@@ -356,9 +351,9 @@ shelfos/                  # Zone computer package
 |-- start.lua             # Entry point (redirects pocket)
 |-- core/
 |   |-- Config.lua        # isInSwarm(), setNetworkSecret()
-|   |-- Kernel.lua        # acceptPocketPairing(), network init
+|   |-- Kernel.lua        # unified runtime + network init
+|   |-- KernelPairing.lua # pairing flow with terminal fallback
 |   +-- Paths.lua         # Zone file paths
 +-- tools/
-    |-- pair_accept.lua   # Bootstrap pairing tool
     +-- link.lua          # Network status display
 ```

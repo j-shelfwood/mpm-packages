@@ -22,10 +22,8 @@
     "input/Menu.lua",
     "input/MenuStatus.lua",
     "ui/PairingScreen.lua",
-    "modes/headless.lua",
     "tools/setup.lua",
     "tools/migrate.lua",
-    "tools/link.lua",
-    "tools/pair_accept.lua"
+    "tools/link.lua"
   ]
 }

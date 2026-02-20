@@ -18,10 +18,12 @@ end
 
 -- Wait for either a key or matching monitor touch.
 -- @param monitorName Optional peripheral name
+-- @param allowAnyMonitorTouch Optional boolean; when true and monitorName is nil,
+--        monitor touches from any monitor are accepted.
 -- @return kind ("key"|"touch"), p1, p2, p3
 --   key:   p1 = keyCode
 --   touch: p1 = x, p2 = y, p3 = side
-function EventLoop.waitForTouchOrKey(monitorName)
+function EventLoop.waitForTouchOrKey(monitorName, allowAnyMonitorTouch)
     while true do
         local event, p1, p2, p3 = os.pullEvent()
 
@@ -29,8 +31,23 @@ function EventLoop.waitForTouchOrKey(monitorName)
             return "key", p1
         end
 
-        if event == "monitor_touch" and (monitorName == nil or p1 == monitorName) then
-            return "touch", p2, p3, p1
+        if event == "monitor_touch" then
+            if monitorName and p1 == monitorName then
+                return "touch", p2, p3, p1
+            end
+            if monitorName == nil and allowAnyMonitorTouch then
+                return "touch", p2, p3, p1
+            end
+        end
+
+        if event == "term_resize" then
+            -- Let callers redraw and continue waiting.
+            return "resize"
+        end
+
+        if event == "monitor_resize" then
+            -- Let callers redraw and continue waiting.
+            return "resize"
         end
     end
 end

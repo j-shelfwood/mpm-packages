@@ -9,6 +9,7 @@ local native = nil
 local logWindow = nil
 local menuWindow = nil
 local initialized = false
+local dialogDepth = 0
 
 -- Initialize terminal windows
 function Terminal.init()
@@ -44,6 +45,11 @@ end
 -- Get native terminal
 function Terminal.getNative()
     return term.native()
+end
+
+-- Returns true while a full-screen dialog is active.
+function Terminal.isDialogOpen()
+    return dialogDepth > 0
 end
 
 -- Redirect to log window (default)
@@ -123,8 +129,7 @@ end
 function Terminal.showDialog(drawFunc)
     Terminal.init()
 
-    -- Save current redirect
-    local old = term.current()
+    dialogDepth = dialogDepth + 1
 
     -- Use native terminal for dialog
     term.redirect(native)
@@ -132,13 +137,17 @@ function Terminal.showDialog(drawFunc)
     term.setCursorPos(1, 1)
 
     -- Run the dialog draw function
-    local result = drawFunc()
+    local results = {pcall(drawFunc)}
+    dialogDepth = math.max(0, dialogDepth - 1)
 
     -- Restore windows
     term.redirect(logWindow)
 
-    -- Redraw menu
-    return result
+    if not results[1] then
+        error(results[2], 0)
+    end
+
+    return table.unpack(results, 2)
 end
 
 -- Resize windows (call if terminal size changes)

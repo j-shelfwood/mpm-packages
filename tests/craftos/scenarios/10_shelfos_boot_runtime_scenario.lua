@@ -5,7 +5,7 @@ return function(h)
         end
     end
 
-    h:test("shelfos runtime: start.lua mode detection routes pocket/display/host", function()
+    h:test("shelfos runtime: start.lua routes pocket or unified kernel", function()
         local startPath = h.workspace .. "/shelfos/start.lua"
         local chunk = assert(loadfile(startPath))
 
@@ -17,7 +17,6 @@ return function(h)
         local prints = {}
         local kernelBoots = 0
         local kernelRuns = 0
-        local headlessRuns = 0
 
         _G.print = function(...)
             local parts = {}
@@ -65,25 +64,28 @@ return function(h)
                     end
                 }
             end
-            error("Unexpected module request in display mode: " .. tostring(name))
+            error("Unexpected module request in default kernel path: " .. tostring(name))
         end
 
         chunk()
 
-        _G.peripheral = {
-            find = function()
-                return nil
-            end
-        }
         _G.mpm = function(name)
-            if name == "shelfos/modes/headless" then
+            if name == "shelfos/core/Kernel" then
                 return {
-                    run = function()
-                        headlessRuns = headlessRuns + 1
+                    new = function()
+                        return {
+                            boot = function()
+                                kernelBoots = kernelBoots + 1
+                                return true
+                            end,
+                            run = function()
+                                kernelRuns = kernelRuns + 1
+                            end
+                        }
                     end
                 }
             end
-            error("Unexpected module request in host mode: " .. tostring(name))
+            error("Unexpected module request in host compatibility path: " .. tostring(name))
         end
 
         chunk("host")
@@ -93,9 +95,8 @@ return function(h)
         _G.mpm = oldMpm
         _G.print = oldPrint
 
-        h:assert_eq(1, kernelBoots, "Display auto-detect should boot Kernel once")
-        h:assert_eq(1, kernelRuns, "Display auto-detect should run Kernel once")
-        h:assert_eq(1, headlessRuns, "Host alias should execute headless mode")
+        h:assert_eq(2, kernelBoots, "Default and host invocations should both boot Kernel")
+        h:assert_eq(2, kernelRuns, "Default and host invocations should both run Kernel")
     end)
 
     h:test("shelfos runtime: config migration handles legacy displays and zone key", function()

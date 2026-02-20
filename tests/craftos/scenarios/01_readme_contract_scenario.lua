@@ -18,6 +18,6 @@ return function(h)
     h:test("README contract: documented pairing entrypoints exist", function()
         h:assert_true(fs.exists(h.workspace .. "/shelfos/start.lua"), "shelfos start.lua missing")
         h:assert_true(fs.exists(h.workspace .. "/shelfos-swarm/start.lua"), "shelfos-swarm start.lua missing")
-        h:assert_true(fs.exists(h.workspace .. "/shelfos/tools/pair_accept.lua"), "pair_accept tool missing")
+        h:assert_true(fs.exists(h.workspace .. "/shelfos/core/KernelPairing.lua"), "KernelPairing module missing")
     end)
 end

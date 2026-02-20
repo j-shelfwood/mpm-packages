@@ -329,40 +329,11 @@ RemotePeripheral.setClient(peripheralClient)
 peripheralClient:discoverAsync()
 ```
 
-### Headless Mode (Peripheral-Only Node)
+### Terminal-Only Runtime (0 Monitors)
 
-```lua
--- shelfos/modes/headless.lua
--- For computers with peripherals but no monitors
-
-local PeripheralHost = mpm('net/PeripheralHost')
-local Channel = mpm('net/Channel')
-
-local function run()
-    print("[ShelfOS] Starting in headless mode (peripheral host)")
-
-    local channel = Channel.openWithSecret(config.network.secret, true)
-    KernelNetwork.hostService(config.computer.id)
-
-    local host = PeripheralHost.new(channel, config.computer.id, config.computer.name)
-    host:announce()
-
-    print("[ShelfOS] Hosting " .. host:getPeripheralCount() .. " peripheral(s)")
-
-    -- Event loop: bounded poll + periodic announce
-    local lastAnnounce = os.epoch("utc")
-    local announceInterval = 10000
-    while true do
-        KernelNetwork.drainChannel(channel, 0.5, 50)
-        if (os.epoch("utc") - lastAnnounce) > announceInterval then
-            host:announce()
-            lastAnnounce = os.epoch("utc")
-        end
-    end
-end
-
-return { run = run }
-```
+In the unified architecture, `shelfos/start.lua` always boots `Kernel.lua` for non-pocket computers.
+When there are zero monitors, Kernel still initializes network lifecycle, starts `PeripheralHost` and
+`PeripheralClient`, and runs terminal dashboard + menu loops without monitor render coroutines.
 
 ## Error Handling
 
@@ -414,11 +385,9 @@ net/
 
 shelfos/
 ├── core/
-│   ├── Kernel.lua       # monitor runtime
+│   ├── Kernel.lua       # unified runtime (monitor + terminal-only)
 │   └── KernelNetwork.lua # shared network lifecycle
-├── modes/
-│   └── headless.lua     # peripheral host mode
-└── start.lua            # auto-select display/headless/pocket
+└── start.lua            # pocket redirect or unified kernel boot
 ```
 
 ## Implementation Order
@@ -440,4 +409,4 @@ shelfos/
 - [ ] Multiple hosts with same peripheral names (`left`, `right`, etc.) do not collide
 - [ ] Bare-name vs key-based lookup behavior is deterministic and documented
 - [ ] Local type mismatch does not mask valid remote peripheral (`hasType` path)
-- [ ] Headless mode boots correctly
+- [ ] Zero-monitor terminal runtime boots correctly

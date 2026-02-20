@@ -92,6 +92,7 @@ function ListSelector.show(target, title, options, opts)
 
     -- Render function
     local function render()
+        width, height = target.getSize()
         clear(target)
         drawTitle(target, title)
 
@@ -232,6 +233,8 @@ function ListSelector.show(target, title, options, opts)
                     end
                 end
             end
+        elseif kind == "resize" then
+            -- Re-render on next loop iteration.
         end
     end
 end

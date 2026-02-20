@@ -97,7 +97,12 @@ function Controller.showInfo(target, title, lines, opts)
 
     -- Wait for input
     if isMonitor then
-        EventLoop.waitForTouchOrKey(monitorName)
+        while true do
+            local kind = EventLoop.waitForTouchOrKey(monitorName)
+            if kind == "key" or kind == "touch" then
+                break
+            end
+        end
     else
         EventLoop.waitForKey()
     end
@@ -113,47 +118,49 @@ function Controller.showConfirm(target, title, message, opts)
     opts = opts or {}
     local confirmKey = opts.confirmKey or "y"
     local cancelKey = opts.cancelKey or "n"
-    local width, height = target.getSize()
     local isMonitor, monitorName = Controller.isMonitor(target)
 
-    Controller.clear(target)
-    Controller.drawTitle(target, title)
+    local function render()
+        local width, height = target.getSize()
+        Controller.clear(target)
+        Controller.drawTitle(target, title)
 
-    -- Message
-    local msgY = math.floor(height / 2)
-    target.setTextColor(colors.white)
-    target.setCursorPos(2, msgY)
+        -- Message
+        local msgY = math.floor(height / 2)
+        target.setTextColor(colors.white)
+        target.setCursorPos(2, msgY)
 
-    local displayMsg = message
-    if #displayMsg > width - 4 then
-        displayMsg = displayMsg:sub(1, width - 7) .. "..."
+        local displayMsg = message
+        if #displayMsg > width - 4 then
+            displayMsg = displayMsg:sub(1, width - 7) .. "..."
+        end
+        target.write(displayMsg)
+
+        -- Prompt
+        target.setTextColor(colors.yellow)
+        target.setCursorPos(2, msgY + 2)
+        target.write("(" .. confirmKey:upper() .. "/" .. cancelKey:upper() .. ")")
+        target.setTextColor(colors.white)
+        return width, height, msgY
     end
-    target.write(displayMsg)
-
-    -- Prompt
-    target.setTextColor(colors.yellow)
-    target.setCursorPos(2, msgY + 2)
-    target.write("(" .. confirmKey:upper() .. "/" .. cancelKey:upper() .. ")")
-    target.setTextColor(colors.white)
 
     if isMonitor then
-        -- Draw touch buttons
-        local buttonY = msgY + 4
-        local okX = math.floor(width / 2) - 6
-        local cancelX = math.floor(width / 2) + 2
-
-        target.setBackgroundColor(colors.green)
-        target.setCursorPos(okX, buttonY)
-        target.write(" Yes ")
-
-        target.setBackgroundColor(colors.red)
-        target.setCursorPos(cancelX, buttonY)
-        target.write(" No ")
-
-        target.setBackgroundColor(colors.black)
-
         -- Wait for touch or key
         while true do
+            local width, _, msgY = render()
+            local buttonY = msgY + 4
+            local okX = math.floor(width / 2) - 6
+            local cancelX = math.floor(width / 2) + 2
+
+            target.setBackgroundColor(colors.green)
+            target.setCursorPos(okX, buttonY)
+            target.write(" Yes ")
+
+            target.setBackgroundColor(colors.red)
+            target.setCursorPos(cancelX, buttonY)
+            target.write(" No ")
+            target.setBackgroundColor(colors.black)
+
             local kind, p1, p2 = EventLoop.waitForTouchOrKey(monitorName)
 
             if kind == "touch" then
@@ -175,10 +182,13 @@ function Controller.showConfirm(target, title, message, opts)
                         return false
                     end
                 end
+            elseif kind == "resize" then
+                -- Re-render on next loop iteration.
             end
         end
     else
         -- Terminal: just wait for Y/N key
+        render()
         while true do
             local keyCode = EventLoop.waitForKey()
             local keyName = keys.getName(keyCode)

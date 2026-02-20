@@ -19,7 +19,7 @@ That's it. ShelfOS auto-discovers connected monitors and assigns appropriate vie
 - **Network swarm** - Link multiple computers to share peripherals across your base
 - **Secure networking** - HMAC-signed messages for multiplayer servers
 - **Live terminal dashboard** - Default mode now shows activity lights and runtime metrics instead of raw boot logs
-- **Headless activity dashboard** - Live terminal indicators for discovery, RPC calls, rescans, and network throughput
+- **0-monitor terminal mode** - Same kernel/runtime on nodes without monitors, including pairing + peripheral hosting
 
 ## Terminal Menu
 
@@ -100,15 +100,19 @@ When you tap `[*]`, a menu appears directly on the monitor:
 
 This allows view changes directly from the monitor without using the terminal.
 
-### Headless Mode Keys
+### Terminal-Only Mode (0 Monitors)
 
-In headless mode (`mpm run shelfos headless`), the keymap is different:
+When no monitors are attached, run the same command:
 
 ```
-[Q] Quit  [R] Rescan  [X] Reset
+mpm run shelfos
 ```
 
-- `X` performs factory reset in headless mode (not `R`)
+ShelfOS automatically degrades to terminal-only mode. The keymap remains unified:
+
+```
+[M] Monitors  [S] Status  [L] Link  [R] Reset  [Q] Quit
+```
 
 ## Auto-Discovery
 
@@ -119,7 +123,7 @@ On first boot, ShelfOS:
 3. Assigns appropriate views to each monitor
 4. Saves configuration automatically
 
-After a factory reset (`R` in display mode, `X` in headless mode), the next boot
+After a factory reset (`R`), the next boot
 initializes every discovered monitor to `Clock` before normal operation resumes.
 
 ### View Assignment Priority
@@ -187,9 +191,9 @@ After pairing, the zone should show:
 - Swarm peer count
 - Remote peripherals discovered
 
-### Headless Dashboard (Peripheral Host Nodes)
+### Terminal Dashboard (Including 0-Monitor Nodes)
 
-When a computer runs in headless peripheral-host mode, ShelfOS now renders a live dashboard instead of raw host log spam.
+When a computer runs without monitors, ShelfOS keeps the same Kernel runtime and renders a live terminal dashboard instead of raw host log spam.
 
 - **Activity lights** flash for `DISCOVER`, `CALL`, `ANNOUNCE`, `RX`, `RESCAN`, and `ERROR`
 - **Performance panel** tracks event wait latency, handler execution latency, and average remote call latency
@@ -231,17 +235,14 @@ shelfos/                  # Zone computer package
 │   ├── Monitor.lua       # Per-monitor lifecycle + window buffering
 │   ├── Paths.lua         # File path constants
 │   ├── Terminal.lua      # Split terminal (logs + menu bar)
-│   └── Zone.lua          # Zone identity
+│   └── KernelPairing.lua # Pairing flow + terminal fallback rendering
 ├── input/
 │   └── Menu.lua          # Terminal menu handlers
-├── modes/
-│   └── headless.lua      # Headless peripheral host mode
 ├── ui/
 │   └── PairingScreen.lua # Pairing code display
 └── tools/
     ├── setup.lua         # Configuration wizard
     ├── link.lua          # Network status CLI
-    ├── pair_accept.lua   # Bootstrap pairing (headless nodes)
     └── migrate.lua       # displays.config migration
 ```
 

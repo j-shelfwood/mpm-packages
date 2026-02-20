@@ -6,6 +6,7 @@
 local PairingScreen = mpm('shelfos/ui/PairingScreen')
 local Config = mpm('shelfos/core/Config')
 local ModemUtils = mpm('utils/ModemUtils')
+local Terminal = mpm('shelfos/core/Terminal')
 
 local KernelPairing = {}
 
@@ -37,6 +38,7 @@ function KernelPairing.acceptFromPocket(kernel)
         return false
     end
     local computerLabel = os.getComputerLabel() or ("Computer #" .. os.getComputerID())
+    local native = term.native()
 
     -- Find all connected monitors
     local monitorNames = {}
@@ -54,6 +56,7 @@ function KernelPairing.acceptFromPocket(kernel)
     end
 
     -- PAUSE all monitor rendering so pairing code stays visible
+    kernel.pairingActive = true
     for _, monitor in ipairs(kernel.monitors) do
         monitor:setPairingMode(true)
     end
@@ -73,7 +76,13 @@ function KernelPairing.acceptFromPocket(kernel)
                 end
             end
 
-            -- Also draw on terminal
+            -- Always draw pairing code on native terminal.
+            -- This is required for terminal-only (0 monitor) nodes.
+            term.redirect(native)
+            term.setBackgroundColor(colors.black)
+            term.setTextColor(colors.white)
+            term.clear()
+            term.setCursorPos(1, 1)
             print("")
             print("=====================================")
             print("   Waiting for Pocket Pairing")
@@ -91,6 +100,8 @@ function KernelPairing.acceptFromPocket(kernel)
             print("")
             if #monitorNames > 0 then
                 print("Code shown on " .. #monitorNames .. " monitor(s)")
+            else
+                print("No monitors attached; pairing code shown in this terminal.")
             end
             print("")
             print("On your pocket computer:")
@@ -102,6 +113,7 @@ function KernelPairing.acceptFromPocket(kernel)
         end,
         onStatus = function(msg)
             -- Update status line (redraw bottom area)
+            term.redirect(native)
             local _, h = term.getSize()
             term.setCursorPos(1, h - 1)
             term.clearLine()
@@ -150,6 +162,16 @@ function KernelPairing.acceptFromPocket(kernel)
         -- Initialize network immediately (no restart required)
         kernel:initializeNetwork()
         print("[*] Connected to swarm!")
+    end
+
+    for _, monitor in ipairs(kernel.monitors) do
+        monitor:setPairingMode(false)
+    end
+    PairingScreen.clearAll(monitorNames)
+    kernel.pairingActive = false
+    Terminal.redirectToLog()
+    if kernel.dashboard then
+        kernel.dashboard:requestRedraw()
     end
 
     waitSeconds(2)

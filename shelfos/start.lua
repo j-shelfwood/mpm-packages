@@ -2,34 +2,15 @@
 -- Entry point: mpm run shelfos [mode]
 --
 -- Modes:
---   (default)  - Auto-detect: pocket, display, or headless
+--   (default)  - Boot ShelfOS kernel
 --   pocket     - Pocket computer companion app
---   display    - Force display mode (requires monitors)
---   headless   - Force headless mode (peripheral host)
---   host       - Alias for headless
 
 local args = {...}
 local mode = args[1]
 
--- Detect mode if not specified
-if not mode then
-    -- Check if pocket computer (has pocket API)
-    if pocket then
-        mode = "pocket"
-    else
-        -- Check for monitors
-        local monitors = {peripheral.find("monitor")}
-        if #monitors > 0 then
-            mode = "display"
-        else
-            mode = "headless"
-        end
-    end
-end
-
--- Normalize mode aliases
-if mode == "host" then
-    mode = "headless"
+-- Auto-pocket detection
+if not mode and pocket then
+    mode = "pocket"
 end
 
 -- Run appropriate mode
@@ -42,12 +23,8 @@ if mode == "pocket" then
     print("The pocket computer is the swarm controller.")
     print("Computers use: mpm run shelfos")
     return
-elseif mode == "headless" then
-    -- Peripheral host mode
-    local headless = mpm('shelfos/modes/headless')
-    headless.run()
 else
-    -- Display mode (default)
+    -- Unified kernel mode (works with or without monitors)
     local Kernel = mpm('shelfos/core/Kernel')
     local kernel = Kernel.new()
 

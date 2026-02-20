@@ -53,7 +53,8 @@ function Menu.showMonitors(monitors, availableViews, target)
             "",
             "No monitors connected.",
             "",
-            "Connect monitors and restart ShelfOS."
+            "Connect a monitor, then open",
+            "this menu again to configure views."
         })
         return nil
     end
@@ -147,7 +148,7 @@ function Menu.showReset(target)
     target = target or term.current()
 
     return Controller.showConfirm(target, "Reset ShelfOS",
-        "Delete configuration and auto-configure on restart?",
+        "Delete configuration and reboot? Next boot defaults monitors to Clock.",
         { confirmKey = "y", cancelKey = "n" }
     )
 end
@@ -181,59 +182,64 @@ function Menu.showLink(config, target)
     -- Build title with status
     local title = "Network Link"
 
-    local width, height = target.getSize()
     local isMonitor, monitorName = Controller.isMonitor(target)
 
-    Controller.clear(target)
-    Controller.drawTitle(target, title)
+    local function render()
+        local width, height = target.getSize()
+        local startY = 5
 
-    -- Status line with peer count
-    local startY = 5
-    if isInSwarm then
-        -- Check for swarm peers
-        local peerCount = 0
-        for _, name in ipairs(peripheral.getNames()) do
-            if peripheral.hasType(name, "modem") and rednet.isOpen(name) then
-                local peerIds = {rednet.lookup("shelfos")}
-                peerCount = #peerIds
-                break
+        Controller.clear(target)
+        Controller.drawTitle(target, title)
+
+        -- Status line with peer count
+        if isInSwarm then
+            -- Check for swarm peers
+            local peerCount = 0
+            for _, name in ipairs(peripheral.getNames()) do
+                if peripheral.hasType(name, "modem") and rednet.isOpen(name) then
+                    local peerIds = {rednet.lookup("shelfos")}
+                    peerCount = #peerIds
+                    break
+                end
+            end
+
+            target.setTextColor(colors.lime)
+            target.setCursorPos(2, 3)
+            if peerCount > 0 then
+                local peerWord = peerCount == 1 and "peer" or "peers"
+                target.write("In swarm: " .. peerCount .. " " .. peerWord .. " online")
+            else
+                target.write("In swarm (no peers found)")
+            end
+            startY = 5
+        else
+            target.setTextColor(colors.orange)
+            target.setCursorPos(2, 3)
+            target.write("Not in swarm")
+
+            target.setTextColor(colors.gray)
+            target.setCursorPos(2, 4)
+            target.write("Pair with pocket to join")
+            startY = 6
+        end
+
+        -- Options
+        for i, opt in ipairs(options) do
+            local y = startY + i - 1
+            if y < height - 1 then
+                target.setTextColor(colors.lightGray)
+                target.setCursorPos(2, y)
+                target.write("[" .. i .. "] " .. opt.label)
             end
         end
 
-        target.setTextColor(colors.lime)
-        target.setCursorPos(2, 3)
-        if peerCount > 0 then
-            local peerWord = peerCount == 1 and "peer" or "peers"
-            target.write("In swarm: " .. peerCount .. " " .. peerWord .. " online")
-        else
-            target.write("In swarm (no peers found)")
-        end
-        startY = 5
-    else
-        target.setTextColor(colors.orange)
-        target.setCursorPos(2, 3)
-        target.write("Not in swarm")
-
-        target.setTextColor(colors.gray)
-        target.setCursorPos(2, 4)
-        target.write("Pair with pocket to join")
-        startY = 6
+        target.setTextColor(colors.white)
+        return startY, height
     end
-
-    -- Options
-    for i, opt in ipairs(options) do
-        local y = startY + i - 1
-        if y < height - 1 then
-            target.setTextColor(colors.lightGray)
-            target.setCursorPos(2, y)
-            target.write("[" .. i .. "] " .. opt.label)
-        end
-    end
-
-    target.setTextColor(colors.white)
 
     -- Wait for selection
     while true do
+        local startY, height = render()
         local kind, p1, p2 = EventLoop.waitForTouchOrKey(monitorName)
 
         if kind == "key" then
@@ -270,6 +276,8 @@ function Menu.showLink(config, target)
                     end
                 end
             end
+        elseif kind == "resize" then
+            -- Re-render on next loop iteration.
         end
     end
 end

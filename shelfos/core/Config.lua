@@ -448,6 +448,8 @@ end
 -- @return config, monitorsFound
 function Config.autoCreate()
     local ViewManager = mpm('views/Manager')
+    local resetMode = Paths.consumeResetMarker()
+    local forceClock = resetMode == "clock"
 
     -- Generate computer identity
     local computerId = "computer_" .. os.getComputerID() .. "_" .. (os.epoch("utc") % 100000)
@@ -465,15 +467,26 @@ function Config.autoCreate()
     local monitors = Config.discoverMonitors()
 
     if #monitors == 0 then
+        if forceClock then
+            Paths.writeResetMarker("clock")
+        end
         return config, 0
     end
 
-    -- Get view suggestions
-    local suggestions = ViewManager.suggestViewsForMonitors(#monitors)
+    local suggestions = {}
+    if not forceClock then
+        -- Get view suggestions
+        suggestions = ViewManager.suggestViewsForMonitors(#monitors)
+    end
 
     -- Assign views to monitors
     for i, monitorName in ipairs(monitors) do
-        local suggestion = suggestions[i] or { view = "WeatherClock", reason = "Default" }
+        local suggestion
+        if forceClock then
+            suggestion = { view = "Clock", reason = "Reset default" }
+        else
+            suggestion = suggestions[i] or { view = "Clock", reason = "Default" }
+        end
         table.insert(config.monitors, {
             peripheral = monitorName,
             label = monitorName,

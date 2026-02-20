@@ -37,6 +37,7 @@ function Kernel.new()
     self.peripheralHost = nil
     self.peripheralClient = nil
     self.dashboard = nil
+    self.pairingActive = false
 
     return self
 end
@@ -59,20 +60,23 @@ function Kernel:boot()
     self.config = Config.load()
 
     if not self.config then
-        -- Auto-discovery mode: create config automatically
-        self.dashboard:setMessage("First boot: auto-discovering monitors...", colors.yellow)
-        self.config, self.discoveredCount = Config.autoCreate()
-
-        if self.discoveredCount == 0 then
-            self.dashboard:setNetwork("No monitors", colors.red)
-            self.dashboard:setMessage("No monitors found. Connect monitors and restart.", colors.red)
-            self.dashboard:render(self)
-            return false
+        -- First boot: create config even when no monitors are present.
+        self.dashboard:setMessage("First boot: discovering peripherals...", colors.yellow)
+        local discoveredMonitors = Config.discoverMonitors()
+        if #discoveredMonitors > 0 then
+            self.config, self.discoveredCount = Config.autoCreate()
+            self.dashboard:setMessage("Auto-configured " .. self.discoveredCount .. " monitor(s)", colors.lime)
+        else
+            self.config = Config.create(
+                "computer_" .. os.getComputerID() .. "_" .. os.epoch("utc"),
+                os.getComputerLabel() or ("Computer " .. os.getComputerID())
+            )
+            self.discoveredCount = 0
+            self.dashboard:setMessage("No monitors detected; running terminal-only mode", colors.orange)
         end
 
-        -- Save the auto-generated config (no network secret yet)
+        -- Save generated config (no network secret until pairing)
         Config.save(self.config)
-        self.dashboard:setMessage("Auto-configured " .. self.discoveredCount .. " monitor(s)", colors.lime)
     else
         -- Reconcile existing config against actual hardware
         -- Fixes duplicate entries, remaps aliased names, adds new monitors
@@ -94,16 +98,13 @@ function Kernel:boot()
     -- Initialize monitors (views can now see remote peripherals)
     self:initializeMonitors()
 
-    if #self.monitors == 0 then
-        self.dashboard:setNetwork("No monitors connected", colors.red)
-        self.dashboard:setMessage("Check peripheral connections and restart.", colors.red)
-        self.dashboard:render(self)
-        return false
-    end
-
     -- Draw menu bar
     KernelMenu.draw()
-    self.dashboard:setMessage("Dashboard online. Monitors active.", colors.lime)
+    if #self.monitors == 0 then
+        self.dashboard:setMessage("Dashboard online. Network/peripheral host active (0 monitors)", colors.orange)
+    else
+        self.dashboard:setMessage("Dashboard online. Monitors active.", colors.lime)
+    end
     self.dashboard:render(self)
 
     return true
@@ -116,6 +117,13 @@ function Kernel:initializeMonitors()
     -- Create callback for view change persistence (with optional config)
     local function onViewChange(peripheralName, viewName, viewConfig)
         self:persistViewChange(peripheralName, viewName, viewConfig)
+    end
+
+    if not self.config or not self.config.monitors or #self.config.monitors == 0 then
+        if self.dashboard then
+            self.dashboard:requestRedraw()
+        end
+        return
     end
 
     -- Get settings for theme etc.
@@ -164,11 +172,6 @@ end
 --   - No need for manual event dispatch or requeue mechanisms
 -- ============================================================================
 function Kernel:run()
-    if #self.monitors == 0 then
-        -- Boot already handled this message
-        return false
-    end
-
     -- Shared running flag (use table so all coroutines see same reference)
     local runningRef = { value = true }
 
@@ -233,6 +236,10 @@ function Kernel:keyboardLoop(runningRef)
         local handlerStart = os.epoch("utc")
 
         if event == "key" then
+            if self.pairingActive then
+                -- Pairing flow owns key input while active.
+                goto continue
+            end
             -- Handle menu keys - may block for dialogs
             -- Other monitors continue rendering (they have own event queues)
             KernelMenu.handleKey(self, p1, runningRef)
@@ -261,6 +268,7 @@ function Kernel:keyboardLoop(runningRef)
             self.dashboard:recordEventWaitMs(waitDuration)
             self.dashboard:recordHandlerMs(os.epoch("utc") - handlerStart)
         end
+        ::continue::
         -- Timer and monitor events are handled by monitor coroutines
     end
 end
@@ -282,7 +290,7 @@ function Kernel:dashboardLoop(runningRef)
 
         if event == "timer" and p1 == dashboardTimer then
             dashboardTimer = nil
-            if self.dashboard and not Terminal.isDialogOpen() then
+            if self.dashboard and not Terminal.isDialogOpen() and not self.pairingActive then
                 self.dashboard:tick()
                 if self.dashboard:shouldRender() then
                     self.dashboard:render(self)
