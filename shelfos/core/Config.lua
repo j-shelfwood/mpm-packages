@@ -173,6 +173,52 @@ function Config.getMonitor(config, peripheralName)
     return nil
 end
 
+-- Rename a configured monitor peripheral entry.
+-- Preserves custom labels; only rewrites label when it still matches the old name.
+-- If the target name already exists, drops the old duplicate entry.
+-- @param config Configuration table
+-- @param oldPeripheral Existing configured peripheral name
+-- @param newPeripheral New peripheral name
+-- @return boolean changed
+function Config.renameMonitor(config, oldPeripheral, newPeripheral)
+    if not config or not config.monitors or not oldPeripheral or not newPeripheral then
+        return false
+    end
+
+    if oldPeripheral == newPeripheral then
+        return Config.getMonitor(config, oldPeripheral) ~= nil
+    end
+
+    local oldIndex = nil
+    local newIndex = nil
+
+    for i, entry in ipairs(config.monitors) do
+        if entry.peripheral == oldPeripheral then
+            oldIndex = i
+        end
+        if entry.peripheral == newPeripheral then
+            newIndex = i
+        end
+    end
+
+    if not oldIndex then
+        return false
+    end
+
+    if newIndex and newIndex ~= oldIndex then
+        table.remove(config.monitors, oldIndex)
+        return true
+    end
+
+    local entry = config.monitors[oldIndex]
+    entry.peripheral = newPeripheral
+    if entry.label == oldPeripheral then
+        entry.label = newPeripheral
+    end
+
+    return true
+end
+
 -- Update monitor view
 function Config.setMonitorView(config, peripheralName, viewName, viewConfig)
     local monitor = Config.getMonitor(config, peripheralName)
@@ -382,6 +428,22 @@ function Config.reconcile(config)
         end
     end
     config.monitors = deduped
+
+    -- Phase 2b: Remove configured monitors no longer discoverable.
+    -- Guard this behind a non-empty discovery result to avoid wiping config
+    -- during transient/no-hardware boot states.
+    if #monitors > 0 then
+        local pruned = {}
+        for _, entry in ipairs(config.monitors) do
+            if canonicalSet[entry.peripheral] then
+                table.insert(pruned, entry)
+            else
+                table.insert(actions, "Removed missing monitor " .. tostring(entry.peripheral))
+                changed = true
+            end
+        end
+        config.monitors = pruned
+    end
 
     -- Phase 3: Validate and auto-migrate view names
     -- Handles renamed/deleted views so monitors don't show errors

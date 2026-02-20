@@ -216,6 +216,74 @@ return function(h)
         h:assert_eq("Clock", byPeripheral.right.view, "New monitor should receive suggested fallback view")
     end)
 
+    h:test("shelfos runtime: reconcile prunes stale configured monitors", function()
+        local Config = mpm("shelfos/core/Config")
+
+        local originalDiscover = Config.discoverMonitors
+        local originalMpm = _G.mpm
+
+        local fakeViewManager = {
+            getAvailableViews = function()
+                return { "Clock" }
+            end,
+            getDefaultConfig = function()
+                return {}
+            end,
+            suggestView = function()
+                return "Clock", "fallback"
+            end,
+            suggestViewsForMonitors = function(count)
+                local out = {}
+                for i = 1, count do
+                    out[i] = { view = "Clock", reason = "Default" }
+                end
+                return out
+            end
+        }
+
+        Config.discoverMonitors = function()
+            return { "left" }, {}
+        end
+
+        _G.mpm = function(name)
+            if name == "views/Manager" then
+                return fakeViewManager
+            end
+            return originalMpm(name)
+        end
+
+        local config = {
+            monitors = {
+                { peripheral = "left", label = "left", view = "Clock", viewConfig = {} },
+                { peripheral = "monitor_99", label = "monitor_99", view = "Clock", viewConfig = {} }
+            }
+        }
+
+        local changed, summary = Config.reconcile(config)
+
+        Config.discoverMonitors = originalDiscover
+        _G.mpm = originalMpm
+
+        h:assert_true(changed, "Expected stale monitor to be removed")
+        h:assert_not_nil(summary, "Expected reconcile summary")
+        h:assert_eq(1, #config.monitors, "Expected stale configured monitor entry to be pruned")
+        h:assert_eq("left", config.monitors[1].peripheral, "Expected canonical monitor to remain")
+    end)
+
+    h:test("shelfos runtime: Config.renameMonitor rewrites peripheral and preserves custom label", function()
+        local Config = mpm("shelfos/core/Config")
+        local config = {
+            monitors = {
+                { peripheral = "monitor_9", label = "Mixer Wall", view = "Clock", viewConfig = {} }
+            }
+        }
+
+        local changed = Config.renameMonitor(config, "monitor_9", "left")
+        h:assert_true(changed, "Expected renameMonitor to update matching entry")
+        h:assert_eq("left", config.monitors[1].peripheral, "Expected peripheral name update")
+        h:assert_eq("Mixer Wall", config.monitors[1].label, "Expected custom label preserved")
+    end)
+
     h:test("shelfos runtime: PairingScreen uses canonical discoverMonitors list", function()
         local oldMpm = _G.mpm
         local oldPeripheral = _G.peripheral
@@ -323,5 +391,54 @@ return function(h)
         h:assert_eq(1, disconnects, "Expected disconnect on peripheral_detach")
         h:assert_true(renders >= 1, "Expected render after reconnect")
         h:assert_true(schedules >= 1, "Expected scheduleRender after reconnect")
+    end)
+
+    h:test("shelfos runtime: Kernel recovers detached monitor by adopting new peripheral name", function()
+        local Kernel = mpm("shelfos/core/Kernel")
+        local Config = mpm("shelfos/core/Config")
+        local oldPeripheral = _G.peripheral
+
+        local saveCalls = 0
+        local originalSave = Config.save
+        Config.save = function(cfg)
+            saveCalls = saveCalls + 1
+            return true
+        end
+
+        _G.peripheral = {
+            hasType = function(name, pType)
+                return name == "monitor_17" and pType == "monitor"
+            end
+        }
+
+        local adoptedFrom, adoptedTo = nil, nil
+        local kernel = Kernel.new()
+        kernel.config = {
+            monitors = {
+                { peripheral = "monitor_9", label = "monitor_9", view = "Clock", viewConfig = {} }
+            }
+        }
+        kernel.monitors = {
+            {
+                isConnected = function() return false end,
+                getPeripheralName = function() return "monitor_9" end,
+                adoptPeripheralName = function(_, newName)
+                    adoptedFrom = "monitor_9"
+                    adoptedTo = newName
+                    return true
+                end
+            }
+        }
+
+        local recovered = kernel:recoverDetachedMonitor("monitor_17")
+
+        Config.save = originalSave
+        _G.peripheral = oldPeripheral
+
+        h:assert_true(recovered, "Expected kernel to recover detached monitor")
+        h:assert_eq("monitor_9", adoptedFrom, "Expected disconnected monitor candidate to be adopted")
+        h:assert_eq("monitor_17", adoptedTo, "Expected new peripheral name adoption")
+        h:assert_eq("monitor_17", kernel.config.monitors[1].peripheral, "Expected config monitor name update")
+        h:assert_true(saveCalls >= 1, "Expected config save after monitor rename")
     end)
 end

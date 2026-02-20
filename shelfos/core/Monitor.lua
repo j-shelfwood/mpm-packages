@@ -718,6 +718,28 @@ function Monitor:reconnect()
     return self.connected
 end
 
+-- Adopt a new peripheral name for this monitor and reconnect.
+-- Used when monitor aliases change at runtime (wired modem attach/detach churn).
+-- @param newPeripheralName New monitor peripheral name
+-- @return boolean connected
+function Monitor:adoptPeripheralName(newPeripheralName)
+    if not newPeripheralName or newPeripheralName == "" then
+        return false
+    end
+
+    local oldPeripheralName = self.peripheralName
+    if self.connected then
+        self:disconnect()
+    end
+
+    self.peripheralName = newPeripheralName
+    if self.label == oldPeripheralName then
+        self.label = newPeripheralName
+    end
+
+    return self:reconnect()
+end
+
 -- Set theme for this monitor
 function Monitor:setTheme(themeName)
     self.themeName = themeName or "default"

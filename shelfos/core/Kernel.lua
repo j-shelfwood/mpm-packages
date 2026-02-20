@@ -177,6 +177,43 @@ function Kernel:initializeNetwork()
         KernelNetwork.initialize(self, self.config, self.identity)
 end
 
+-- Try to recover a disconnected monitor by adopting a newly-attached monitor name.
+-- Handles runtime monitor alias churn (e.g., wired-modem monitor_X renumbering).
+-- @param attachedPeripheral Newly attached peripheral name
+-- @return boolean recovered
+function Kernel:recoverDetachedMonitor(attachedPeripheral)
+    if not attachedPeripheral or self:getMonitor(attachedPeripheral) then
+        return false
+    end
+
+    local isMonitor = false
+    local okType = pcall(function()
+        isMonitor = peripheral.hasType(attachedPeripheral, "monitor") == true
+    end)
+    if not okType or not isMonitor then
+        return false
+    end
+
+    for _, monitor in ipairs(self.monitors) do
+        if not monitor:isConnected() then
+            local oldPeripheral = monitor:getPeripheralName()
+            local adopted = monitor:adoptPeripheralName(attachedPeripheral)
+            if adopted then
+                if Config.renameMonitor(self.config, oldPeripheral, attachedPeripheral) then
+                    Config.save(self.config)
+                end
+                if self.dashboard then
+                    self.dashboard:setMessage("Monitor recovered: " .. oldPeripheral .. " -> " .. attachedPeripheral, colors.lime)
+                    self.dashboard:requestRedraw()
+                end
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
 -- Main run loop
 -- ============================================================================
 -- PARALLEL ARCHITECTURE (see CC:Tweaked wiki on parallel API)
@@ -270,10 +307,15 @@ function Kernel:keyboardLoop(runningRef)
             MekSnapshotBus.invalidate()
             MachineActivity.invalidateCache()
 
+            local recoveredMonitor = false
+            if event == "peripheral" then
+                recoveredMonitor = self:recoverDetachedMonitor(p1)
+            end
+
             -- Rescan shared peripherals when hardware changes
             if self.peripheralHost then
                 self.peripheralHost:rescan()
-                if self.dashboard then
+                if self.dashboard and not recoveredMonitor then
                     local action = (event == "peripheral") and "attached" or "detached"
                     self.dashboard:setMessage("Peripheral " .. action .. ": " .. tostring(p1), colors.lightBlue)
                 end
