@@ -48,6 +48,15 @@ local HEAVY_METHOD_TIMEOUT = {
     getDrives = 3,
 }
 
+local HEAVY_METHODS = {
+    getItems = true,
+    getFluids = true,
+    getChemicals = true,
+    getCraftableItems = true,
+    getCraftableFluids = true,
+    getCraftableChemicals = true,
+}
+
 -- Methods that should never be cached (they perform actions, not reads)
 local NO_CACHE_METHODS = {
     craftItem = true,
@@ -254,7 +263,11 @@ function RemoteProxy.create(client, hostId, name, pType, methods, key, displayNa
                     if callbackContext then
                         DependencyStatus.markPending(callbackContext, dependencyName)
                     end
-                    client:callAsync(proxy._hostId, remoteName, methodName, args, function(results, err)
+                    local callOptions = nil
+                    if HEAVY_METHODS[methodName] and cached and type(cached.resultHash) == "string" then
+                        callOptions = { resultHash = cached.resultHash }
+                    end
+                    client:callAsync(proxy._hostId, remoteName, methodName, args, function(results, err, meta)
                         proxy._pending[key] = nil
                         if err then
                             -- Async refresh is opportunistic — don't increment failureCount
@@ -267,14 +280,27 @@ function RemoteProxy.create(client, hostId, name, pType, methods, key, displayNa
                         end
                         proxy._failureCount = 0
                         proxy._nextRefreshAt[key] = 0
+                        if meta and meta.unchanged then
+                            if proxy._cache[key] then
+                                proxy._cache[key].timestamp = os.epoch("utc")
+                                if meta.resultHash then
+                                    proxy._cache[key].resultHash = meta.resultHash
+                                end
+                            end
+                            if callbackContext then
+                                DependencyStatus.markSuccess(callbackContext, dependencyName, 0)
+                            end
+                            return
+                        end
                         proxy._cache[key] = {
                             results = results,
-                            timestamp = os.epoch("utc")
+                            timestamp = os.epoch("utc"),
+                            resultHash = meta and meta.resultHash or nil
                         }
                         if callbackContext then
                             DependencyStatus.markSuccess(callbackContext, dependencyName, 0)
                         end
-                    end)
+                    end, timeout, callOptions)
                 end
 
                 -- Return stale cached value immediately
@@ -302,7 +328,7 @@ function RemoteProxy.create(client, hostId, name, pType, methods, key, displayNa
 
             proxy._pending[key] = true
             local startedAt = now
-            local results, err = client:call(proxy._hostId, remoteName, methodName, args, timeout)
+            local results, err, meta = client:call(proxy._hostId, remoteName, methodName, args, timeout)
 
             if err then
                 proxy._pending[key] = nil
@@ -322,7 +348,8 @@ function RemoteProxy.create(client, hostId, name, pType, methods, key, displayNa
             proxy._failureCount = 0
             proxy._cache[key] = {
                 results = results,
-                timestamp = now
+                timestamp = now,
+                resultHash = meta and meta.resultHash or nil
             }
             proxy._pending[key] = nil
             if contextKey then

@@ -14,6 +14,7 @@ local FLOW_HISTORY_SIZE = 12
 local RATE_HISTORY_SIZE = 6
 local OUTLIER_FACTOR = 16
 local IO_GRAPH_HISTORY_SIZE = 240
+local PARALLEL_BATCH_SIZE = 6
 
 local function formatRate(fePerTick)
     local abs = math.abs(fePerTick)
@@ -125,25 +126,46 @@ end
 
 local function getStorageTotals(modFilter, nameFilter)
     local storages = EnergyInterface.findAll()
+    local selected = {}
     local totals = {
         count = 0,
         storedFE = 0,
         capacityFE = 0
     }
 
-    for idx, storage in ipairs(storages) do
+    for _, storage in ipairs(storages) do
         local classification = EnergyInterface.classify(storage.name, storage.primaryType)
         if (modFilter == "all" or classification.mod == modFilter) and matchesPattern(storage.name, nameFilter) then
-            local status = EnergyInterface.getStatus(storage.peripheral)
-            if status then
-                totals.count = totals.count + 1
-                if status.unit == "J" then
-                    totals.storedFE = totals.storedFE + joulesToFE(status.stored)
-                    totals.capacityFE = totals.capacityFE + joulesToFE(status.capacity)
-                else
-                    totals.storedFE = totals.storedFE + status.stored
-                    totals.capacityFE = totals.capacityFE + status.capacity
-                end
+            table.insert(selected, storage)
+        end
+    end
+
+    local statuses = {}
+    for startIdx = 1, #selected, PARALLEL_BATCH_SIZE do
+        local stopIdx = math.min(#selected, startIdx + PARALLEL_BATCH_SIZE - 1)
+        local jobs = {}
+        for idx = startIdx, stopIdx do
+            local storage = selected[idx]
+            jobs[#jobs + 1] = function()
+                statuses[idx] = EnergyInterface.getStatus(storage.peripheral)
+            end
+        end
+        if #jobs > 0 then
+            parallel.waitForAll(table.unpack(jobs))
+        end
+        Yield.check(startIdx, 1)
+    end
+
+    for idx = 1, #selected do
+        local status = statuses[idx]
+        if status then
+            totals.count = totals.count + 1
+            if status.unit == "J" then
+                totals.storedFE = totals.storedFE + joulesToFE(status.stored)
+                totals.capacityFE = totals.capacityFE + joulesToFE(status.capacity)
+            else
+                totals.storedFE = totals.storedFE + status.stored
+                totals.capacityFE = totals.capacityFE + status.capacity
             end
         end
         Yield.check(idx, 10)
@@ -227,18 +249,32 @@ end
 
 local function sampleDetectorValues(detectors, rateHistoryByName)
     local sampled = {}
-    for idx, detector in ipairs(detectors) do
-        local p = detector.peripheral
-        local rateOk, rate = pcall(p.getTransferRate)
-        local limitOk, limit = pcall(p.getTransferRateLimit)
-        local rawRate = (rateOk and type(rate) == "number") and rate or 0
-        local currentLimit = (limitOk and type(limit) == "number") and limit or 0
-        sampled[detector.name] = {
-            rate = sanitizeRate(detector.name, rawRate, currentLimit, rateHistoryByName),
-            limit = currentLimit
-        }
-        Yield.check(idx, 5)
+
+    for startIdx = 1, #detectors, PARALLEL_BATCH_SIZE do
+        local stopIdx = math.min(#detectors, startIdx + PARALLEL_BATCH_SIZE - 1)
+        local jobs = {}
+
+        for idx = startIdx, stopIdx do
+            local detector = detectors[idx]
+            jobs[#jobs + 1] = function()
+                local p = detector.peripheral
+                local rateOk, rate = pcall(p.getTransferRate)
+                local limitOk, limit = pcall(p.getTransferRateLimit)
+                local rawRate = (rateOk and type(rate) == "number") and rate or 0
+                local currentLimit = (limitOk and type(limit) == "number") and limit or 0
+                sampled[detector.name] = {
+                    rate = sanitizeRate(detector.name, rawRate, currentLimit, rateHistoryByName),
+                    limit = currentLimit
+                }
+            end
+        end
+
+        if #jobs > 0 then
+            parallel.waitForAll(table.unpack(jobs))
+        end
+        Yield.check(startIdx, 1)
     end
+
     return sampled
 end
 

@@ -20,12 +20,13 @@ local function serializeArgs(args)
     return tostring(args)
 end
 
-local function makeCallCoalesceKey(hostId, peripheralName, methodName, args)
+local function makeCallCoalesceKey(hostId, peripheralName, methodName, args, options)
     return table.concat({
         tostring(hostId),
         tostring(peripheralName),
         tostring(methodName),
-        serializeArgs(args or {})
+        serializeArgs(args or {}),
+        serializeArgs(options or {})
     }, "|")
 end
 
@@ -141,7 +142,7 @@ local function addPendingCallback(req, callback)
     table.insert(req.callbacks, callback)
 end
 
-function PeripheralClient:resolvePending(requestId, result, err)
+function PeripheralClient:resolvePending(requestId, result, err, meta)
     local req = self.pendingRequests[requestId]
     if not req then
         return
@@ -154,7 +155,7 @@ function PeripheralClient:resolvePending(requestId, result, err)
 
     local callbacks = req.callbacks or {}
     for i = 1, #callbacks do
-        pcall(callbacks[i], result, err)
+        pcall(callbacks[i], result, err, meta)
     end
 end
 
@@ -319,7 +320,8 @@ end
 -- Handle call result
 function PeripheralClient:handleResult(senderId, msg)
     if not msg.requestId then return end
-    self:resolvePending(msg.requestId, msg.data and msg.data.results or nil, nil)
+    local data = msg.data or {}
+    self:resolvePending(msg.requestId, data.results, nil, data.meta)
 end
 
 -- Handle call error
@@ -506,7 +508,7 @@ end
 -- are delivered to the KernelNetwork coroutine's event queue, not ours.
 -- Instead, we send the request and yield-wait for the callback to be
 -- triggered by the network loop's channel:poll().
-function PeripheralClient:call(hostId, peripheralName, methodName, args, timeout)
+function PeripheralClient:call(hostId, peripheralName, methodName, args, timeout, options)
     timeout = timeout or 2
 
     if not self.channel then
@@ -514,13 +516,14 @@ function PeripheralClient:call(hostId, peripheralName, methodName, args, timeout
     end
 
     local state = { done = false, result = nil, err = nil }
-    local callback = function(r, e)
+    local callback = function(r, e, m)
         state.result = r
         state.err = e
+        state.meta = m
         state.done = true
     end
 
-    local callKey = makeCallCoalesceKey(hostId, peripheralName, methodName, args)
+    local callKey = makeCallCoalesceKey(hostId, peripheralName, methodName, args, options)
     local requestId = self.inflightByCallKey[callKey]
     local pending = requestId and self.pendingRequests[requestId] or nil
     local deadline = os.epoch("utc") + (timeout * 1000)
@@ -536,6 +539,9 @@ function PeripheralClient:call(hostId, peripheralName, methodName, args, timeout
             timeout = deadline,
             coalesceKey = callKey
         }
+        if type(options) == "table" then
+            msg.data.options = options
+        end
         self.channel:send(hostId, msg)
     end
 
@@ -553,7 +559,7 @@ function PeripheralClient:call(hostId, peripheralName, methodName, args, timeout
         return nil, "timeout"
     end
 
-    return state.result, state.err
+    return state.result, state.err, state.meta
 end
 
 -- Fire-and-forget RPC call (non-blocking)
@@ -566,7 +572,7 @@ end
 -- @param args Arguments array
 -- @param callback function(results, error) called when response arrives
 -- @param timeout Timeout in seconds for expiring the pending request
-function PeripheralClient:callAsync(hostId, peripheralName, methodName, args, callback, timeout)
+function PeripheralClient:callAsync(hostId, peripheralName, methodName, args, callback, timeout, options)
     timeout = timeout or 5
 
     if not self.channel then
@@ -574,7 +580,7 @@ function PeripheralClient:callAsync(hostId, peripheralName, methodName, args, ca
         return
     end
 
-    local callKey = makeCallCoalesceKey(hostId, peripheralName, methodName, args)
+    local callKey = makeCallCoalesceKey(hostId, peripheralName, methodName, args, options)
     local requestId = self.inflightByCallKey[callKey]
     local pending = requestId and self.pendingRequests[requestId] or nil
     local cb = callback or function() end
@@ -594,6 +600,9 @@ function PeripheralClient:callAsync(hostId, peripheralName, methodName, args, ca
         coalesceKey = callKey
     }
 
+    if type(options) == "table" then
+        msg.data.options = options
+    end
     self.channel:send(hostId, msg)
 end
 

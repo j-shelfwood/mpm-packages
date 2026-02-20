@@ -47,6 +47,29 @@ local function simpleHash(str)
     return string.format("%08x", h)
 end
 
+local function hashResourceRows(items)
+    if type(items) ~= "table" then
+        return nil
+    end
+
+    local rows = {}
+    for i, item in ipairs(items) do
+        if type(item) == "table" then
+            rows[i] = table.concat({
+                tostring(item.name or ""),
+                tostring(item.displayName or ""),
+                tostring(item.count or 0),
+                tostring(item.amount or 0),
+                tostring(item.isCraftable and 1 or 0)
+            }, "|")
+        else
+            rows[i] = tostring(item)
+        end
+    end
+    table.sort(rows)
+    return simpleHash(table.concat(rows, "\n"))
+end
+
 local function computePeripheralStateHash(peripherals)
     local chunks = {}
     local names = {}
@@ -241,6 +264,7 @@ function PeripheralHost:handleCall(senderId, msg)
     local peripheralName = msg.data.peripheral
     local methodName = msg.data.method
     local args = msg.data.args or {}
+    local options = msg.data.options or {}
 
     -- Find the peripheral
     local info = self.peripherals[peripheralName]
@@ -277,14 +301,27 @@ function PeripheralHost:handleCall(senderId, msg)
     local success = table.remove(results, 1)
 
     if success then
+        local resultHash = nil
         -- Strip bulky fields from large resource lists to prevent RPC timeouts
         -- ME Bridge getItems/getFluids/etc return tags, components, fingerprint per item
         -- which inflates serialization size 10-100x beyond what consumers need
         if STRIP_METHODS[methodName] and results[1] and type(results[1]) == "table" then
             results[1] = stripResourceList(results[1])
+            resultHash = hashResourceRows(results[1])
         end
 
-        local response = Protocol.createPeriphResult(msg, results)
+        local responseResults = results
+        if resultHash and type(options.resultHash) == "string" and options.resultHash == resultHash then
+            responseResults = nil
+        end
+
+        local response = Protocol.createPeriphResult(msg, responseResults)
+        if resultHash then
+            response.data.meta = {
+                resultHash = resultHash,
+                unchanged = responseResults == nil
+            }
+        end
         self.channel:send(senderId, response)
         self:emitActivity("call", {
             senderId = senderId,
