@@ -7,6 +7,7 @@ local Peripherals = mpm('utils/Peripherals')
 local AESnapshotBus = mpm('peripherals/AESnapshotBus')
 local hasRenderContext, RenderContext = pcall(mpm, 'net/RenderContext')
 local hasDepStatus, DependencyStatus = pcall(mpm, 'net/DependencyStatus')
+local REMOTE_HEAVY_FALLBACK_TTL_MS = 3000
 
 local function findBridgeLocalFirst()
     -- Prefer directly-attached peripherals to avoid remote proxy edge-cases
@@ -76,6 +77,33 @@ local function snapshotData(self, key, maxAgeMs)
     return nil
 end
 
+local function remoteHeavyFallback(self, key, fetchFn)
+    if not self._remoteHeavyFallback then
+        self._remoteHeavyFallback = {}
+    end
+
+    local now = nowMs()
+    local entry = self._remoteHeavyFallback[key]
+    if entry and (now - (entry.updatedAt or 0)) < REMOTE_HEAVY_FALLBACK_TTL_MS then
+        return entry.data or {}
+    end
+
+    local ok, data = pcall(fetchFn)
+    if ok and type(data) == "table" then
+        self._remoteHeavyFallback[key] = {
+            data = data,
+            updatedAt = now
+        }
+        return data
+    end
+
+    if entry and type(entry.data) == "table" then
+        return entry.data
+    end
+
+    return {}
+end
+
 local AEInterface = {}
 AEInterface.__index = AEInterface
 
@@ -107,6 +135,7 @@ function AEInterface.new(p)
     self.bridge = p
     self.isRemote = type(p) == "table" and p._isRemote == true
     self.bridgeName = Peripherals.getName(p)
+    self._remoteHeavyFallback = {}
     AESnapshotBus.registerBridge(p)
     return self
 end
@@ -116,8 +145,10 @@ end
 function AEInterface:items()
     local raw = snapshotData(self, "items", 4000)
     if raw == nil then
-        if AESnapshotBus.isRunning() and self.isRemote then
-            raw = {}
+        if self.isRemote then
+            raw = remoteHeavyFallback(self, "items", function()
+                return self.bridge.getItems() or {}
+            end)
         else
             raw = self.bridge.getItems() or {}
         end
@@ -182,8 +213,10 @@ end
 function AEInterface:fluids()
     local raw = snapshotData(self, "fluids", 4000)
     if raw == nil then
-        if AESnapshotBus.isRunning() and self.isRemote then
-            raw = {}
+        if self.isRemote then
+            raw = remoteHeavyFallback(self, "fluids", function()
+                return self.bridge.getFluids() or {}
+            end)
         else
             raw = self.bridge.getFluids() or {}
         end
@@ -427,8 +460,10 @@ function AEInterface:chemicals()
 
     local raw = snapshotData(self, "chemicals", 5000)
     if raw == nil then
-        if AESnapshotBus.isRunning() and self.isRemote then
-            raw = {}
+        if self.isRemote then
+            raw = remoteHeavyFallback(self, "chemicals", function()
+                return self.bridge.getChemicals() or {}
+            end)
         else
             raw = self.bridge.getChemicals() or {}
         end

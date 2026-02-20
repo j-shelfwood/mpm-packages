@@ -14,6 +14,7 @@ local ViewPeripherals = {}
 local state = {
     phase = "discovering",  -- "discovering", "list", "detail", "error"
     computers = {},         -- { computerId, computerName, peripherals[], senderId }
+    pendingDiscoverBySender = {}, -- { senderId -> true } while waiting for PERIPH_LIST
     selectedIdx = nil,
     spinnerFrame = 0,
     discoveryTimer = nil,
@@ -25,6 +26,7 @@ local DISCOVERY_DURATION = 3000  -- 3 seconds to collect responses
 function ViewPeripherals.onEnter(ctx, args)
     state.phase = "discovering"
     state.computers = {}
+    state.pendingDiscoverBySender = {}
     state.selectedIdx = nil
     state.spinnerFrame = 0
     state.errorMsg = nil
@@ -214,14 +216,21 @@ function ViewPeripherals.handleDiscovering(ctx, event, p1, p2, p3)
                     local data = msg.data or {}
                     local computerId = data.computerId or ("computer_" .. senderId)
                     local computerName = data.computerName or ("Computer " .. senderId)
-                    local peripherals = data.peripherals or {}
+                    local hasPeripherals = type(data.peripherals) == "table"
+                    local peripherals = hasPeripherals and data.peripherals or nil
 
                     -- Check if already in list
                     local found = false
                     for _, c in ipairs(state.computers) do
                         if c.senderId == senderId then
                             found = true
-                            c.peripherals = peripherals
+                            c.computerId = computerId
+                            c.computerName = computerName
+                            -- Heartbeats may omit peripheral lists. Avoid clobbering
+                            -- a populated list with an empty/default payload.
+                            if peripherals then
+                                c.peripherals = peripherals
+                            end
                             break
                         end
                     end
@@ -230,9 +239,22 @@ function ViewPeripherals.handleDiscovering(ctx, event, p1, p2, p3)
                         table.insert(state.computers, {
                             computerId = computerId,
                             computerName = computerName,
-                            peripherals = peripherals,
+                            peripherals = peripherals or {},
                             senderId = senderId
                         })
+                    end
+
+                    -- Heartbeat-only announce requires an explicit discover request.
+                    if msg.type == Protocol.MessageType.PERIPH_ANNOUNCE and not hasPeripherals and not state.pendingDiscoverBySender[senderId] then
+                        local discoverMsg = Protocol.createPeriphDiscover()
+                        pcall(function()
+                            ctx.app.channel:send(senderId, discoverMsg)
+                        end)
+                        state.pendingDiscoverBySender[senderId] = true
+                    end
+
+                    if msg.type == Protocol.MessageType.PERIPH_LIST then
+                        state.pendingDiscoverBySender[senderId] = nil
                     end
                 end
 

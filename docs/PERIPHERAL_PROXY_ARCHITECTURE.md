@@ -25,8 +25,8 @@ local items = ae:items()
 │  │ ME Bridge   │───>│ PeripheralHost  │───>│  Ender Modem     │    │
 │  │ Sensors     │    │                 │    │                  │    │
 │  │ Energy      │    │ - Scans locals  │    │  Broadcasts:     │    │
-│  └─────────────┘    │ - Handles RPC   │    │  - Availability  │    │
-│                     │ - Caches data   │    │  - Periodic data │    │
+│  └─────────────┘    │ - Handles RPC   │    │  - Heartbeats    │    │
+│                     │ - Caches data   │    │  - On-demand list│    │
 │                     └─────────────────┘    └──────────────────┘    │
 └─────────────────────────────────────────────────────────────────────┘
                                 │
@@ -82,37 +82,40 @@ Runs on computers that have peripherals to share.
 ```lua
 PeripheralHost = {
     -- Configuration
-    announceInterval = 10000,  -- 10 seconds
+    announceInterval = 10000,  -- 10 second heartbeat
 
     -- State
     peripherals = {},          -- {name -> {type, methods, peripheral}}
+    stateHash = "",            -- stable signature of shared peripherals
 
     -- Core functions
-    scan(),                    -- Discover local peripherals
-    announce(),                -- Broadcast availability
-    handleCall(sender, msg),   -- Execute RPC and return result
+    scan(),                    -- Discover local peripherals + refresh stateHash
+    announce(),                -- Broadcast heartbeat
+    handleCall(sender, msg),   -- Execute RPC and return result/meta
     handleDiscover(sender, msg),
 }
 ```
 
-**Peripheral Announcement Message:**
+**Peripheral Heartbeat Message:**
 ```lua
 {
     type = "periph_announce",
     data = {
         computerId = "computer_123",
         computerName = "Storage Room",
+        stateHash = "a1b2c3d4",
+        peripheralCount = 7
+    }
+}
+```
+
+**Peripheral List Response (on `PERIPH_DISCOVER`):**
+```lua
+{
+    type = "periph_list",
+    data = {
         peripherals = {
-            {
-                name = "me_bridge_0",
-                type = "me_bridge",
-                methods = {"getItems", "getFluid", "craftItem", ...}
-            },
-            {
-                name = "energy_storage_1",
-                type = "energyStorage",
-                methods = {"getEnergy", "getEnergyCapacity", ...}
-            }
+            {name = "me_bridge_0", type = "me_bridge", methods = {"getItems", "..."}}
         }
     }
 }
@@ -128,14 +131,15 @@ PeripheralClient = {
     remotePeripherals = {},    -- {key -> {key, name, hostId, type, methods, proxy}}
     remoteByName = {},         -- {name -> {key1, key2, ...}}
     remoteNameAlias = {},      -- {name -> preferredKey}
-    pendingRequests = {},      -- {requestId -> {callback, timeout}}
+    pendingRequests = {},      -- {requestId -> {callbacks, timeout, coalesceKey?}}
+    inflightByCallKey = {},    -- {(host|name|method|args|options) -> requestId}
 
     -- Core functions
     discover(timeout),         -- Find remote peripherals
     find(type),                -- Find peripheral by type (local or remote)
     wrap(name),                -- Get proxy for peripheral
     call(hostId, name, method, args, timeout),   -- Blocking RPC call
-    callAsync(hostId, name, method, args, callback, timeout),
+    callAsync(hostId, name, method, args, callback, timeout, options),
 }
 ```
 
@@ -257,7 +261,7 @@ View                Client              Network           Host              Peri
  │ p.getItems()       │                    │                │                    │
  │───────────────────>│                    │                │                    │
  │                    │ PERIPH_CALL        │                │                    │
- │                    │ {method, args}     │                │                    │
+ │                    │ {method,args,opts} │                │                    │
  │                    │───────────────────>│───────────────>│                    │
  │                    │                    │                │ p.getItems()       │
  │                    │                    │                │───────────────────>│
@@ -265,9 +269,12 @@ View                Client              Network           Host              Peri
  │                    │                    │                │ {items...}         │
  │                    │                    │ PERIPH_RESULT  │                    │
  │                    │<───────────────────│<───────────────│                    │
- │<───────────────────│ {items...}         │                │                    │
+ │<───────────────────│ {results,meta}     │                │                    │
 │                    │                    │                │                    │
 ```
+
+For heavy list methods, clients may send `options.resultHash`. Hosts can return
+`meta = {resultHash=..., unchanged=true}` and omit list payload when unchanged.
 
 ## Caching Strategy
 
@@ -290,6 +297,11 @@ proxy._cache = {
 `RemoteProxy` owns read-method cache state. `PeripheralClient` tracks remote
 identity/routing and pending RPC requests, not a shared value cache keyed by
 raw peripheral name.
+
+Additional runtime behavior:
+- Request coalescing: identical inflight calls share one network RPC.
+- Delta refresh: heavy list refreshes can update cache timestamps without
+  retransmitting unchanged full arrays.
 
 ### Cache Policy by Method Type
 
