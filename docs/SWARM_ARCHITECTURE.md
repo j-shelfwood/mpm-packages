@@ -310,7 +310,7 @@ Zone A (client)                     Zone B (host)
     |                                   |  Enumerate local peripherals
     |  <-------------- PERIPH_LIST -----|  {name, type, methods}
     |                                   |
-    |  Store in remotePeripherals       |
+    |  Store in remotePeripherals       |  key: "<hostId>::<name>"
     |                                   |
     |  PERIPH_CALL -------------------->|  {peripheral, method, args}
     |  (with requestId)                 |
@@ -323,7 +323,7 @@ Zone A (client)                     Zone B (host)
 1. **Single swarm secret** - All zones share one swarm secret
 2. **No automatic re-keying** - Secret doesn't rotate
 3. **Manual pairing required** - No auto-discovery of new zones
-4. **RPC timeout** - Remote peripheral calls timeout after 5 seconds
+4. **RPC timeout** - Remote peripheral calls use method-specific timeouts (typically 2-5 seconds)
 
 ## File Quick Reference
 

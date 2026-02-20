@@ -34,7 +34,7 @@ While running, ShelfOS displays a menu at the bottom of the terminal:
 | `M` | Monitor overview - view and change monitor views |
 | `S` | Show current configuration (zone, monitors, network) |
 | `L` | Network linking menu (pair with pocket) |
-| `R` | Reset configuration (delete and restart fresh) |
+| `R` | Factory reset (delete config and reboot; next boot starts all monitors on `Clock`) |
 | `Q` | Quit ShelfOS |
 
 ### Monitors Menu
@@ -100,6 +100,16 @@ When you tap `[*]`, a menu appears directly on the monitor:
 
 This allows view changes directly from the monitor without using the terminal.
 
+### Headless Mode Keys
+
+In headless mode (`mpm run shelfos headless`), the keymap is different:
+
+```
+[Q] Quit  [R] Rescan  [X] Reset
+```
+
+- `X` performs factory reset in headless mode (not `R`)
+
 ## Auto-Discovery
 
 On first boot, ShelfOS:
@@ -108,6 +118,9 @@ On first boot, ShelfOS:
 2. Detects available peripherals (ME Bridge, inventories, energy storage, etc.)
 3. Assigns appropriate views to each monitor
 4. Saves configuration automatically
+
+After a factory reset (`R` in display mode, `X` in headless mode), the next boot
+initializes every discovered monitor to `Clock` before normal operation resumes.
 
 ### View Assignment Priority
 
@@ -131,7 +144,8 @@ When computers join the same swarm:
 - **Peripheral Sharing** - ME Bridges, energy storage, and other peripherals are accessible from any computer in the swarm
 - **Remote Views** - A computer without a local ME Bridge can display AE2 views using a remote bridge
 - **Distributed Monitoring** - Place monitors anywhere in your base, connected to any swarm computer
-- **Local-First Access** - If a computer has a directly attached peripheral (for example `me_bridge` next to the computer or on a wired modem side), ShelfOS prefers that local peripheral before using a remote proxy
+- **Local-First Access (without remote masking)** - ShelfOS still prefers direct local peripherals, but a local type mismatch no longer hides valid remote peripherals
+- **Collision-Safe Remote Identity** - Remote peripherals are keyed internally as `<hostId>::<name>` to avoid cross-host name collisions (for example multiple `left`/`right` peripherals)
 
 ### Pocket Computer as Controller
 
@@ -178,7 +192,7 @@ After pairing, the zone should show:
 When a computer runs in headless peripheral-host mode, ShelfOS now renders a live dashboard instead of raw host log spam.
 
 - **Activity lights** flash for `DISCOVER`, `CALL`, `ANNOUNCE`, `RX`, `RESCAN`, and `ERROR`
-- **Performance panel** tracks loop timing and average remote call latency
+- **Performance panel** tracks event wait latency, handler execution latency, and average remote call latency
 - **Network throughput** shows inbound message rate (`messages/s`)
 - **Live inventory** lists currently shared peripherals and updates after attach/detach or manual rescan
 
@@ -189,7 +203,7 @@ The status line above the key hints always shows the most recent background acti
 In normal ShelfOS mode (`mpm run shelfos` on a monitor computer), the terminal log area is now a dashboard instead of boot spam:
 
 - Activity lights for swarm discovery, RPC calls, announces, network RX, rescans, and errors
-- Runtime metrics (message rate, loop timing, remote call latency)
+- Runtime metrics (message rate, event wait/handler timing split, remote call latency)
 - Live monitor/view summary (`monitor -> current view`)
 - Shared-local and remote peripheral counts
 

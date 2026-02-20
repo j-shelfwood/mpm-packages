@@ -68,11 +68,6 @@ Protocol.MessageType = {
     PERIPH_DISCOVER = "periph_discover",    -- Client requests peripheral list
     PERIPH_LIST = "periph_list",            -- Response with peripheral list
 
-    -- Peripheral Subscriptions
-    PERIPH_SUBSCRIBE = "periph_subscribe",  -- Client subscribes to updates
-    PERIPH_UNSUBSCRIBE = "periph_unsubscribe",
-    PERIPH_UPDATE = "periph_update",        -- Host pushes data update
-
     -- Peripheral RPC (Remote Procedure Call)
     PERIPH_CALL = "periph_call",            -- Client calls method on peripheral
     PERIPH_RESULT = "periph_result",        -- Host returns result
@@ -90,15 +85,13 @@ PeripheralHost = {
     announceInterval = 10000,  -- 10 seconds
 
     -- State
-    peripherals = {},          -- {name -> {type, methods, lastData}}
-    subscribers = {},          -- {peripheralName -> {computerId -> {methods}}}
+    peripherals = {},          -- {name -> {type, methods, peripheral}}
 
     -- Core functions
     scan(),                    -- Discover local peripherals
     announce(),                -- Broadcast availability
     handleCall(sender, msg),   -- Execute RPC and return result
-    handleSubscribe(sender, msg),
-    pushUpdates(),             -- Send cached data to subscribers
+    handleDiscover(sender, msg),
 }
 ```
 
@@ -107,8 +100,8 @@ PeripheralHost = {
 {
     type = "periph_announce",
     data = {
-        zoneId = "zone_123",
-        zoneName = "Storage Room",
+        computerId = "computer_123",
+        computerName = "Storage Room",
         peripherals = {
             {
                 name = "me_bridge_0",
@@ -134,15 +127,15 @@ PeripheralClient = {
     -- State
     remotePeripherals = {},    -- {key -> {key, name, hostId, type, methods, proxy}}
     remoteByName = {},         -- {name -> {key1, key2, ...}}
-    subscriptions = {},        -- Active subscriptions
-    cache = {},                -- Cached data with TTL
+    remoteNameAlias = {},      -- {name -> preferredKey}
+    pendingRequests = {},      -- {requestId -> {callback, timeout}}
 
     -- Core functions
     discover(timeout),         -- Find remote peripherals
     find(type),                -- Find peripheral by type (local or remote)
     wrap(name),                -- Get proxy for peripheral
-    subscribe(name, methods),  -- Subscribe to updates
-    call(name, method, ...),   -- RPC call
+    call(hostId, name, method, args, timeout),   -- Blocking RPC call
+    callAsync(hostId, name, method, args, callback, timeout),
 }
 ```
 
@@ -157,7 +150,10 @@ function RemoteProxy.create(client, hostId, peripheralName, peripheralType, meth
     -- Generate method stubs for each available method
     for _, methodName in ipairs(methods) do
         proxy[methodName] = function(...)
-            return client:call(peripheralName, methodName, ...)
+            local args = {...}
+            local results = client:call(hostId, peripheralName, methodName, args)
+            if results then return table.unpack(results) end
+            return nil
         end
     end
 
@@ -209,11 +205,26 @@ RemotePeripheral = {
         return nil
     end,
 
+    -- Type-aware local-first behavior: local match wins, but local mismatch
+    -- does not mask a valid remote peripheral with the same name.
+    hasType = function(name, pType)
+        local localPresent = peripheral.isPresent(name)
+        if localPresent and peripheral.hasType(name, pType) then
+            return true
+        end
+        if RemotePeripheral.client then
+            local remoteMatch = RemotePeripheral.client:hasType(name, pType)
+            if remoteMatch ~= nil then return remoteMatch end
+        end
+        if localPresent then return false end
+        return nil
+    end,
+
     -- Get all peripherals (local + remote)
     getNames = function()
         local names = peripheral.getNames()
         if RemotePeripheral.client then
-            for name, _ in pairs(RemotePeripheral.client.remotePeripherals) do
+            for _, name in ipairs(RemotePeripheral.client:getNames()) do
                 table.insert(names, name)
             end
         end
@@ -255,44 +266,30 @@ View                Client              Network           Host              Peri
  │                    │                    │ PERIPH_RESULT  │                    │
  │                    │<───────────────────│<───────────────│                    │
  │<───────────────────│ {items...}         │                │                    │
- │                    │                    │                │                    │
-```
-
-### Subscription Flow (Push Updates)
-
-```
-Display Node                           Peripheral Node
-     │                                       │
-     │──── PERIPH_SUBSCRIBE ────────────────>│
-     │     {name, methods, interval}         │
-     │                                       │
-     │<───── PERIPH_UPDATE ──────────────────│  (every interval)
-     │     {name, data: {items: [...]}}      │
-     │                                       │
-     │<───── PERIPH_UPDATE ──────────────────│
-     │                                       │
+│                    │                    │                │                    │
 ```
 
 ## Caching Strategy
 
-### Client-Side Cache
+### Proxy-Local Cache
 
 ```lua
-cache = {
-    ["me_bridge_0"] = {
-        getItems = {
-            data = {...},
-            timestamp = 1234567890,
-            ttl = 1000  -- 1 second
-        },
-        itemStorage = {
-            data = {...},
-            timestamp = 1234567890,
-            ttl = 500   -- 0.5 seconds (changes frequently)
-        }
+proxy._name = "42::left"    -- stable identity
+proxy._cache = {
+    ["getItems"] = {
+        results = {...},
+        timestamp = 1234567890
+    },
+    ["getEnergy_0"] = {
+        results = {...},
+        timestamp = 1234567890
     }
 }
 ```
+
+`RemoteProxy` owns read-method cache state. `PeripheralClient` tracks remote
+identity/routing and pending RPC requests, not a shared value cache keyed by
+raw peripheral name.
 
 ### Cache Policy by Method Type
 
@@ -325,17 +322,11 @@ end
 ### Kernel Integration
 
 ```lua
--- In Kernel:boot()
-if self.config.network.enabled then
-    -- Initialize peripheral client for remote access
-    local PeripheralClient = mpm('net/PeripheralClient')
-    self.peripheralClient = PeripheralClient.new(self.channel)
-    self.peripheralClient:discover(3)  -- 3 second discovery
-
-    -- Make it available globally
-    local RemotePeripheral = mpm('net/RemotePeripheral')
-    RemotePeripheral.setClient(self.peripheralClient)
-end
+-- In KernelNetwork.initialize()
+local peripheralClient = PeripheralClient.new(channel)
+peripheralClient:registerHandlers()
+RemotePeripheral.setClient(peripheralClient)
+peripheralClient:discoverAsync()
 ```
 
 ### Headless Mode (Peripheral-Only Node)
@@ -350,24 +341,23 @@ local Channel = mpm('net/Channel')
 local function run()
     print("[ShelfOS] Starting in headless mode (peripheral host)")
 
-    local channel = Channel.new()
-    channel:open(true)  -- Prefer ender modem
+    local channel = Channel.openWithSecret(config.network.secret, true)
+    KernelNetwork.hostService(config.computer.id)
 
-    local host = PeripheralHost.new(channel)
-    host:scan()
+    local host = PeripheralHost.new(channel, config.computer.id, config.computer.name)
     host:announce()
 
-    print("[ShelfOS] Hosting " .. #host.peripherals .. " peripheral(s)")
+    print("[ShelfOS] Hosting " .. host:getPeripheralCount() .. " peripheral(s)")
 
-    -- Event loop: handle RPC requests
+    -- Event loop: bounded poll + periodic announce
+    local lastAnnounce = os.epoch("utc")
+    local announceInterval = 10000
     while true do
-        channel:poll(0.5)
-
-        if host:shouldAnnounce() then
+        KernelNetwork.drainChannel(channel, 0.5, 50)
+        if (os.epoch("utc") - lastAnnounce) > announceInterval then
             host:announce()
+            lastAnnounce = os.epoch("utc")
         end
-
-        host:pushUpdates()
     end
 end
 
@@ -417,41 +407,27 @@ net/
 ├── Protocol.lua         # Extended - new message types
 ├── Discovery.lua        # Existing - zone discovery
 ├── Crypto.lua           # Existing - message signing
-├── PeripheralHost.lua   # NEW - serves peripherals
-├── PeripheralClient.lua # NEW - consumes remote peripherals
-├── RemoteProxy.lua      # NEW - proxy object generator
-└── RemotePeripheral.lua # NEW - drop-in peripheral replacement
+├── PeripheralHost.lua   # serves peripherals
+├── PeripheralClient.lua # consumes remote peripherals
+├── RemoteProxy.lua      # proxy object generator + cache
+└── RemotePeripheral.lua # drop-in peripheral replacement
 
 shelfos/
+├── core/
+│   ├── Kernel.lua       # monitor runtime
+│   └── KernelNetwork.lua # shared network lifecycle
 ├── modes/
-│   ├── display.lua      # NEW - monitor mode (current default)
-│   └── headless.lua     # NEW - peripheral host mode
-└── start.lua            # Modified - detect mode
+│   └── headless.lua     # peripheral host mode
+└── start.lua            # auto-select display/headless/pocket
 ```
 
 ## Implementation Order
 
-### Phase 1: Core Protocol
-1. Add `PERIPH_*` message types to Protocol.lua
-2. Create PeripheralHost.lua (basic announce + RPC)
-3. Create RemoteProxy.lua (method stub generator)
-4. Create PeripheralClient.lua (discovery + RPC calls)
-
-### Phase 2: Integration
-5. Create RemotePeripheral.lua (drop-in replacement)
-6. Modify AEInterface to use RemotePeripheral
-7. Add peripheral client init to Kernel
-
-### Phase 3: Headless Mode
-8. Create headless.lua mode
-9. Auto-detect mode in start.lua
-10. Terminal UI for headless status
-
-### Phase 4: Optimization (Future)
-11. Implement caching layer (reduce network calls)
-12. Add subscription/push updates (real-time data)
-13. Connection health monitoring
-14. Reconnection logic
+### Current Priorities
+1. Keep key-based identity consistent (`<hostId>::<name>`) across all callsites
+2. Preserve local-first behavior while preventing remote masking on type mismatch
+3. Maintain shared host/unhost lifecycle via `KernelNetwork`
+4. Extend test coverage for collisions, ordering, and fallback edge cases
 
 ## Testing Checklist
 
@@ -461,7 +437,7 @@ shelfos/
 - [ ] Method calls with arguments work
 - [ ] Error handling on disconnect
 - [ ] Reconnection after host restart
-- [ ] Multiple hosts with same peripheral type
-- [ ] Cache invalidation works correctly
-- [ ] Subscription updates received
+- [ ] Multiple hosts with same peripheral names (`left`, `right`, etc.) do not collide
+- [ ] Bare-name vs key-based lookup behavior is deterministic and documented
+- [ ] Local type mismatch does not mask valid remote peripheral (`hasType` path)
 - [ ] Headless mode boots correctly
