@@ -119,6 +119,17 @@ function KernelNetwork.initialize(kernel, config, identity)
 
     -- Set up peripheral client for remote peripheral access
     local PeripheralClient = mpm('net/PeripheralClient')
+    if not PeripheralClient or type(PeripheralClient.new) ~= "function" then
+        RemotePeripheral.setClient(nil)
+        if kernel.dashboard then
+            kernel.dashboard:setMessage("Remote peripheral client unavailable; host-only mode", colors.orange)
+            kernel.dashboard:requestRedraw()
+        else
+            print("[ShelfOS] Remote peripheral client unavailable; host-only mode")
+        end
+
+        return channel, discovery, peripheralHost, nil
+    end
 
     local peripheralClient = PeripheralClient.new(channel)
     peripheralClient:registerHandlers()
