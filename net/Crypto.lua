@@ -9,12 +9,17 @@ local Crypto = {}
 -- even if mpm() doesn't cache modules properly
 _G._shelfos_crypto = _G._shelfos_crypto or {
     secret = nil,
-    nonces = {},
+    nonceBuckets = {},
     rngSeeded = false
 }
 local _state = _G._shelfos_crypto
 local NONCE_EXPIRY = 120000  -- 2 minutes in milliseconds
+local NONCE_BUCKET_MS = 60000
+local NONCE_CLEANUP_INTERVAL_MS = 5000
 local MAX_MESSAGE_AGE = 60000  -- 1 minute in milliseconds
+
+_state.nonceBuckets = _state.nonceBuckets or {}
+_state.lastNonceCleanup = _state.lastNonceCleanup or 0
 
 -- Seed RNG once per session with unique values
 -- Prevents duplicate nonces across restarts
@@ -58,7 +63,8 @@ end
 -- Must explicitly clear to prevent stale secrets from previous sessions
 function Crypto.clearSecret()
     _state.secret = nil
-    _state.nonces = {}  -- Also clear nonces
+    _state.nonceBuckets = {}
+    _state.lastNonceCleanup = 0
 end
 
 -- Check if secret is configured
@@ -80,11 +86,26 @@ end
 -- Clean expired nonces
 local function cleanNonces()
     local now = os.epoch("utc")
-    for nonce, timestamp in pairs(_state.nonces) do
-        if now - timestamp > NONCE_EXPIRY then
-            _state.nonces[nonce] = nil
+    if (now - (_state.lastNonceCleanup or 0)) < NONCE_CLEANUP_INTERVAL_MS then
+        return
+    end
+
+    local cutoff = now - NONCE_EXPIRY
+    for bucketStart in pairs(_state.nonceBuckets) do
+        if bucketStart < cutoff then
+            _state.nonceBuckets[bucketStart] = nil
         end
     end
+    _state.lastNonceCleanup = now
+end
+
+local function getNonceBucketStart(nonce, fallbackTimestamp)
+    local nonceTs = nil
+    if type(nonce) == "string" then
+        nonceTs = tonumber(nonce:match("^%d+_(%d+)_"))
+    end
+    local ts = nonceTs or fallbackTimestamp or os.epoch("utc")
+    return math.floor(ts / NONCE_BUCKET_MS) * NONCE_BUCKET_MS
 end
 
 -- Sign a message with a specific key (internal)
@@ -160,7 +181,9 @@ local function verifyWithKey(envelope, key, skipNonceCheck)
     -- Check nonce (prevent replay within time window)
     if not skipNonceCheck then
         cleanNonces()
-        if _state.nonces[envelope.n] then
+        local bucketStart = getNonceBucketStart(envelope.n, envelope.t)
+        local bucket = _state.nonceBuckets[bucketStart]
+        if bucket and bucket[envelope.n] then
             return false, nil, "Duplicate nonce (replay attack)"
         end
     end
@@ -175,7 +198,13 @@ local function verifyWithKey(envelope, key, skipNonceCheck)
 
     -- Record nonce (only for global secret verification)
     if not skipNonceCheck then
-        _state.nonces[envelope.n] = envelope.t
+        local bucketStart = getNonceBucketStart(envelope.n, envelope.t)
+        local bucket = _state.nonceBuckets[bucketStart]
+        if not bucket then
+            bucket = {}
+            _state.nonceBuckets[bucketStart] = bucket
+        end
+        bucket[envelope.n] = true
     end
 
     -- Deserialize payload

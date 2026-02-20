@@ -257,15 +257,36 @@ function Protocol.createPeriphList(request, peripherals, computerId, computerNam
 end
 
 -- Create peripheral announcement (broadcast)
+-- Backward compatible payload handling:
+-- 1) Legacy: peripherals array
+-- 2) Heartbeat: {stateHash, peripheralCount, peripherals?}
 -- @param computerId Computer identifier
 -- @param computerName Computer name
--- @param peripherals Array of {name, type, methods}
-function Protocol.createPeriphAnnounce(computerId, computerName, peripherals)
-    return Protocol.createMessage(Protocol.MessageType.PERIPH_ANNOUNCE, {
+-- @param payloadOrPeripherals Table payload or legacy peripherals array
+function Protocol.createPeriphAnnounce(computerId, computerName, payloadOrPeripherals)
+    local payload = {
         computerId = computerId,
-        computerName = computerName,
-        peripherals = peripherals
-    })
+        computerName = computerName
+    }
+
+    local isHeartbeatPayload = type(payloadOrPeripherals) == "table" and (
+        payloadOrPeripherals.stateHash ~= nil or
+        payloadOrPeripherals.peripheralCount ~= nil or
+        payloadOrPeripherals.peripherals ~= nil
+    )
+
+    if isHeartbeatPayload then
+        payload.stateHash = payloadOrPeripherals.stateHash
+        payload.peripheralCount = payloadOrPeripherals.peripheralCount
+        if payloadOrPeripherals.peripherals ~= nil then
+            payload.peripherals = payloadOrPeripherals.peripherals
+        end
+    else
+        payload.peripherals = payloadOrPeripherals or {}
+        payload.peripheralCount = #payload.peripherals
+    end
+
+    return Protocol.createMessage(Protocol.MessageType.PERIPH_ANNOUNCE, payload)
 end
 
 -- Create peripheral method call

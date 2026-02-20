@@ -39,6 +39,39 @@ local KEEP_FIELDS = {
     isCraftable = true,
 }
 
+local function simpleHash(str)
+    local h = 5381
+    for i = 1, #str do
+        h = ((h * 33) + string.byte(str, i)) % 4294967296
+    end
+    return string.format("%08x", h)
+end
+
+local function computePeripheralStateHash(peripherals)
+    local chunks = {}
+    local names = {}
+    for name in pairs(peripherals) do
+        table.insert(names, name)
+    end
+    table.sort(names)
+
+    for _, name in ipairs(names) do
+        local info = peripherals[name]
+        local methodList = {}
+        if info and type(info.methods) == "table" then
+            for i = 1, #info.methods do
+                methodList[i] = tostring(info.methods[i])
+            end
+            table.sort(methodList)
+        end
+        table.insert(chunks, tostring(name))
+        table.insert(chunks, tostring(info and info.type or ""))
+        table.insert(chunks, table.concat(methodList, ","))
+    end
+
+    return simpleHash(table.concat(chunks, "|"))
+end
+
 -- Strip bulky fields from a resource list to reduce serialization size
 -- @param items Array of resource tables from ME Bridge
 -- @return Stripped array with only essential fields
@@ -73,6 +106,7 @@ function PeripheralHost.new(channel, computerId, computerName)
     self.computerId = computerId
     self.computerName = computerName
     self.peripherals = {}  -- {name -> {type, methods, peripheral}}
+    self.stateHash = ""
     self.activityListener = nil
 
     return self
@@ -126,6 +160,8 @@ function PeripheralHost:scan()
         end
     end
 
+    self.stateHash = computePeripheralStateHash(self.peripherals)
+
     self:emitActivity("scan", {
         peripheralCount = self:getPeripheralCount()
     })
@@ -159,15 +195,15 @@ end
 function PeripheralHost:announce()
     if not self.channel then return false end
 
-    local msg = Protocol.createPeriphAnnounce(
-        self.computerId,
-        self.computerName,
-        self:getPeripheralList()
-    )
+    local msg = Protocol.createPeriphAnnounce(self.computerId, self.computerName, {
+        stateHash = self.stateHash,
+        peripheralCount = self:getPeripheralCount()
+    })
 
     self.channel:broadcast(msg)
     self:emitActivity("announce", {
-        peripheralCount = #msg.data.peripherals
+        peripheralCount = msg.data.peripheralCount or 0,
+        stateHash = msg.data.stateHash
     })
     return true
 end
@@ -298,17 +334,18 @@ end
 -- Rescan peripherals (call when peripheral_attach/detach)
 function PeripheralHost:rescan()
     local oldCount = self:getPeripheralCount()
+    local oldHash = self.stateHash
     local newCount = self:scan()
 
-    -- Announce if changed
-    if newCount ~= oldCount then
+    -- Announce when shared peripheral state changes
+    if newCount ~= oldCount or self.stateHash ~= oldHash then
         self:announce()
     end
 
     self:emitActivity("rescan", {
         oldCount = oldCount,
         newCount = newCount,
-        changed = newCount ~= oldCount
+        changed = (newCount ~= oldCount) or (self.stateHash ~= oldHash)
     })
 
     return newCount

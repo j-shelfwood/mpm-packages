@@ -9,6 +9,26 @@ local Yield = mpm('utils/Yield')
 local PeripheralClient = {}
 PeripheralClient.__index = PeripheralClient
 
+local function serializeArgs(args)
+    if type(args) ~= "table" then
+        return tostring(args)
+    end
+    local ok, encoded = pcall(textutils.serialize, args)
+    if ok and type(encoded) == "string" then
+        return encoded
+    end
+    return tostring(args)
+end
+
+local function makeCallCoalesceKey(hostId, peripheralName, methodName, args)
+    return table.concat({
+        tostring(hostId),
+        tostring(peripheralName),
+        tostring(methodName),
+        serializeArgs(args or {})
+    }, "|")
+end
+
 local function normalizeTypeToken(typeName)
     if type(typeName) ~= "string" or typeName == "" then
         return nil
@@ -45,7 +65,11 @@ function PeripheralClient.new(channel)
     self.remoteNameAlias = {}    -- {name -> preferredKey}
     self.hostPeripheralKeys = {} -- {hostId -> { [key] = true }}
     self.hostComputers = {}      -- {hostId -> {computerId, computerName}}
-    self.pendingRequests = {}    -- {requestId -> {callback, timeout}}
+    self.hostStateHashes = {}    -- {hostId -> stateHash}
+    self.hostDiscoverRequests = {} -- {hostId -> requestId}
+    self.discoverRequestHost = {}  -- {requestId -> hostId}
+    self.pendingRequests = {}    -- {requestId -> {callbacks, timeout, coalesceKey?}}
+    self.inflightByCallKey = {}  -- {coalesceKey -> requestId}
 
     return self
 end
@@ -109,6 +133,55 @@ function PeripheralClient:removeHostRemotes(hostId)
     self:rebuildNameIndexes()
 end
 
+local function addPendingCallback(req, callback)
+    if type(callback) ~= "function" then
+        return
+    end
+    req.callbacks = req.callbacks or {}
+    table.insert(req.callbacks, callback)
+end
+
+function PeripheralClient:resolvePending(requestId, result, err)
+    local req = self.pendingRequests[requestId]
+    if not req then
+        return
+    end
+
+    self.pendingRequests[requestId] = nil
+    if req.coalesceKey and self.inflightByCallKey[req.coalesceKey] == requestId then
+        self.inflightByCallKey[req.coalesceKey] = nil
+    end
+
+    local callbacks = req.callbacks or {}
+    for i = 1, #callbacks do
+        pcall(callbacks[i], result, err)
+    end
+end
+
+function PeripheralClient:requestDiscoverFromHost(hostId, timeout)
+    if not self.channel then
+        return false
+    end
+
+    local existingId = self.hostDiscoverRequests[hostId]
+    if existingId and self.pendingRequests[existingId] then
+        return false
+    end
+
+    local msg = Protocol.createPeriphDiscover()
+    local requestId = msg.requestId
+    self.hostDiscoverRequests[hostId] = requestId
+    self.discoverRequestHost[requestId] = hostId
+
+    self.pendingRequests[requestId] = {
+        callbacks = {},
+        timeout = os.epoch("utc") + ((timeout or 3) * 1000)
+    }
+
+    self.channel:send(hostId, msg)
+    return true
+end
+
 function PeripheralClient:resolveInfo(nameOrKey)
     if not nameOrKey then
         return nil
@@ -163,7 +236,7 @@ end
 -- Handle peripheral announcement from host
 function PeripheralClient:handleAnnounce(senderId, msg)
     local data = msg.data
-    if not data or not data.peripherals then return end
+    if not data then return end
 
     -- Store computer info
     self.hostComputers[senderId] = {
@@ -171,13 +244,32 @@ function PeripheralClient:handleAnnounce(senderId, msg)
         computerName = data.computerName
     }
 
-    self:removeHostRemotes(senderId)
-
-    -- Register peripherals
-    for _, pInfo in ipairs(data.peripherals) do
-        self:registerRemote(senderId, pInfo.name, pInfo.type, pInfo.methods, data.computerName, true)
+    -- Backward compatibility: legacy announce includes full peripheral list.
+    if data.peripherals then
+        self:removeHostRemotes(senderId)
+        for _, pInfo in ipairs(data.peripherals) do
+            self:registerRemote(senderId, pInfo.name, pInfo.type, pInfo.methods, data.computerName, true)
+        end
+        self:rebuildNameIndexes()
+        if data.stateHash then
+            self.hostStateHashes[senderId] = data.stateHash
+        end
+        return
     end
-    self:rebuildNameIndexes()
+
+    -- Heartbeat mode: only discover when host is new or peripheral state changed.
+    local stateHash = data.stateHash
+    local previousHash = self.hostStateHashes[senderId]
+    local hasHostRemotes = self.hostPeripheralKeys[senderId] ~= nil
+
+    if stateHash then
+        self.hostStateHashes[senderId] = stateHash
+    end
+
+    local needsDiscover = (not hasHostRemotes) or (stateHash and stateHash ~= previousHash)
+    if needsDiscover then
+        self:requestDiscoverFromHost(senderId, 3)
+    end
 end
 
 -- Handle peripheral list response
@@ -203,40 +295,37 @@ function PeripheralClient:handlePeriphList(senderId, msg)
     end
     self:rebuildNameIndexes()
 
+    local activeDiscoverReq = self.hostDiscoverRequests[senderId]
+    if activeDiscoverReq then
+        self.hostDiscoverRequests[senderId] = nil
+        self.discoverRequestHost[activeDiscoverReq] = nil
+        if activeDiscoverReq ~= msg.requestId and self.pendingRequests[activeDiscoverReq] then
+            self:resolvePending(activeDiscoverReq, data.peripherals, nil)
+        end
+    end
+
+    local reqHost = msg.requestId and self.discoverRequestHost[msg.requestId] or nil
+    if reqHost ~= nil then
+        self.hostDiscoverRequests[reqHost] = nil
+        self.discoverRequestHost[msg.requestId] = nil
+    end
+
     -- Resolve pending request if any
     if msg.requestId and self.pendingRequests[msg.requestId] then
-        local req = self.pendingRequests[msg.requestId]
-        self.pendingRequests[msg.requestId] = nil
-        if req.callback then
-            req.callback(data.peripherals, nil)
-        end
+        self:resolvePending(msg.requestId, data.peripherals, nil)
     end
 end
 
 -- Handle call result
 function PeripheralClient:handleResult(senderId, msg)
     if not msg.requestId then return end
-
-    local req = self.pendingRequests[msg.requestId]
-    if req then
-        self.pendingRequests[msg.requestId] = nil
-        if req.callback then
-            req.callback(msg.data.results, nil)
-        end
-    end
+    self:resolvePending(msg.requestId, msg.data and msg.data.results or nil, nil)
 end
 
 -- Handle call error
 function PeripheralClient:handleError(senderId, msg)
     if not msg.requestId then return end
-
-    local req = self.pendingRequests[msg.requestId]
-    if req then
-        self.pendingRequests[msg.requestId] = nil
-        if req.callback then
-            req.callback(nil, msg.data.error)
-        end
-    end
+    self:resolvePending(msg.requestId, nil, msg.data and msg.data.error or "unknown_error")
 end
 
 -- Register a remote peripheral
@@ -424,38 +513,43 @@ function PeripheralClient:call(hostId, peripheralName, methodName, args, timeout
         return nil, "not_connected"
     end
 
-    -- Create call message
-    local msg = Protocol.createPeriphCall(peripheralName, methodName, args)
-
-    -- Set up response handling via shared state
-    -- The KernelNetwork loop's channel:poll() will trigger PERIPH_RESULT handler
-    -- which calls this callback, setting done=true
     local state = { done = false, result = nil, err = nil }
+    local callback = function(r, e)
+        state.result = r
+        state.err = e
+        state.done = true
+    end
 
-    self.pendingRequests[msg.requestId] = {
-        callback = function(r, e)
-            state.result = r
-            state.err = e
-            state.done = true
-        end,
-        timeout = os.epoch("utc") + (timeout * 1000)
-    }
+    local callKey = makeCallCoalesceKey(hostId, peripheralName, methodName, args)
+    local requestId = self.inflightByCallKey[callKey]
+    local pending = requestId and self.pendingRequests[requestId] or nil
+    local deadline = os.epoch("utc") + (timeout * 1000)
 
-    -- Send request
-    self.channel:send(hostId, msg)
+    if pending then
+        addPendingCallback(pending, callback)
+        pending.timeout = math.max(pending.timeout or deadline, deadline)
+    else
+        local msg = Protocol.createPeriphCall(peripheralName, methodName, args)
+        self.inflightByCallKey[callKey] = msg.requestId
+        self.pendingRequests[msg.requestId] = {
+            callbacks = { callback },
+            timeout = deadline,
+            coalesceKey = callKey
+        }
+        self.channel:send(hostId, msg)
+    end
 
     -- Wait for response by yielding
     -- The network coroutine processes incoming messages and triggers our callback
     -- We just need to yield to give it CPU time, then check the flag
-    local deadline = os.epoch("utc") + (timeout * 1000)
     while not state.done and os.epoch("utc") < deadline do
         -- Cooperative yield without discarding queued events.
         Yield.yield()
     end
 
-    -- Clean up if timed out
+    -- Do not clear shared pending request on timeout:
+    -- another waiter may still be waiting on the same inflight call.
     if not state.done then
-        self.pendingRequests[msg.requestId] = nil
         return nil, "timeout"
     end
 
@@ -480,11 +574,24 @@ function PeripheralClient:callAsync(hostId, peripheralName, methodName, args, ca
         return
     end
 
-    local msg = Protocol.createPeriphCall(peripheralName, methodName, args)
+    local callKey = makeCallCoalesceKey(hostId, peripheralName, methodName, args)
+    local requestId = self.inflightByCallKey[callKey]
+    local pending = requestId and self.pendingRequests[requestId] or nil
+    local cb = callback or function() end
+    local deadline = os.epoch("utc") + (timeout * 1000)
 
+    if pending then
+        addPendingCallback(pending, cb)
+        pending.timeout = math.max(pending.timeout or deadline, deadline)
+        return
+    end
+
+    local msg = Protocol.createPeriphCall(peripheralName, methodName, args)
+    self.inflightByCallKey[callKey] = msg.requestId
     self.pendingRequests[msg.requestId] = {
-        callback = callback or function() end,
-        timeout = os.epoch("utc") + (timeout * 1000)
+        callbacks = { cb },
+        timeout = deadline,
+        coalesceKey = callKey
     }
 
     self.channel:send(hostId, msg)
@@ -523,12 +630,12 @@ function PeripheralClient:cleanupExpired()
         end
     end
     for _, reqId in ipairs(expired) do
-        local req = self.pendingRequests[reqId]
-        self.pendingRequests[reqId] = nil
-        -- Notify callback of timeout so proxy cache can handle it
-        if req and req.callback then
-            pcall(req.callback, nil, "timeout")
+        local reqHost = self.discoverRequestHost[reqId]
+        if reqHost ~= nil then
+            self.hostDiscoverRequests[reqHost] = nil
+            self.discoverRequestHost[reqId] = nil
         end
+        self:resolvePending(reqId, nil, "timeout")
     end
 end
 
@@ -544,6 +651,11 @@ function PeripheralClient:clear()
     self.remoteNameAlias = {}
     self.hostPeripheralKeys = {}
     self.hostComputers = {}
+    self.hostStateHashes = {}
+    self.hostDiscoverRequests = {}
+    self.discoverRequestHost = {}
+    self.pendingRequests = {}
+    self.inflightByCallKey = {}
 end
 
 return PeripheralClient
