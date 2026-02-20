@@ -235,6 +235,8 @@ function ListSelector.show(target, title, options, opts)
             end
         elseif kind == "resize" then
             -- Re-render on next loop iteration.
+        elseif kind == "detach" then
+            return nil
         end
     end
 end

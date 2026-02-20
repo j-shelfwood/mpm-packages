@@ -25,6 +25,16 @@ local MachineActivity = mpm('peripherals/MachineActivity')
 local Kernel = {}
 Kernel.__index = Kernel
 
+local function countConnectedMonitors(monitors)
+    local connected = 0
+    for _, monitor in ipairs(monitors or {}) do
+        if monitor:isConnected() then
+            connected = connected + 1
+        end
+    end
+    return connected
+end
+
 -- Create a new kernel instance
 function Kernel.new()
     local self = setmetatable({}, Kernel)
@@ -100,10 +110,11 @@ function Kernel:boot()
 
     -- Draw menu bar
     KernelMenu.draw()
-    if #self.monitors == 0 then
+    local connectedMonitors = countConnectedMonitors(self.monitors)
+    if connectedMonitors == 0 then
         self.dashboard:setMessage("Dashboard online. Network/peripheral host active (0 monitors)", colors.orange)
     else
-        self.dashboard:setMessage("Dashboard online. Monitors active.", colors.lime)
+        self.dashboard:setMessage("Dashboard online. " .. connectedMonitors .. " monitor(s) active.", colors.lime)
     end
     self.dashboard:render(self)
 
@@ -132,13 +143,18 @@ function Kernel:initializeMonitors()
 
     for i, monitorConfig in ipairs(self.config.monitors or {}) do
         -- Pass index (0-based) for timer staggering
-        local monitor = Monitor.new(monitorConfig, onViewChange, settings, i - 1, availableViews)
-
-        if monitor:isConnected() then
-            table.insert(self.monitors, monitor)
-        else
+        local ok, monitorOrErr = pcall(Monitor.new, monitorConfig, onViewChange, settings, i - 1, availableViews)
+        if not ok then
+            local msg = "Monitor init failed: " .. tostring(monitorConfig.peripheral) .. " (" .. tostring(monitorOrErr) .. ")"
+            print("[ShelfOS] " .. msg)
             if self.dashboard then
-                self.dashboard:setMessage("Monitor not connected: " .. monitorConfig.peripheral, colors.orange)
+                self.dashboard:setMessage(msg, colors.red)
+            end
+        else
+            local monitor = monitorOrErr
+            table.insert(self.monitors, monitor)
+            if not monitor:isConnected() and self.dashboard then
+                self.dashboard:setMessage("Monitor not connected (will retry): " .. monitorConfig.peripheral, colors.orange)
             end
         end
     end

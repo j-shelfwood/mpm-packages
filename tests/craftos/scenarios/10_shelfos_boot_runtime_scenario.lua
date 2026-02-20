@@ -159,7 +159,7 @@ return function(h)
 
         local fakeViewManager = {
             getAvailableViews = function()
-                return { "MachineGrid", "Clock" }
+                return { "MachineGrid", "EnergyFlowGraph", "Clock" }
             end,
             getDefaultConfig = function(view)
                 return { defaultFor = view }
@@ -177,7 +177,7 @@ return function(h)
         }
 
         Config.discoverMonitors = function()
-            return { "left", "right" }, { ["monitor_9"] = "left" }
+            return { "left", "right", "top" }, { ["monitor_9"] = "left" }
         end
 
         _G.mpm = function(name)
@@ -190,7 +190,7 @@ return function(h)
         local config = {
             monitors = {
                 { peripheral = "monitor_9", label = "monitor_9", view = "MachineActivity", viewConfig = {} },
-                { peripheral = "left", label = "left", view = "GhostView", viewConfig = {} }
+                { peripheral = "top", label = "top", view = "EnergyFlow", viewConfig = {} }
             }
         }
 
@@ -201,7 +201,7 @@ return function(h)
 
         h:assert_true(changed, "Reconcile should report config changes")
         h:assert_not_nil(summary, "Reconcile should provide a change summary")
-        h:assert_eq(2, #config.monitors, "Reconcile should dedupe and include newly discovered monitor")
+        h:assert_eq(3, #config.monitors, "Reconcile should include remapped + migrated + newly discovered monitors")
 
         local byPeripheral = {}
         for _, entry in ipairs(config.monitors) do
@@ -209,8 +209,119 @@ return function(h)
         end
 
         h:assert_not_nil(byPeripheral.left, "Expected canonical left monitor entry")
+        h:assert_not_nil(byPeripheral.top, "Expected existing top monitor entry")
         h:assert_not_nil(byPeripheral.right, "Expected new right monitor entry")
         h:assert_eq("MachineGrid", byPeripheral.left.view, "View rename should migrate MachineActivity -> MachineGrid")
+        h:assert_eq("EnergyFlowGraph", byPeripheral.top.view, "View rename should migrate EnergyFlow -> EnergyFlowGraph")
         h:assert_eq("Clock", byPeripheral.right.view, "New monitor should receive suggested fallback view")
+    end)
+
+    h:test("shelfos runtime: PairingScreen uses canonical discoverMonitors list", function()
+        local oldMpm = _G.mpm
+        local oldPeripheral = _G.peripheral
+
+        local drawCalls = {}
+        _G.peripheral = {
+            wrap = function(name)
+                return {
+                    getSize = function() return 10, 4 end,
+                    setTextScale = function() end,
+                    setBackgroundColor = function() end,
+                    clear = function() end,
+                    setTextColor = function() end,
+                    setCursorPos = function() end,
+                    write = function(_, text)
+                        drawCalls[#drawCalls + 1] = { name = name, text = text }
+                    end
+                }
+            end,
+            getNames = function()
+                error("drawOnAllMonitors should use Config.discoverMonitors, not peripheral.getNames")
+            end
+        }
+
+        _G.mpm = function(name)
+            if name == "shelfos/core/Config" then
+                return {
+                    discoverMonitors = function()
+                        return { "left", "right" }, { monitor_1 = "left" }
+                    end
+                }
+            end
+            return oldMpm(name)
+        end
+
+        local PairingScreen = assert(loadfile(h.workspace .. "/shelfos/ui/PairingScreen.lua"))()
+        local names = PairingScreen.drawOnAllMonitors("ABCD-EFGH", "Node A")
+
+        _G.mpm = oldMpm
+        _G.peripheral = oldPeripheral
+
+        h:assert_eq(2, #names, "Expected canonical monitor names from discoverMonitors")
+        h:assert_eq("left", names[1], "Expected first canonical monitor")
+        h:assert_eq("right", names[2], "Expected second canonical monitor")
+        h:assert_true(#drawCalls > 0, "Expected draw activity on discovered monitors")
+    end)
+
+    h:test("shelfos runtime: Monitor runLoop reconnects on attach and disconnects on detach", function()
+        local Monitor = mpm("shelfos/core/Monitor")
+        local oldPullEvent = os.pullEvent
+
+        local reconnects = 0
+        local disconnects = 0
+        local renders = 0
+        local schedules = 0
+        local index = 0
+        local running = { value = true }
+
+        local instance = setmetatable({
+            peripheralName = "left",
+            connected = false,
+            inConfigMenu = false,
+            pairingMode = false,
+            viewInstance = nil,
+            reconnect = function(self)
+                reconnects = reconnects + 1
+                self.connected = true
+                self.viewInstance = {}
+                return true
+            end,
+            disconnect = function(self)
+                disconnects = disconnects + 1
+                self.connected = false
+            end,
+            render = function()
+                renders = renders + 1
+            end,
+            scheduleRender = function()
+                schedules = schedules + 1
+            end,
+            scheduleLoadRetry = function()
+                error("scheduleLoadRetry should not run for disconnected start")
+            end,
+            handleTimer = function() end,
+            handleTouch = function() end,
+            handleResize = function() end
+        }, Monitor)
+
+        os.pullEvent = function()
+            index = index + 1
+            if index == 1 then
+                return "peripheral", "left"
+            elseif index == 2 then
+                return "peripheral_detach", "left"
+            else
+                running.value = false
+                return "timer", 999
+            end
+        end
+
+        instance:runLoop(running)
+        os.pullEvent = oldPullEvent
+
+        h:assert_eq(1, reconnects, "Expected reconnect on peripheral attach")
+        h:assert_eq(1, disconnects, "Expected disconnect on peripheral_detach")
+        h:assert_true(renders >= 1, "Expected render after reconnect")
+        h:assert_true(schedules >= 1, "Expected scheduleRender after reconnect")
     end)
 end

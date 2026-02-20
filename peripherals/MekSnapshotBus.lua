@@ -4,6 +4,7 @@
 local Peripherals = mpm('utils/Peripherals')
 local Activity = mpm('peripherals/MachineActivity')
 local Text = mpm('utils/Text')
+local Yield = mpm('utils/Yield')
 
 local MekSnapshotBus = {}
 
@@ -183,13 +184,6 @@ end
 
 local function nowMs()
     return os.epoch("utc")
-end
-
-local function pause(seconds)
-    local timer = os.startTimer(seconds or 0)
-    repeat
-        local _, tid = os.pullEvent("timer")
-    until tid == timer
 end
 
 local function safeCall(p, method)
@@ -409,7 +403,7 @@ local function refreshDiscovery()
             end
 
             if idx % 20 == 0 then
-                pause(0)
+                Yield.sleep(0)
             end
         end
 
@@ -468,7 +462,7 @@ local function pollOrdered(entriesByName, ordered, cursorKey, budget, pollFn, no
             end
         end
         if i % 6 == 0 then
-            pause(0)
+            Yield.sleep(0)
         end
     end
     st[cursorKey] = cursor
@@ -539,7 +533,7 @@ function MekSnapshotBus.runLoop(runningRef)
     while runningRef.value do
         local didWork = MekSnapshotBus.tick(false)
         if not didWork then
-            pause(0.1)
+            Yield.sleep(0.1)
         end
     end
     st.running = false

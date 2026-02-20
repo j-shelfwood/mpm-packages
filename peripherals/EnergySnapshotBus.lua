@@ -3,6 +3,7 @@
 -- Decouples heavy energy reads from per-monitor view render loops.
 
 local Peripherals = mpm('utils/Peripherals')
+local Yield = mpm('utils/Yield')
 
 local EnergySnapshotBus = {}
 
@@ -32,13 +33,6 @@ end
 
 local function nowMs()
     return os.epoch("utc")
-end
-
-local function pause(seconds)
-    local timer = os.startTimer(seconds or 0)
-    repeat
-        local _, tid = os.pullEvent("timer")
-    until tid == timer
 end
 
 local function joulesToFE(value)
@@ -156,7 +150,7 @@ local function refreshDiscovery()
             end
 
             if idx % 25 == 0 then
-                pause(0)
+                Yield.sleep(0)
             end
         end
 
@@ -221,7 +215,7 @@ local function pollSweep()
         end
 
         if i % 6 == 0 then
-            pause(0)
+            Yield.sleep(0)
         end
     end
 
@@ -267,7 +261,7 @@ function EnergySnapshotBus.runLoop(runningRef)
     while runningRef.value do
         local didWork = EnergySnapshotBus.tick(false)
         if not didWork then
-            pause(0.1)
+            Yield.sleep(0.1)
         end
     end
 

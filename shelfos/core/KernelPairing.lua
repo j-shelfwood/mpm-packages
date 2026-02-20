@@ -7,17 +7,12 @@ local PairingScreen = mpm('shelfos/ui/PairingScreen')
 local Config = mpm('shelfos/core/Config')
 local ModemUtils = mpm('utils/ModemUtils')
 local Terminal = mpm('shelfos/core/Terminal')
+local Yield = mpm('utils/Yield')
 
 local KernelPairing = {}
 
 local function waitSeconds(seconds)
-    local timer = os.startTimer(seconds)
-    while true do
-        local event, id = os.pullEvent()
-        if event == "timer" and id == timer then
-            return
-        end
-    end
+    Yield.sleep(seconds or 0)
 end
 
 -- Accept pairing from a pocket computer
@@ -40,13 +35,8 @@ function KernelPairing.acceptFromPocket(kernel)
     local computerLabel = os.getComputerLabel() or ("Computer #" .. os.getComputerID())
     local native = term.native()
 
-    -- Find all connected monitors
-    local monitorNames = {}
-    for _, name in ipairs(peripheral.getNames()) do
-        if peripheral.hasType(name, "monitor") then
-            table.insert(monitorNames, name)
-        end
-    end
+    -- Use canonical monitor names (deduplicates side/network aliases).
+    local monitorNames = Config.discoverMonitors()
 
     -- Close existing channel temporarily
     if kernel.channel then
@@ -68,13 +58,8 @@ function KernelPairing.acceptFromPocket(kernel)
         onDisplayCode = function(code)
             displayCode = code
 
-            -- Display code on ALL monitors (large as possible)
-            for _, name in ipairs(monitorNames) do
-                local mon = peripheral.wrap(name)
-                if mon then
-                    PairingScreen.drawCode(mon, code, computerLabel)
-                end
-            end
+            -- Display code on all canonical monitors.
+            PairingScreen.drawOnAllMonitors(code, computerLabel, monitorNames)
 
             -- Always draw pairing code on native terminal.
             -- This is required for terminal-only (0 monitor) nodes.

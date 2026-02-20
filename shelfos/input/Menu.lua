@@ -278,6 +278,8 @@ function Menu.showLink(config, target)
             end
         elseif kind == "resize" then
             -- Re-render on next loop iteration.
+        elseif kind == "detach" then
+            return nil
         end
     end
 end

@@ -194,7 +194,15 @@ function ConfigUI.drawMultiPicker(monitor, title, options, currentValues)
         Core.drawBar(monitor, height, "Cancel", Core.COLORS.cancelButton, Core.COLORS.text)
         Core.resetColors(monitor)
 
-        local _, x, y = EventLoop.waitForMonitorTouch(monitorName)
+        local _, x, y, eventKind = EventLoop.waitForMonitorTouch(monitorName)
+        if eventKind == "detach" then
+            return nil
+        elseif eventKind == "resize" then
+            width, height = monitor.getSize()
+            listEndY = math.max(listStartY, height - 3)
+            rowsPerPage = math.max(1, listEndY - listStartY + 1)
+            goto continue
+        end
 
         if y == height - 1 then
             local result = {}
@@ -222,6 +230,7 @@ function ConfigUI.drawMultiPicker(monitor, title, options, currentValues)
             local value = touchRows[y]
             selected[value] = not selected[value]
         end
+        ::continue::
     end
 end
 
@@ -348,7 +357,13 @@ function ConfigUI.drawConfigMenu(monitor, viewName, schema, currentConfig)
         Core.resetColors(monitor)
 
         -- Wait for touch on THIS monitor only
-        local _, x, y = EventLoop.waitForMonitorTouch(monitorName)
+        local _, x, y, eventKind = EventLoop.waitForMonitorTouch(monitorName)
+        if eventKind == "detach" then
+            return nil
+        elseif eventKind == "resize" then
+            width, height = monitor.getSize()
+            goto continue
+        end
 
         -- Save
         if y == saveY then
@@ -468,6 +483,7 @@ function ConfigUI.drawConfigMenu(monitor, viewName, schema, currentConfig)
                 break
             end
         end
+        ::continue::
     end
 end
 

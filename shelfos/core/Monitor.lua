@@ -43,6 +43,7 @@ local MonitorConfigMenu = mpm('shelfos/core/MonitorConfigMenu')
 local Theme = mpm('utils/Theme')
 local Core = mpm('ui/Core')
 local Button = mpm('ui/Button')
+local EventLoop = mpm('ui/EventLoop')
 local RenderContext = mpm('net/RenderContext')
 local DependencyStatus = mpm('net/DependencyStatus')
 
@@ -108,18 +109,11 @@ function Monitor.new(config, onViewChange, settings, index, availableViews)
     self.index = index or 0  -- Used for staggering render timers
     self.renderPhase = self.index * 0.05
 
-    -- Try to connect
-    self.peripheral = peripheral.wrap(self.peripheralName)
-    self.connected = self.peripheral ~= nil
-
-    if not self.connected then
-        return self
-    end
-
     -- State
     self.view = nil
     self.viewInstance = nil
     self.renderTimer = nil
+    self.loadRetryTimer = nil
     self.settingsTimer = nil
     self.showingSettings = false
     self.inConfigMenu = false
@@ -128,6 +122,7 @@ function Monitor.new(config, onViewChange, settings, index, availableViews)
     self.settingsButton = nil
     self.pairingMode = false  -- When true, skip rendering (pairing code displayed)
     self.touchDebounceUntil = 0
+    self.lastLoadError = nil
 
     -- Window buffer for flicker-free rendering
     self.buffer = nil
@@ -135,10 +130,26 @@ function Monitor.new(config, onViewChange, settings, index, availableViews)
     self.bufferHeight = 0
     self.currentScale = 1.0
 
-    -- Initialize
-    self:initialize()
+    -- Try to connect; runLoop may reconnect later if unavailable at boot.
+    self.peripheral = peripheral.wrap(self.peripheralName)
+    self.connected = self.peripheral ~= nil
+    if self.connected then
+        self:initialize()
+    end
 
     return self
+end
+
+function Monitor:scheduleLoadRetry(delaySeconds)
+    if self.inConfigMenu then
+        return
+    end
+
+    if self.loadRetryTimer then
+        os.cancelTimer(self.loadRetryTimer)
+    end
+
+    self.loadRetryTimer = os.startTimer(delaySeconds or 2)
 end
 
 -- Initialize the monitor
@@ -204,32 +215,54 @@ end
 function Monitor:loadView(viewName)
     if not self.connected then return false end
 
-    local View = ViewManager.load(viewName)
-    if not View then
-        print("[Monitor] Failed to load: " .. viewName)
-        return false
+    local requestedView = viewName or self.viewName or "Clock"
+
+    local function tryLoad(name, config)
+        local View = ViewManager.load(name)
+        if not View then
+            return false, "View not found: " .. tostring(name)
+        end
+
+        local ok, instance = pcall(View.new, self.buffer, config or {}, self.peripheralName)
+        if not ok then
+            return false, tostring(instance)
+        end
+
+        self.view = View
+        self.viewName = name
+        self.viewConfig = config or {}
+        self.viewInstance = instance
+        self.lastLoadError = nil
+
+        for i, available in ipairs(self.availableViews) do
+            if available == name then
+                self.currentIndex = i
+                break
+            end
+        end
+
+        return true, nil
     end
 
-    self.view = View
-    self.viewName = viewName
+    local ok, err = tryLoad(requestedView, self.viewConfig)
 
-    -- Update index
-    for i, name in ipairs(self.availableViews) do
-        if name == viewName then
-            self.currentIndex = i
-            break
+    -- Guardrail: if an assigned view breaks, fall back to Clock so monitor
+    -- rendering continues instead of staying permanently blank.
+    if not ok and requestedView ~= "Clock" then
+        print("[Monitor] Failed to load " .. tostring(requestedView) .. " on " .. (self.peripheralName or "unknown") .. ": " .. tostring(err))
+        local fallbackConfig = ViewManager.getDefaultConfig("Clock")
+        ok, err = tryLoad("Clock", fallbackConfig)
+        if ok then
+            print("[Monitor] Fallback view Clock loaded on " .. (self.peripheralName or "unknown"))
         end
     end
 
-    -- Create view instance with BUFFER (not raw peripheral)
-    -- This enables flicker-free rendering via window API
-    -- Pass peripheral name for overlay event filtering
-    local ok, instance = pcall(View.new, self.buffer, self.viewConfig, self.peripheralName)
-    if ok then
-        self.viewInstance = instance
-    else
-        print("[Monitor] View error: " .. tostring(instance))
+    if not ok then
+        self.view = nil
         self.viewInstance = nil
+        self.lastLoadError = tostring(err)
+        print("[Monitor] View error on " .. (self.peripheralName or "unknown") .. ": " .. self.lastLoadError)
+        self:scheduleLoadRetry(2)
         return false
     end
 
@@ -287,6 +320,8 @@ function Monitor:openConfigMenu()
     end
 
     self.touchDebounceUntil = os.epoch("utc") + TOUCH_DEBOUNCE_MS
+    EventLoop.armTouchGuard(self.peripheralName, TOUCH_DEBOUNCE_MS)
+    EventLoop.drainMonitorTouches(self.peripheralName, 8)
     self.inConfigMenu = true
     self.showingSettings = false
     self.settingsButton = nil
@@ -295,6 +330,10 @@ function Monitor:openConfigMenu()
     if self.renderTimer then
         os.cancelTimer(self.renderTimer)
         self.renderTimer = nil
+    end
+    if self.loadRetryTimer then
+        os.cancelTimer(self.loadRetryTimer)
+        self.loadRetryTimer = nil
     end
     if self.settingsTimer then
         os.cancelTimer(self.settingsTimer)
@@ -332,6 +371,8 @@ end
 function Monitor:closeConfigMenu(skipImmediateRender)
     self.inConfigMenu = false
     self.touchDebounceUntil = os.epoch("utc") + CONFIG_EXIT_TOUCH_GUARD_MS
+    EventLoop.armTouchGuard(self.peripheralName, CONFIG_EXIT_TOUCH_GUARD_MS)
+    EventLoop.drainMonitorTouches(self.peripheralName, 12)
     if self.buffer then
         self.buffer.setVisible(true)
     end
@@ -353,7 +394,7 @@ end
 --          Drawing happens atomically, then buffer flipped visible
 -- ============================================================================
 function Monitor:render()
-    if self.inConfigMenu or not self.viewInstance then
+    if not self.connected or not self.buffer or self.inConfigMenu or not self.viewInstance then
         return
     end
 
@@ -491,7 +532,7 @@ end
 -- Schedule next render
 -- @param offset Optional time offset to stagger initial renders (default 0)
 function Monitor:scheduleRender(offset)
-    if self.inConfigMenu then return end
+    if not self.connected or self.inConfigMenu then return end
     -- Cancel any existing render timer to prevent orphaned timers
     if self.renderTimer then
         os.cancelTimer(self.renderTimer)
@@ -563,6 +604,18 @@ function Monitor:handleTimer(timerId)
     if timerId == self.settingsTimer then
         self:hideSettingsButton()
         return true
+    elseif timerId == self.loadRetryTimer then
+        self.loadRetryTimer = nil
+        if not self.connected then
+            return true
+        end
+        if not self.viewInstance then
+            local reloaded = self:loadView(self.viewName or "Clock")
+            if not reloaded then
+                self:scheduleLoadRetry(2)
+            end
+        end
+        return true
     elseif timerId == self.renderTimer then
         -- Protect render with pcall to ensure scheduleRender is always called
         local ok, err = pcall(function()
@@ -580,7 +633,9 @@ end
 
 -- Check if this is our render timer (for Kernel compatibility)
 function Monitor:isRenderTimer(timerId)
-    return timerId == self.renderTimer or timerId == self.settingsTimer
+    return timerId == self.renderTimer
+        or timerId == self.settingsTimer
+        or timerId == self.loadRetryTimer
 end
 
 -- Clear the monitor (both buffer and peripheral)
@@ -590,6 +645,30 @@ function Monitor:clear()
             Core.clear(self.buffer)
         end
         Core.clear(self.peripheral)
+    end
+end
+
+function Monitor:disconnect()
+    self.connected = false
+    self.peripheral = nil
+    self.buffer = nil
+    self.view = nil
+    self.viewInstance = nil
+    self.showingSettings = false
+    self.settingsButton = nil
+    self.inConfigMenu = false
+
+    if self.renderTimer then
+        os.cancelTimer(self.renderTimer)
+        self.renderTimer = nil
+    end
+    if self.loadRetryTimer then
+        os.cancelTimer(self.loadRetryTimer)
+        self.loadRetryTimer = nil
+    end
+    if self.settingsTimer then
+        os.cancelTimer(self.settingsTimer)
+        self.settingsTimer = nil
     end
 end
 
@@ -684,14 +763,12 @@ end
 -- Run the monitor's independent event loop
 -- @param running Reference to shared running flag (table with .value)
 function Monitor:runLoop(running)
-    if not self.connected then
-        return
-    end
-
     -- Initial render and schedule (only if not in pairing mode)
     if self.viewInstance and not self.pairingMode then
         self:render()
         self:scheduleRender()
+    elseif self.connected and not self.inConfigMenu then
+        self:scheduleLoadRetry(1)
     end
 
     while running.value do
@@ -709,6 +786,17 @@ function Monitor:runLoop(running)
             -- Only handle resize for our peripheral
             if p1 == self.peripheralName then
                 self:handleResize()
+            end
+        elseif event == "peripheral" then
+            if p1 == self.peripheralName and not self.connected then
+                if self:reconnect() then
+                    self:render()
+                    self:scheduleRender()
+                end
+            end
+        elseif event == "peripheral_detach" then
+            if p1 == self.peripheralName and self.connected then
+                self:disconnect()
             end
         end
         -- Other events are ignored by this monitor's loop

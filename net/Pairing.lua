@@ -133,6 +133,7 @@ function Pairing.acceptFromPocket(callbacks)
     local success = false
     local resultSecret, resultComputerId
 
+    local tickTimer = nil
     while os.epoch("utc") < deadline do
         -- Re-broadcast presence every 3 seconds
         local now = os.epoch("utc")
@@ -146,10 +147,14 @@ function Pairing.acceptFromPocket(callbacks)
             end
         end
 
-        local timer = os.startTimer(0.5)
+        if not tickTimer then
+            tickTimer = os.startTimer(0.5)
+        end
         local event, p1, p2, p3 = os.pullEvent()
 
-        if event == "rednet_message" then
+        if event == "timer" and p1 == tickTimer then
+            tickTimer = nil
+        elseif event == "rednet_message" then
             local senderId = p1
             local envelope = p2
             local msgProtocol = p3
@@ -257,15 +262,20 @@ function Pairing.deliverToPending(secret, computerId, callbacks, timeout)
         end
     end
 
+    local scanTimer = nil
     while os.epoch("utc") < deadline do
         -- Clean stale entries before handling input so expired computers
         -- cannot be selected in the current iteration.
         cleanupStalePending()
 
-        local timer = os.startTimer(0.3)
+        if not scanTimer then
+            scanTimer = os.startTimer(0.3)
+        end
         local event, p1, p2, p3 = os.pullEvent()
 
-        if event == "rednet_message" then
+        if event == "timer" and p1 == scanTimer then
+            scanTimer = nil
+        elseif event == "rednet_message" then
             local senderId = p1
             local message = p2
             local msgProtocol = p3
@@ -364,11 +374,16 @@ function Pairing.deliverToPending(secret, computerId, callbacks, timeout)
 
                         -- Wait briefly for confirmation
                         local confirmDeadline = os.epoch("utc") + 5000
+                        local confirmTimer = nil
                         while os.epoch("utc") < confirmDeadline do
-                            local cTimer = os.startTimer(0.5)
+                            if not confirmTimer then
+                                confirmTimer = os.startTimer(0.5)
+                            end
                             local cEvent, cp1, cp2, cp3 = os.pullEvent()
 
-                            if cEvent == "rednet_message" and cp1 == pair.senderId then
+                            if cEvent == "timer" and cp1 == confirmTimer then
+                                confirmTimer = nil
+                            elseif cEvent == "rednet_message" and cp1 == pair.senderId then
                                 if cp3 == Pairing.PROTOCOL and type(cp2) == "table" then
                                     if cp2.type == Protocol.MessageType.PAIR_COMPLETE then
                                         success = true

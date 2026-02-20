@@ -258,11 +258,16 @@ function AddComputer.drawCodeEntry(ctx)
 
     -- Wait for PAIR_COMPLETE
     local deadline = os.epoch("utc") + 5000
+    local confirmTimer = nil
     while os.epoch("utc") < deadline do
-        local timer = os.startTimer(0.5)
+        if not confirmTimer then
+            confirmTimer = os.startTimer(0.5)
+        end
         local event, p1, p2, p3 = os.pullEvent()
 
-        if event == "rednet_message" and p1 == computer.senderId then
+        if event == "timer" and p1 == confirmTimer then
+            confirmTimer = nil
+        elseif event == "rednet_message" and p1 == computer.senderId then
             if p3 == PAIR_PROTOCOL and type(p2) == "table" then
                 if p2.type == Protocol.MessageType.PAIR_COMPLETE then
                     if hasCommit then

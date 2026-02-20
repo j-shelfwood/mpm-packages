@@ -5,6 +5,7 @@
 
 local TermUI = mpm('ui/TermUI')
 local Paths = mpm('shelfos-swarm/core/Paths')
+local Yield = mpm('utils/Yield')
 
 local DeleteSwarm = {}
 
@@ -94,7 +95,7 @@ function DeleteSwarm.handleEvent(ctx, event, p1, ...)
             TermUI.drawCentered(y, "Swarm deleted", colors.orange)
             TermUI.drawCentered(y + 1, "Rebooting...", colors.lightGray)
 
-            sleep(2)
+            Yield.sleep(2)
             os.reboot()
             -- Never returns
 

@@ -3,6 +3,7 @@
 -- Provides amount selection and craft action with status feedback
 
 local Core = mpm('ui/Core')
+local EventLoop = mpm('ui/EventLoop')
 
 local CraftDialog = {}
 
@@ -186,14 +187,21 @@ function CraftDialog.show(monitor, peripheralName, opts)
 
         Core.resetColors(monitor)
 
-        -- Wait for touch
-        local side, tx, ty
-        repeat
-            local _, touchSide, x, y = os.pullEvent("monitor_touch")
-            side, tx, ty = touchSide, x, y
-        until side == peripheralName
+        -- Wait for monitor interaction on this peripheral.
+        local kind, tx, ty = EventLoop.waitForMonitorEvent(peripheralName)
 
-        if side == peripheralName then
+        if kind == "detach" then
+            return nil
+        elseif kind == "resize" then
+            -- Recompute bounds and redraw on next loop.
+            width, height = monitor.getSize()
+            overlayWidth = math.min(width - 2, 26)
+            overlayHeight = math.min(height - 2, 9)
+            x1 = math.floor((width - overlayWidth) / 2) + 1
+            y1 = math.floor((height - overlayHeight) / 2) + 1
+            x2 = x1 + overlayWidth - 1
+            y2 = y1 + overlayHeight - 1
+        elseif kind == "touch" then
             -- Close button or outside overlay
             if (ty == buttonY and tx >= x2 - 7 and tx <= x2 - 1) or
                tx < x1 or tx > x2 or ty < y1 or ty > y2 then

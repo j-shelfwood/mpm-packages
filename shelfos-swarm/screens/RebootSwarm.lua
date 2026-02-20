@@ -5,6 +5,7 @@
 
 local TermUI = mpm('ui/TermUI')
 local Protocol = mpm('net/Protocol')
+local Yield = mpm('utils/Yield')
 
 local RebootSwarm = {}
 
@@ -134,7 +135,7 @@ function RebootSwarm.handleEvent(ctx, event, p1, ...)
                     RebootSwarm.draw(ctx)
 
                     -- Auto-return after 2 seconds
-                    sleep(2)
+                    Yield.sleep(2)
                     return "pop"
                 else
                     state.phase = "error"

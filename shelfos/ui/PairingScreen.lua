@@ -3,6 +3,7 @@
 -- Used by Kernel.lua and tools/pair_accept.lua
 
 local PairingScreen = {}
+local Config = mpm('shelfos/core/Config')
 
 -- Calculate optimal text scale based on monitor size
 -- @param w Current width
@@ -73,21 +74,21 @@ end
 -- Draw pairing code on all connected monitors
 -- @param code Pairing code
 -- @param label Computer label
+-- @param monitorNames Optional canonical monitor names
 -- @return Table of monitor names that were drawn to
-function PairingScreen.drawOnAllMonitors(code, label)
-    local monitorNames = {}
+function PairingScreen.drawOnAllMonitors(code, label, monitorNames)
+    local drawn = {}
+    local discovered = monitorNames or Config.discoverMonitors()
 
-    for _, name in ipairs(peripheral.getNames()) do
-        if peripheral.hasType(name, "monitor") then
-            local mon = peripheral.wrap(name)
-            if mon then
-                PairingScreen.drawCode(mon, code, label)
-                table.insert(monitorNames, name)
-            end
+    for _, name in ipairs(discovered) do
+        local mon = peripheral.wrap(name)
+        if mon then
+            PairingScreen.drawCode(mon, code, label)
+            table.insert(drawn, name)
         end
     end
 
-    return monitorNames
+    return drawn
 end
 
 -- Clear pairing display from a single monitor

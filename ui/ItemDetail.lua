@@ -1,10 +1,11 @@
 -- ItemDetail.lua
 -- Modal overlay showing full item details with action buttons
 -- For use in interactive views (CraftableBrowser, ItemBrowser, etc.)
--- Uses os.pullEvent directly with monitor-specific touch filtering.
+-- Uses EventLoop helpers for monitor-specific touch filtering.
 
 local Core = mpm('ui/Core')
 local Text = mpm('utils/Text')
+local EventLoop = mpm('ui/EventLoop')
 
 local ItemDetail = {}
 ItemDetail.__index = ItemDetail
@@ -199,15 +200,16 @@ function ItemDetail:show()
     local monitorName = peripheral.getName(self.monitor)
 
     while true do
+        self.width, self.height = self.monitor.getSize()
         self:render()
 
-        local side, x, y
-        repeat
-            local _, touchSide, tx, ty = os.pullEvent("monitor_touch")
-            side, x, y = touchSide, tx, ty
-        until side == monitorName
+        local kind, x, y = EventLoop.waitForMonitorEvent(monitorName)
 
-        if side == monitorName then
+        if kind == "detach" then
+            return "close"
+        elseif kind == "resize" then
+            -- Re-render with new bounds.
+        elseif kind == "touch" then
             local result = self:handleTouch(x, y)
 
             if result then

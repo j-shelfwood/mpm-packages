@@ -20,6 +20,7 @@ local TermUI = mpm('ui/TermUI')
 local ModemUtils = mpm('utils/ModemUtils')
 local Channel = mpm('net/Channel')
 local Crypto = mpm('net/Crypto')
+local Yield = mpm('utils/Yield')
 
 -- Screen modules (lazy loaded to avoid circular deps)
 local MainMenu = mpm('shelfos-swarm/screens/MainMenu')
@@ -83,7 +84,7 @@ function App:init()
             end
 
             self.initialScreen = MainMenu
-            sleep(0.5)  -- Brief pause to show status
+            Yield.sleep(0.5)  -- Brief pause to show status
             return true
         else
             -- Corrupted swarm data
@@ -105,7 +106,7 @@ function App:init()
                         self.authority:deleteSwarm()
                         TermUI.clear()
                         TermUI.drawCentered(10, "Swarm deleted, restarting...", colors.orange)
-                        sleep(1)
+                        Yield.sleep(1)
                         os.reboot()
                     elseif keyName == "q" then
                         return false

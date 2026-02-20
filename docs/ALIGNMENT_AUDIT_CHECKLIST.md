@@ -72,3 +72,15 @@ cd mpm-packages && ./tests/run_all.sh
 Verify:
 - no integration regression in existing CraftOS scenarios
 - follow-up: add focused tests for collision/fallback/ordering invariants
+
+## 8) Monitor Event Naming & Lifecycle
+
+```bash
+rg -n "monitor_touch|monitor_resize|peripheral_detach|discoverMonitors|os\\.pullEvent\\(\"monitor_touch\"\\)" mpm-packages/shelfos mpm-packages/ui mpm-packages/docs
+```
+
+Verify:
+- no code/docs assume monitor events only return side names; CC:Tweaked may provide side or network ID
+- monitor discovery in setup/pairing/runtime paths flows through `Config.discoverMonitors()` where canonicalization matters
+- interactive monitor loops avoid accidental lifecycle blindness (filtered `os.pullEvent("monitor_touch")` sites should be reviewed for detach/resize handling)
+- attach/detach reconnect expectations are documented and covered by scenarios

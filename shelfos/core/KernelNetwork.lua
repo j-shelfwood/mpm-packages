@@ -3,6 +3,7 @@
 -- Extracted from Kernel.lua for maintainability
 
 local KernelNetwork = {}
+local Yield = mpm('utils/Yield')
 
 -- Register computer in native CC:Tweaked service discovery.
 -- @param identityId Computer identity ID (string/number)
@@ -170,12 +171,6 @@ function KernelNetwork.loop(kernel, runningRef)
     local cleanupInterval = 5000           -- Clean expired requests every 5s
     local lastDiscoveryCleanup = 0
     local discoveryCleanupInterval = 30000
-    local function pause(seconds)
-        local timer = os.startTimer(seconds or 0)
-        repeat
-            local _, tid = os.pullEvent("timer")
-        until tid == timer
-    end
 
     while runningRef.value do
         if kernel.channel then
@@ -242,9 +237,9 @@ function KernelNetwork.loop(kernel, runningRef)
             -- CRITICAL: Yield after each iteration to prevent "too long without yielding"
             -- channel:poll() yields via rednet.receive(), but the subsequent announce/broadcast
             -- work can accumulate CPU time across iterations when poll returns quickly
-            pause(0)
+            Yield.sleep(0)
         else
-            pause(0.1)
+            Yield.sleep(0.1)
         end
     end
 end

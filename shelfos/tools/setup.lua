@@ -6,6 +6,7 @@ local Paths = mpm('shelfos/core/Paths')
 local Identity = mpm('shelfos/core/Identity')
 local ViewManager = mpm('views/Manager')
 local Crypto = mpm('net/Crypto')
+local Yield = mpm('utils/Yield')
 
 local setup = {}
 
@@ -53,7 +54,7 @@ function setup.run()
             print("")
             print("Configuration deleted.")
             print("Rebooting in 2 seconds...")
-            sleep(2)
+            Yield.sleep(2)
             os.reboot()
         elseif choice == 2 then
             print("")
@@ -91,15 +92,14 @@ function setup.run()
     print("")
     print("Scanning for monitors...")
 
-    local monitors = {}
-    local peripherals = peripheral.getNames()
-
-    for _, name in ipairs(peripherals) do
-        if peripheral.hasType(name, "monitor") then
-            local mon = peripheral.wrap(name)
+    local monitors = Config.discoverMonitors()
+    for _, name in ipairs(monitors) do
+        local mon = peripheral.wrap(name)
+        if mon then
             local w, h = mon.getSize()
             print("  [+] " .. name .. " (" .. w .. "x" .. h .. ")")
-            table.insert(monitors, name)
+        else
+            print("  [+] " .. name)
         end
     end
 

@@ -40,6 +40,34 @@ function Yield.yield()
     end
 end
 
+-- Sleep for a duration while preserving non-timer events in the queue.
+-- @param seconds Number of seconds to wait
+function Yield.sleep(seconds)
+    local duration = seconds or 0
+    if duration <= 0 then
+        Yield.yield()
+        return
+    end
+
+    local timer = os.startTimer(duration)
+    local events = {}
+
+    while true do
+        local event = {os.pullEventRaw()}
+        if event[1] == "timer" and event[2] == timer then
+            break
+        elseif event[1] == "terminate" then
+            error("Terminated", 0)
+        else
+            table.insert(events, event)
+        end
+    end
+
+    for _, event in ipairs(events) do
+        os.queueEvent(table.unpack(event))
+    end
+end
+
 -- Yield if counter reaches interval
 -- @param counter Current iteration count
 -- @param interval Yield every N iterations (default: 100)

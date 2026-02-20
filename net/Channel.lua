@@ -205,6 +205,9 @@ function Channel:poll(timeout)
         local handler = self.handlers[message.type]
         if handler then
             local ok, result = pcall(handler, senderId, message, self)
+            if not ok then
+                print("[Channel] Handler error for " .. tostring(message.type) .. ": " .. tostring(result))
+            end
             return ok, true
         end
 

@@ -8,6 +8,7 @@ local Paths = mpm('shelfos/core/Paths')
 local Terminal = mpm('shelfos/core/Terminal')
 local Menu = mpm('shelfos/input/Menu')
 local ViewManager = mpm('views/Manager')
+local Yield = mpm('utils/Yield')
 
 local KernelMenu = {}
 
@@ -139,7 +140,7 @@ function KernelMenu.doFactoryReset(kernel)
     print("Rebooting in 2 seconds...")
 
     -- 6. HARD REBOOT - prevents any save-on-exit from running
-    sleep(2)
+    Yield.sleep(2)
     os.reboot()
     -- Code never reaches here
 end
@@ -180,7 +181,7 @@ function KernelMenu.doLeaveSwarm(kernel)
     print("Rebooting in 2 seconds...")
 
     -- 6. REBOOT for clean state
-    sleep(2)
+    Yield.sleep(2)
     os.reboot()
     -- Code never reaches here
 end

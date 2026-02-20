@@ -26,7 +26,16 @@ local function runConfigDialog(monitor, monitorName, title, renderBody, handleTo
         Core.drawBar(monitor, cancelY, "Cancel", Core.COLORS.cancelButton, Core.COLORS.text)
         Core.resetColors(monitor)
 
-        local _, x, y = EventLoop.waitForMonitorTouch(monitorName)
+        local _, x, y, eventKind = EventLoop.waitForMonitorTouch(monitorName)
+        if eventKind == "detach" then
+            return false
+        elseif eventKind == "resize" then
+            local _, newHeight = monitor.getSize()
+            height = newHeight
+            saveY = height - 1
+            cancelY = height
+            goto continue
+        end
 
         if y == saveY then
             return true
@@ -39,6 +48,7 @@ local function runConfigDialog(monitor, monitorName, title, renderBody, handleTo
         if handleTouch then
             handleTouch(x, y)
         end
+        ::continue::
     end
 end
 

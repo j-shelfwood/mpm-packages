@@ -250,7 +250,9 @@ end
 
 -- Discover monitors, deduplicating when the same physical monitor
 -- appears under both a side name (direct attachment) and a network name
--- (via wired modem). Prefers side names since monitor_touch events use them.
+-- (via wired modem). Prefers side names as canonical local identifiers when
+-- both names refer to the same physical monitor.
+-- Note: monitor_touch/monitor_resize may report either side or network ID.
 -- @return monitors (deduplicated list), aliases (table: skipped_name → canonical_name)
 function Config.discoverMonitors()
     local allNames = peripheral.getNames()
@@ -333,6 +335,7 @@ end
 local VIEW_RENAMES = {
     MachineActivity = "MachineGrid",
     MachineStatus = "MachineGrid",
+    EnergyFlow = "EnergyFlowGraph",
 }
 
 -- Reconcile existing config against actual hardware and view availability.

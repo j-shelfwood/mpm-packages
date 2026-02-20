@@ -99,7 +99,7 @@ function Controller.showInfo(target, title, lines, opts)
     if isMonitor then
         while true do
             local kind = EventLoop.waitForTouchOrKey(monitorName)
-            if kind == "key" or kind == "touch" then
+            if kind == "key" or kind == "touch" or kind == "detach" then
                 break
             end
         end
@@ -184,6 +184,8 @@ function Controller.showConfirm(target, title, message, opts)
                 end
             elseif kind == "resize" then
                 -- Re-render on next loop iteration.
+            elseif kind == "detach" then
+                return false
             end
         end
     else

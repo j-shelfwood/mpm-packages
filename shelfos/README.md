@@ -39,6 +39,7 @@ ShelfOS supports both monitor-attached and terminal-only (0 monitor) nodes under
 - Settings affordance auto-hides after inactivity timeout.
 - Selecting a view applies immediately to the touched monitor.
 - `monitor_resize` triggers monitor reinitialization and relayout.
+- Runtime peripheral attach/detach is self-healed: configured monitors reconnect and resume rendering when reattached.
 
 Implementation is authoritative in:
 - `mpm-packages/shelfos/core/Monitor.lua`
