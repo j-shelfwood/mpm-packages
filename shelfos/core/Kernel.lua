@@ -227,8 +227,10 @@ end
 -- Runs in parallel with monitor loops (each has own event queue)
 function Kernel:keyboardLoop(runningRef)
     while runningRef.value do
-        local loopStart = os.epoch("utc")
+        local waitStart = os.epoch("utc")
         local event, p1 = os.pullEvent()
+        local waitDuration = os.epoch("utc") - waitStart
+        local handlerStart = os.epoch("utc")
 
         if event == "key" then
             -- Handle menu keys - may block for dialogs
@@ -257,7 +259,8 @@ function Kernel:keyboardLoop(runningRef)
         end
 
         if self.dashboard then
-            self.dashboard:recordLoopMs(os.epoch("utc") - loopStart)
+            self.dashboard:recordEventWaitMs(waitDuration)
+            self.dashboard:recordHandlerMs(os.epoch("utc") - handlerStart)
         end
         -- Timer and monitor events are handled by monitor coroutines
     end
@@ -280,20 +283,29 @@ function Kernel:dashboardLoop(runningRef)
 
         if event == "timer" and p1 == dashboardTimer then
             dashboardTimer = nil
-            if self.dashboard then
+            if self.dashboard and not Terminal.isDialogOpen() then
                 if self.peripheralClient then
                     self.dashboard:setRemoteCount(self.peripheralClient:getCount())
                 end
                 self.dashboard:tick()
-                self.dashboard:render(self)
+                if self.dashboard:shouldRender() then
+                    self.dashboard:render(self)
+                end
             end
             ensureDashboardTimer()
         elseif event == "term_resize" then
-            Terminal.resize()
-            KernelMenu.draw()
-            if self.dashboard then
-                self.dashboard:requestRedraw()
-                self.dashboard:render(self)
+            if not Terminal.isDialogOpen() then
+                Terminal.resize()
+                KernelMenu.draw()
+                if self.dashboard then
+                    self.dashboard:requestRedraw()
+                    self.dashboard:render(self)
+                end
+            else
+                -- Delay redraw work until the active dialog exits.
+                if self.dashboard then
+                    self.dashboard:requestRedraw()
+                end
             end
             ensureDashboardTimer()
         end

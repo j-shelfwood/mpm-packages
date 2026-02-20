@@ -15,11 +15,99 @@ function PeripheralClient.new(channel)
     local self = setmetatable({}, PeripheralClient)
 
     self.channel = channel
-    self.remotePeripherals = {}  -- {name -> {hostId, type, methods, proxy}}
+    self.remotePeripherals = {}  -- {key -> {key, name, displayName, hostId, hostComputerName, type, methods, proxy}}
+    self.remoteByName = {}       -- {name -> {key1, key2, ...}}
+    self.remoteNameAlias = {}    -- {name -> preferredKey}
+    self.hostPeripheralKeys = {} -- {hostId -> { [key] = true }}
     self.hostComputers = {}      -- {hostId -> {computerId, computerName}}
     self.pendingRequests = {}    -- {requestId -> {callback, timeout}}
 
     return self
+end
+
+local function makeRemoteKey(hostId, name)
+    return tostring(hostId) .. "::" .. tostring(name)
+end
+
+local function sortRemoteKeys(keys, remotePeripherals)
+    table.sort(keys, function(a, b)
+        local ai = remotePeripherals[a]
+        local bi = remotePeripherals[b]
+        if not ai then return false end
+        if not bi then return true end
+        local ah = tonumber(ai.hostId) or math.huge
+        local bh = tonumber(bi.hostId) or math.huge
+        if ah ~= bh then
+            return ah < bh
+        end
+        return tostring(a) < tostring(b)
+    end)
+end
+
+local function sortedRemoteKeys(remotePeripherals)
+    local keys = {}
+    for key in pairs(remotePeripherals) do
+        table.insert(keys, key)
+    end
+    sortRemoteKeys(keys, remotePeripherals)
+    return keys
+end
+
+function PeripheralClient:rebuildNameIndexes()
+    self.remoteByName = {}
+    self.remoteNameAlias = {}
+
+    for key, info in pairs(self.remotePeripherals) do
+        local name = info.name
+        if name and name ~= "" then
+            self.remoteByName[name] = self.remoteByName[name] or {}
+            table.insert(self.remoteByName[name], key)
+        end
+    end
+
+    for name, keys in pairs(self.remoteByName) do
+        sortRemoteKeys(keys, self.remotePeripherals)
+        self.remoteNameAlias[name] = keys[1]
+    end
+end
+
+function PeripheralClient:removeHostRemotes(hostId)
+    local keys = self.hostPeripheralKeys[hostId]
+    if not keys then
+        return
+    end
+
+    for key in pairs(keys) do
+        self.remotePeripherals[key] = nil
+    end
+    self.hostPeripheralKeys[hostId] = nil
+    self:rebuildNameIndexes()
+end
+
+function PeripheralClient:resolveInfo(nameOrKey)
+    if not nameOrKey then
+        return nil
+    end
+
+    local info = self.remotePeripherals[nameOrKey]
+    if info then
+        return info
+    end
+
+    local aliasKey = self.remoteNameAlias[nameOrKey]
+    if aliasKey then
+        return self.remotePeripherals[aliasKey]
+    end
+
+    return nil
+end
+
+function PeripheralClient:getDisplayName(nameOrKey)
+    local info = self:resolveInfo(nameOrKey)
+    if not info then
+        return nil
+    end
+    return info.displayName or info.key or info.name
 end
 
 -- Register handlers for incoming messages
@@ -58,9 +146,11 @@ function PeripheralClient:handleAnnounce(senderId, msg)
         computerName = data.computerName
     }
 
+    self:removeHostRemotes(senderId)
+
     -- Register peripherals
     for _, pInfo in ipairs(data.peripherals) do
-        self:registerRemote(senderId, pInfo.name, pInfo.type, pInfo.methods)
+        self:registerRemote(senderId, pInfo.name, pInfo.type, pInfo.methods, data.computerName)
     end
 end
 
@@ -70,6 +160,16 @@ function PeripheralClient:handlePeriphList(senderId, msg)
     if not data or not data.peripherals then
         return
     end
+
+    -- Refresh computer metadata when available (discover responses may arrive before announce).
+    if data.computerId or data.computerName then
+        self.hostComputers[senderId] = {
+            computerId = data.computerId or senderId,
+            computerName = data.computerName
+        }
+    end
+
+    self:removeHostRemotes(senderId)
 
     -- Register peripherals
     for _, pInfo in ipairs(data.peripherals) do
@@ -114,15 +214,28 @@ end
 
 -- Register a remote peripheral
 function PeripheralClient:registerRemote(hostId, name, pType, methods)
-    -- Create proxy
-    local proxy = RemoteProxy.create(self, hostId, name, pType, methods)
+    local key = makeRemoteKey(hostId, name)
+    local hostComputer = self.hostComputers[hostId]
+    local hostComputerName = hostComputer and hostComputer.computerName or nil
+    local displayName = hostComputerName and (name .. " @ " .. hostComputerName) or (name .. " @ #" .. tostring(hostId))
 
-    self.remotePeripherals[name] = {
+    -- Create proxy
+    local proxy = RemoteProxy.create(self, hostId, name, pType, methods, key, displayName)
+
+    self.remotePeripherals[key] = {
+        key = key,
+        name = name,
+        displayName = displayName,
         hostId = hostId,
+        hostComputerName = hostComputerName,
         type = pType,
         methods = methods,
         proxy = proxy
     }
+
+    self.hostPeripheralKeys[hostId] = self.hostPeripheralKeys[hostId] or {}
+    self.hostPeripheralKeys[hostId][key] = true
+    self:rebuildNameIndexes()
 end
 
 -- Discover remote peripherals (broadcast and wait)
@@ -178,7 +291,8 @@ end
 -- @param pType Peripheral type to find
 -- @return Proxy or nil
 function PeripheralClient:find(pType)
-    for name, info in pairs(self.remotePeripherals) do
+    for _, key in ipairs(sortedRemoteKeys(self.remotePeripherals)) do
+        local info = self.remotePeripherals[key]
         if info.type == pType then
             return info.proxy
         end
@@ -191,7 +305,8 @@ end
 -- @return Array of proxies
 function PeripheralClient:findAll(pType)
     local results = {}
-    for name, info in pairs(self.remotePeripherals) do
+    for _, key in ipairs(sortedRemoteKeys(self.remotePeripherals)) do
+        local info = self.remotePeripherals[key]
         if info.type == pType then
             table.insert(results, info.proxy)
         end
@@ -203,7 +318,7 @@ end
 -- @param name Peripheral name
 -- @return Proxy or nil
 function PeripheralClient:wrap(name)
-    local info = self.remotePeripherals[name]
+    local info = self:resolveInfo(name)
     if info then
         return info.proxy
     end
@@ -213,15 +328,29 @@ end
 -- Get names of all remote peripherals
 function PeripheralClient:getNames()
     local names = {}
-    for name, _ in pairs(self.remotePeripherals) do
+    local nameIndex = {}
+
+    for rawName, keys in pairs(self.remoteByName) do
+        if #keys == 1 then
+            nameIndex[rawName] = true
+        else
+            for _, key in ipairs(keys) do
+                nameIndex[key] = true
+            end
+        end
+    end
+
+    for name in pairs(nameIndex) do
         table.insert(names, name)
     end
+
+    table.sort(names)
     return names
 end
 
 -- Get type of a remote peripheral
 function PeripheralClient:getType(name)
-    local info = self.remotePeripherals[name]
+    local info = self:resolveInfo(name)
     if info then
         return info.type
     end
@@ -230,7 +359,7 @@ end
 
 -- Check if peripheral has type
 function PeripheralClient:hasType(name, pType)
-    local info = self.remotePeripherals[name]
+    local info = self:resolveInfo(name)
     if info then
         return info.type == pType
     end
@@ -239,7 +368,7 @@ end
 
 -- Get methods of a remote peripheral
 function PeripheralClient:getMethods(name)
-    local info = self.remotePeripherals[name]
+    local info = self:resolveInfo(name)
     if info then
         return info.methods
     end
@@ -344,13 +473,14 @@ function PeripheralClient:rediscover(name)
     -- Wait briefly for network loop to process PERIPH_LIST responses
     local deadline = os.epoch("utc") + 2000
     while os.epoch("utc") < deadline do
-        if self.remotePeripherals[name] then
-            return self.remotePeripherals[name]
+        local info = self:resolveInfo(name)
+        if info then
+            return info
         end
         Yield.yield()
     end
 
-    return self.remotePeripherals[name]
+    return self:resolveInfo(name)
 end
 
 -- Clean up expired pending requests (prevents memory leaks from async calls)
@@ -375,12 +505,15 @@ end
 
 -- Check if a peripheral is available
 function PeripheralClient:isPresent(name)
-    return self.remotePeripherals[name] ~= nil
+    return self:resolveInfo(name) ~= nil
 end
 
 -- Clear all known peripherals
 function PeripheralClient:clear()
     self.remotePeripherals = {}
+    self.remoteByName = {}
+    self.remoteNameAlias = {}
+    self.hostPeripheralKeys = {}
     self.hostComputers = {}
 end
 

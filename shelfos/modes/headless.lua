@@ -35,7 +35,8 @@ local function newDashboardState()
         },
         prevRxCount = 0,
         lastRateSampleAt = os.epoch("utc"),
-        loopMsSamples = {},
+        waitMsSamples = {},
+        handlerMsSamples = {},
         callDurationSamples = {},
         message = "Waiting for activity...",
         messageColor = colors.lightGray,
@@ -126,26 +127,30 @@ local function drawDashboard(host, channel, config, modemType, state)
     TermUI.drawText(2, y, "Performance", colors.lightGray)
     y = y + 1
 
-    local avgLoopMs = DashboardUtils.average(state.loopMsSamples)
-    local peakLoopMs = DashboardUtils.maxValue(state.loopMsSamples)
+    local avgWaitMs = DashboardUtils.average(state.waitMsSamples)
+    local peakWaitMs = DashboardUtils.maxValue(state.waitMsSamples)
+    local avgHandlerMs = DashboardUtils.average(state.handlerMsSamples)
+    local peakHandlerMs = DashboardUtils.maxValue(state.handlerMsSamples)
     local avgCallMs = DashboardUtils.average(state.callDurationSamples)
 
     local loopColor = colors.lime
-    if avgLoopMs > 120 then
+    if avgHandlerMs > 120 then
         loopColor = colors.red
-    elseif avgLoopMs > 60 then
+    elseif avgHandlerMs > 60 then
         loopColor = colors.orange
     end
 
-    TermUI.drawMetric(2, y, "Loop avg/peak", string.format("%.0f/%.0f ms", avgLoopMs, peakLoopMs), loopColor)
+    TermUI.drawMetric(2, y, "Wait avg/peak", string.format("%.0f/%.0f ms", avgWaitMs, peakWaitMs), colors.lightGray)
     TermUI.drawMetric(rightCol, y, "Call avg", string.format("%.0f ms", avgCallMs), colors.white)
+    y = y + 1
+    TermUI.drawMetric(2, y, "Handler avg/peak", string.format("%.0f/%.0f ms", avgHandlerMs, peakHandlerMs), loopColor)
     y = y + 1
 
     TermUI.drawMetric(2, y, "Attach/Detach", state.stats.attach .. "/" .. state.stats.detach, colors.white)
     TermUI.drawMetric(rightCol, y, "Reboots", state.stats.reboot, colors.lightGray)
     y = y + 1
 
-    local loopLoad = math.min(100, math.floor((avgLoopMs / 200) * 100))
+    local loopLoad = math.min(100, math.floor((avgHandlerMs / 200) * 100))
     TermUI.drawProgress(y, "Loop Load", loopLoad, { fillColor = loopColor, emptyColor = colors.gray, indent = 2 })
     y = y + 2
 
@@ -344,6 +349,7 @@ function headless.run()
     end
 
     -- Create peripheral host
+    KernelNetwork.hostService(config.computer.id)
     local host = PeripheralHost.new(channel, config.computer.id, config.computer.name)
     local state = newDashboardState()
 
@@ -424,8 +430,10 @@ function headless.run()
     ensureLoopTimer()
 
     while running do
-        local loopStart = os.epoch("utc")
+        local waitStart = os.epoch("utc")
         local event, p1 = os.pullEvent()
+        local waitDuration = os.epoch("utc") - waitStart
+        local handlerStart = os.epoch("utc")
 
         if event == "timer" and p1 == loopTimer then
             loopTimer = nil
@@ -446,7 +454,8 @@ function headless.run()
                 local newCount = host:rescan()
                 setMessage(state, "Rescanned: " .. newCount .. " peripheral(s)", colors.orange)
             elseif key == keys.x then
-                channel:close()
+                KernelNetwork.close(channel)
+                channel = nil
                 Crypto.clearSecret()
                 Paths.deleteFiles()
 
@@ -477,8 +486,9 @@ function headless.run()
             ensureLoopTimer()
         end
 
-        local loopDuration = os.epoch("utc") - loopStart
-        DashboardUtils.appendSample(state.loopMsSamples, loopDuration, 80)
+        local handlerDuration = os.epoch("utc") - handlerStart
+        DashboardUtils.appendSample(state.waitMsSamples, waitDuration, 80)
+        DashboardUtils.appendSample(state.handlerMsSamples, handlerDuration, 80)
         updateRates(state)
 
         local now = os.epoch("utc")
@@ -490,7 +500,7 @@ function headless.run()
     end
 
     -- Cleanup
-    channel:close()
+    KernelNetwork.close(channel)
 
     TermUI.clear()
     TermUI.drawTitleBar("Headless Mode")

@@ -132,7 +132,8 @@ Runs on computers that want to use remote peripherals.
 ```lua
 PeripheralClient = {
     -- State
-    remotePeripherals = {},    -- {name -> {hostId, type, methods, proxy}}
+    remotePeripherals = {},    -- {key -> {key, name, hostId, type, methods, proxy}}
+    remoteByName = {},         -- {name -> {key1, key2, ...}}
     subscriptions = {},        -- Active subscriptions
     cache = {},                -- Cached data with TTL
 
@@ -150,7 +151,7 @@ PeripheralClient = {
 Creates a proxy object that mimics a real peripheral.
 
 ```lua
-function RemoteProxy.create(client, hostId, peripheralName, peripheralType, methods)
+function RemoteProxy.create(client, hostId, peripheralName, peripheralType, methods, key, displayName)
     local proxy = {}
 
     -- Generate method stubs for each available method
@@ -163,7 +164,9 @@ function RemoteProxy.create(client, hostId, peripheralName, peripheralType, meth
     -- Add peripheral-like metadata
     proxy._isRemote = true
     proxy._hostId = hostId
-    proxy._name = peripheralName
+    proxy._name = key or (tostring(hostId) .. "::" .. peripheralName)
+    proxy._remoteName = peripheralName
+    proxy._displayName = displayName or proxy._name
     proxy._type = peripheralType
 
     return proxy

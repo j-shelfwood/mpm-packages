@@ -76,13 +76,17 @@ local function findDetectors()
         if Peripherals.hasType(name, "energy_detector") or Peripherals.getType(name) == "energy_detector" then
             local p = Peripherals.wrap(name)
             if p and p.getTransferRate and p.getTransferRateLimit then
-                table.insert(detectors, { name = name, peripheral = p })
+                table.insert(detectors, {
+                    name = name,
+                    displayName = Peripherals.getDisplayName(name) or name,
+                    peripheral = p
+                })
             end
         end
         Yield.check(idx, 10)
     end
 
-    table.sort(detectors, function(a, b) return a.name < b.name end)
+    table.sort(detectors, function(a, b) return (a.displayName or a.name) < (b.displayName or b.name) end)
     return detectors
 end
 
@@ -90,7 +94,7 @@ local function getDetectorOptions()
     local detectors = findDetectors()
     local options = {}
     for _, d in ipairs(detectors) do
-        table.insert(options, { value = d.name, label = d.name })
+        table.insert(options, { value = d.name, label = d.displayName or d.name })
     end
     return options
 end

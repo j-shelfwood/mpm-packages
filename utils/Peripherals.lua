@@ -27,6 +27,13 @@ function Peripherals.isPresent(name) return getAPI().isPresent(name) end
 function Peripherals.hasType(name, t) return getAPI().hasType(name, t) end
 function Peripherals.getMethods(name) return getAPI().getMethods(name) end
 function Peripherals.call(name, ...) return getAPI().call(name, ...) end
+function Peripherals.getDisplayName(name)
+    local api = getAPI()
+    if api.getDisplayName then
+        return api.getDisplayName(name)
+    end
+    return name
+end
 
 -- getName: handles both local peripherals and RemoteProxy objects
 function Peripherals.getName(p)

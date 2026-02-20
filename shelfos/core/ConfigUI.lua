@@ -64,6 +64,7 @@ local function getPeripherals(filterType)
         if not filterType or Peripherals.hasType(name, filterType) then
             table.insert(result, {
                 name = name,
+                label = Peripherals.getDisplayName(name) or name,
                 type = Peripherals.getType(name)
             })
         end
@@ -417,7 +418,7 @@ function ConfigUI.drawConfigMenu(monitor, viewName, schema, currentConfig)
                     for _, p in ipairs(peripherals) do
                         table.insert(options, {
                             value = p.name,
-                            label = p.name .. " (" .. p.type .. ")"
+                            label = (p.label or p.name) .. " (" .. p.type .. ")"
                         })
                     end
                     newValue = ConfigUI.drawPicker(monitor, "Select Peripheral", options, config[field.key], function(opt)

@@ -177,7 +177,7 @@ end
 -- @param msg The discover message
 function PeripheralHost:handleDiscover(senderId, msg)
     local peripherals = self:getPeripheralList()
-    local response = Protocol.createPeriphList(msg, peripherals)
+    local response = Protocol.createPeriphList(msg, peripherals, self.computerId, self.computerName)
     self.channel:send(senderId, response)
     self:emitActivity("discover", {
         senderId = senderId,

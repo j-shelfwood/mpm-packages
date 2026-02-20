@@ -11,6 +11,16 @@ local ViewManager = mpm('views/Manager')
 
 local KernelMenu = {}
 
+local function refreshRuntimeUI(kernel)
+    Terminal.resize()
+    Terminal.clearLog()
+    if kernel.dashboard then
+        kernel.dashboard:requestRedraw()
+        kernel.dashboard:render(kernel)
+    end
+    KernelMenu.draw()
+end
+
 -- Draw the menu bar
 -- @param terminal Terminal module (for drawMenu)
 function KernelMenu.draw()
@@ -38,8 +48,7 @@ function KernelMenu.handleKey(kernel, key, runningRef)
         Terminal.showDialog(function()
             Menu.showStatus(kernel.config)
         end)
-        Terminal.clearLog()
-        KernelMenu.draw()
+        refreshRuntimeUI(kernel)
 
     elseif action == "reset" then
         local confirmed = Terminal.showDialog(function()
@@ -50,26 +59,23 @@ function KernelMenu.handleKey(kernel, key, runningRef)
             KernelMenu.doFactoryReset(kernel)
             -- Never returns (reboots)
         else
-            Terminal.clearLog()
-            KernelMenu.draw()
+            refreshRuntimeUI(kernel)
         end
 
     elseif action == "link" then
-        local result, code = Terminal.showDialog(function()
+        local result = Terminal.showDialog(function()
             return Menu.showLink(kernel.config)
         end)
 
-        Terminal.clearLog()
+        refreshRuntimeUI(kernel)
 
         if result == "link_pocket_accept" then
             local KernelPairing = mpm('shelfos/core/KernelPairing')
             KernelPairing.acceptFromPocket(kernel)
-            KernelMenu.draw()
+            refreshRuntimeUI(kernel)
         elseif result == "link_disconnect" then
             KernelMenu.doLeaveSwarm(kernel)
             -- Never returns (reboots)
-        else
-            KernelMenu.draw()
         end
 
     elseif action == "monitors" then
@@ -79,7 +85,7 @@ function KernelMenu.handleKey(kernel, key, runningRef)
             return Menu.showMonitors(kernel.monitors, availableViews)
         end)
 
-        Terminal.clearLog()
+        refreshRuntimeUI(kernel)
 
         if result == "change_view" and monitorIndex and newView then
             local monitor = kernel.monitors[monitorIndex]
@@ -92,9 +98,9 @@ function KernelMenu.handleKey(kernel, key, runningRef)
                     print("[ShelfOS] " .. monitor:getName() .. " -> " .. newView)
                 end
             end
+            refreshRuntimeUI(kernel)
         end
 
-        KernelMenu.draw()
     end
 end
 
@@ -108,8 +114,9 @@ function KernelMenu.doFactoryReset(kernel)
 
     -- 2. Close network
     if kernel.channel then
-        rednet.unhost("shelfos")
-        kernel.channel:close()
+        local KernelNetwork = mpm('shelfos/core/KernelNetwork')
+        KernelNetwork.close(kernel.channel)
+        kernel.channel = nil
     end
 
     -- 3. Clear crypto state
@@ -118,6 +125,7 @@ function KernelMenu.doFactoryReset(kernel)
 
     -- 4. Delete ALL config files
     Paths.deleteFiles()
+    Paths.writeResetMarker("clock")
 
     -- 5. Restore terminal and show message
     term.redirect(term.native())
@@ -146,8 +154,9 @@ function KernelMenu.doLeaveSwarm(kernel)
 
     -- 2. Close network
     if kernel.channel then
-        rednet.unhost("shelfos")
-        kernel.channel:close()
+        local KernelNetwork = mpm('shelfos/core/KernelNetwork')
+        KernelNetwork.close(kernel.channel)
+        kernel.channel = nil
     end
 
     -- 3. Clear crypto state

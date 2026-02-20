@@ -103,13 +103,24 @@ end
 -- Get all peripheral names (local + remote)
 -- @return Array of names
 function RemotePeripheral.getNames()
-    local names = peripheral.getNames()
+    local names = {}
+    local seen = {}
+
+    for _, name in ipairs(peripheral.getNames()) do
+        if not seen[name] then
+            table.insert(names, name)
+            seen[name] = true
+        end
+    end
 
     local client = _G._shelfos_peripheralClient
     if client then
         local remoteNames = client:getNames()
         for _, name in ipairs(remoteNames) do
-            table.insert(names, name)
+            if not seen[name] then
+                table.insert(names, name)
+                seen[name] = true
+            end
         end
     end
 
@@ -172,18 +183,25 @@ function RemotePeripheral.hasType(name, pType)
         return peripheral.hasType(name, pType)
     end
 
-    -- Try local
-    local result = peripheral.hasType(name, pType)
-    if result ~= nil then
-        return result
-    end
-
-    -- Try remote
     local client = _G._shelfos_peripheralClient
-    if client then
-        return client:hasType(name, pType)
+    local localPresent = peripheral.isPresent(name)
+
+    -- Local-first when matching, but do not let local false mask valid remote type.
+    if localPresent and peripheral.hasType(name, pType) then
+        return true
     end
 
+    -- Try remote even when local is present but not matching.
+    if client then
+        local remoteMatch = client:hasType(name, pType)
+        if remoteMatch ~= nil then
+            return remoteMatch
+        end
+    end
+
+    if localPresent then
+        return false
+    end
     return nil
 end
 
@@ -220,10 +238,10 @@ function RemotePeripheral.call(name, method, ...)
     -- Try remote
     local client = _G._shelfos_peripheralClient
     if client then
-        local info = client.remotePeripherals[name]
+        local info = client:resolveInfo(name)
         if info then
             local args = {...}
-            local results, err = client:call(info.hostId, name, method, args)
+            local results, err = client:call(info.hostId, info.name, method, args)
             if results then
                 return table.unpack(results)
             end
@@ -231,6 +249,20 @@ function RemotePeripheral.call(name, method, ...)
     end
 
     return nil
+end
+
+-- Get user-friendly name for local or remote peripheral identifier
+-- @param name Peripheral name/key
+-- @return display string
+function RemotePeripheral.getDisplayName(name)
+    local client = _G._shelfos_peripheralClient
+    if client then
+        local displayName = client:getDisplayName(name)
+        if displayName then
+            return displayName
+        end
+    end
+    return name
 end
 
 -- Check if a peripheral object is a remote proxy

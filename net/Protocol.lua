@@ -246,9 +246,13 @@ end
 
 -- Create peripheral list response
 -- @param peripherals Array of {name, type, methods}
-function Protocol.createPeriphList(request, peripherals)
+-- @param computerId Host computer identifier (optional)
+-- @param computerName Host computer name (optional)
+function Protocol.createPeriphList(request, peripherals, computerId, computerName)
     return Protocol.createResponse(request, Protocol.MessageType.PERIPH_LIST, {
-        peripherals = peripherals
+        peripherals = peripherals,
+        computerId = computerId,
+        computerName = computerName
     })
 end
 

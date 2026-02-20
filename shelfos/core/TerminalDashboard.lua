@@ -31,12 +31,14 @@ function TerminalDashboard.new()
     self.rate = { msgPerSec = 0 }
     self.prevRxCount = 0
     self.lastRateSampleAt = os.epoch("utc")
-    self.loopMsSamples = {}
+    self.waitMsSamples = {}
+    self.handlerMsSamples = {}
     self.callDurationSamples = {}
     self.message = "Booting..."
     self.messageColor = colors.lightGray
     self.messageAt = os.epoch("utc")
     self.needsRedraw = true
+    self.lastRenderAt = 0
     return self
 end
 
@@ -59,13 +61,19 @@ function TerminalDashboard:setNetwork(label, color, modemType, state)
 end
 
 function TerminalDashboard:setSharedCount(count)
-    self.sharedCount = count or 0
-    self.needsRedraw = true
+    local nextCount = count or 0
+    if self.sharedCount ~= nextCount then
+        self.sharedCount = nextCount
+        self.needsRedraw = true
+    end
 end
 
 function TerminalDashboard:setRemoteCount(count)
-    self.remoteCount = count or 0
-    self.needsRedraw = true
+    local nextCount = count or 0
+    if self.remoteCount ~= nextCount then
+        self.remoteCount = nextCount
+        self.needsRedraw = true
+    end
 end
 
 function TerminalDashboard:setMessage(message, color)
@@ -91,8 +99,12 @@ function TerminalDashboard:recordNetworkDrain(drained)
     end
 end
 
-function TerminalDashboard:recordLoopMs(ms)
-    DashboardUtils.appendSample(self.loopMsSamples, ms or 0, 100)
+function TerminalDashboard:recordEventWaitMs(ms)
+    DashboardUtils.appendSample(self.waitMsSamples, ms or 0, 100)
+end
+
+function TerminalDashboard:recordHandlerMs(ms)
+    DashboardUtils.appendSample(self.handlerMsSamples, ms or 0, 100)
 end
 
 function TerminalDashboard:recordCallMs(ms)
@@ -131,7 +143,21 @@ function TerminalDashboard:tick()
     end
 end
 
+-- Determine whether dashboard should render on this frame.
+-- Keeps live metrics/uptime fresh while avoiding unnecessary redraw churn.
+function TerminalDashboard:shouldRender(nowMs)
+    local now = nowMs or os.epoch("utc")
+    if self.needsRedraw then
+        return true
+    end
+    return (now - self.lastRenderAt) >= 1000
+end
+
 function TerminalDashboard:render(kernel)
+    if Terminal.isDialogOpen() then
+        return
+    end
+
     local logWin = Terminal.getLogWindow()
     local old = term.redirect(logWin)
 
@@ -178,17 +204,21 @@ function TerminalDashboard:render(kernel)
     TermUI.drawActivityLight(col3, y, "ERROR", self.lastActivity.call_error, swarmOnline and self.stats.call_error or "n/a", activityOpts)
     y = y + 2
 
-    local avgLoopMs = DashboardUtils.average(self.loopMsSamples)
-    local peakLoopMs = DashboardUtils.maxValue(self.loopMsSamples)
+    local avgWaitMs = DashboardUtils.average(self.waitMsSamples)
+    local peakWaitMs = DashboardUtils.maxValue(self.waitMsSamples)
+    local avgHandlerMs = DashboardUtils.average(self.handlerMsSamples)
+    local peakHandlerMs = DashboardUtils.maxValue(self.handlerMsSamples)
     local avgCallMs = DashboardUtils.average(self.callDurationSamples)
     local loopColor = colors.lime
-    if avgLoopMs > 120 then
+    if avgHandlerMs > 120 then
         loopColor = colors.red
-    elseif avgLoopMs > 60 then
+    elseif avgHandlerMs > 60 then
         loopColor = colors.orange
     end
-    TermUI.drawMetric(2, y, "Loop avg/peak", string.format("%.0f/%.0f ms", avgLoopMs, peakLoopMs), loopColor)
+    TermUI.drawMetric(2, y, "Wait avg/peak", string.format("%.0f/%.0f ms", avgWaitMs, peakWaitMs), colors.lightGray)
     TermUI.drawMetric(rightCol, y, "Call avg", swarmOnline and string.format("%.0f ms", avgCallMs) or "n/a", swarmOnline and colors.white or colors.gray)
+    y = y + 1
+    TermUI.drawMetric(2, y, "Handler avg/peak", string.format("%.0f/%.0f ms", avgHandlerMs, peakHandlerMs), loopColor)
     y = y + 1
     TermUI.drawMetric(2, y, "Shared Local", swarmOnline and self.sharedCount or "n/a", swarmOnline and colors.white or colors.gray)
     y = y + 2
@@ -212,6 +242,8 @@ function TerminalDashboard:render(kernel)
     TermUI.drawText(2, h, DashboardUtils.truncateText(self.message, math.max(1, w - 2)), statusColor)
 
     term.redirect(old)
+    self.needsRedraw = false
+    self.lastRenderAt = now
 end
 
 return TerminalDashboard

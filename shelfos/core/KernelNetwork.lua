@@ -4,6 +4,20 @@
 
 local KernelNetwork = {}
 
+-- Register computer in native CC:Tweaked service discovery.
+-- @param identityId Computer identity ID (string/number)
+function KernelNetwork.hostService(identityId)
+    if identityId == nil then
+        return
+    end
+    pcall(rednet.host, "shelfos", tostring(identityId))
+end
+
+-- Remove computer from native CC:Tweaked service discovery.
+function KernelNetwork.unhostService()
+    pcall(rednet.unhost, "shelfos")
+end
+
 -- Drain pending channel messages with bounded work per tick.
 -- @param channel Channel instance
 -- @param blockTimeout Timeout (seconds) for first poll attempt
@@ -85,9 +99,8 @@ function KernelNetwork.initialize(kernel, config, identity)
         print("[ShelfOS] Network: " .. modemType .. " modem")
     end
 
-    -- Register with native CC:Tweaked service discovery
-    -- Note: rednet.host() requires string hostname, identity:getId() may be number
-    rednet.host("shelfos", tostring(identity:getId()))
+    -- Register with native CC:Tweaked service discovery.
+    KernelNetwork.hostService(identity:getId())
 
     -- Set up computer discovery (for rich metadata exchange)
     local Discovery = mpm('net/Discovery')
@@ -123,7 +136,7 @@ function KernelNetwork.initialize(kernel, config, identity)
     KernelNetwork.registerRebootHandler(channel, function(senderId, msg)
         if kernel.dashboard then
             kernel.dashboard:markActivity("call_error", "Reboot command received from #" .. senderId, colors.red)
-            kernel.dashboard:render(kernel)
+            kernel.dashboard:requestRedraw()
         else
             print("[ShelfOS] Reboot command received from #" .. senderId)
         end
@@ -233,8 +246,8 @@ end
 function KernelNetwork.close(channel)
     local RemotePeripheral = mpm('net/RemotePeripheral')
     RemotePeripheral.setClient(nil)
+    KernelNetwork.unhostService()
     if channel then
-        rednet.unhost("shelfos")
         channel:close()
     end
 end

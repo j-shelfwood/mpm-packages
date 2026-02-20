@@ -107,7 +107,7 @@ function MenuStatus.buildLines(config)
                 local hostComputer = client.hostComputers[info.hostId]
                 local hostName = hostComputer and hostComputer.computerName or ("Computer #" .. info.hostId)
                 table.insert(remotePeriphs, {
-                    name = name,
+                    name = info.displayName or name,
                     type = info.type,
                     host = hostName
                 })

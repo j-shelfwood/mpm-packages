@@ -63,14 +63,22 @@ local NO_CACHE_METHODS = {
 -- @param name Peripheral name
 -- @param pType Peripheral type
 -- @param methods Array of method names
+-- @param key Stable key (<hostId>::<name>)
+-- @param displayName User-friendly label for status/UI
 -- @return Proxy table that mimics the peripheral
-function RemoteProxy.create(client, hostId, name, pType, methods)
+function RemoteProxy.create(client, hostId, name, pType, methods, key, displayName)
     local proxy = {}
+    local remoteName = name
+    local remoteKey = key or (tostring(hostId) .. "::" .. tostring(name))
+    local dependencyName = displayName or remoteKey
 
     -- Metadata (prefixed with _ to avoid conflicts)
     proxy._isRemote = true
     proxy._hostId = hostId
-    proxy._name = name
+    proxy._name = remoteKey
+    proxy._remoteName = remoteName
+    proxy._displayName = displayName or remoteKey
+    proxy._key = remoteKey
     proxy._type = pType
     proxy._client = client
     proxy._connected = true
@@ -102,7 +110,7 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
         end
 
         proxy._reconnecting = true
-        local found = client:rediscover(name)
+        local found = client:rediscover(remoteKey)
         proxy._reconnecting = false
 
         if found then
@@ -135,7 +143,7 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
             local contextKey = RenderContext.get()
             if not ensureConnected() then
                 if contextKey then
-                    DependencyStatus.markError(contextKey, name, "disconnected")
+                    DependencyStatus.markError(contextKey, dependencyName, "disconnected")
                 end
                 return nil
             end
@@ -146,7 +154,7 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
             -- Action methods (craft, export, import) are never cached
             if NO_CACHE_METHODS[methodName] then
                 local startedAt = os.epoch("utc")
-                local results, err = client:call(proxy._hostId, name, methodName, args, timeout)
+                local results, err = client:call(proxy._hostId, remoteName, methodName, args, timeout)
                 if err then
                     proxy._failureCount = proxy._failureCount + 1
                     proxy._lastFailureTime = os.epoch("utc")
@@ -154,13 +162,13 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
                         proxy._connected = false
                     end
                     if contextKey then
-                        DependencyStatus.markError(contextKey, name, err)
+                        DependencyStatus.markError(contextKey, dependencyName, err)
                     end
                     return nil
                 end
                 proxy._failureCount = 0
                 if contextKey then
-                    DependencyStatus.markSuccess(contextKey, name, os.epoch("utc") - startedAt)
+                    DependencyStatus.markSuccess(contextKey, dependencyName, os.epoch("utc") - startedAt)
                 end
                 if results and #results > 0 then
                     return table.unpack(results)
@@ -177,7 +185,7 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
             -- Return cached value if fresh enough
             if cached and age < CACHE_TTL_MS then
                 if contextKey then
-                    DependencyStatus.markCached(contextKey, name, age, false)
+                    DependencyStatus.markCached(contextKey, dependencyName, age, false)
                 end
                 if cached.results and #cached.results > 0 then
                     return table.unpack(cached.results)
@@ -188,25 +196,25 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
             -- Cache exists but stale: return stale value, fire async refresh
             if cached and age < CACHE_EXPIRE_MS then
                 if contextKey then
-                    DependencyStatus.markCached(contextKey, name, age, age >= CACHE_STALE_MS)
+                    DependencyStatus.markCached(contextKey, dependencyName, age, age >= CACHE_STALE_MS)
                 end
                 -- Fire async refresh if not already in-flight
                 local shouldRefresh = age >= CACHE_STALE_MS and now >= (proxy._nextRefreshAt[key] or 0)
                 if shouldRefresh and not proxy._pending[key] then
                     proxy._pending[key] = true
                     proxy._nextRefreshAt[key] = now + ASYNC_RETRY_MS
-                    local callbackContext = contextKey
+                        local callbackContext = contextKey
                     if callbackContext then
-                        DependencyStatus.markPending(callbackContext, name)
+                        DependencyStatus.markPending(callbackContext, dependencyName)
                     end
-                    client:callAsync(proxy._hostId, name, methodName, args, function(results, err)
+                    client:callAsync(proxy._hostId, remoteName, methodName, args, function(results, err)
                         proxy._pending[key] = nil
                         if err then
                             -- Async refresh is opportunistic — don't increment failureCount
                             -- The stale cached value is still being served to views
                             -- Only blocking call failures should count toward disconnect
                             if callbackContext then
-                                DependencyStatus.markError(callbackContext, name, err)
+                                DependencyStatus.markError(callbackContext, dependencyName, err)
                             end
                             return
                         end
@@ -217,7 +225,7 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
                             timestamp = os.epoch("utc")
                         }
                         if callbackContext then
-                            DependencyStatus.markSuccess(callbackContext, name, 0)
+                            DependencyStatus.markSuccess(callbackContext, dependencyName, 0)
                         end
                     end)
                 end
@@ -247,7 +255,7 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
 
             proxy._pending[key] = true
             local startedAt = now
-            local results, err = client:call(proxy._hostId, name, methodName, args, timeout)
+            local results, err = client:call(proxy._hostId, remoteName, methodName, args, timeout)
 
             if err then
                 proxy._pending[key] = nil
@@ -259,7 +267,7 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
                 -- Don't cache nil — let next render cycle retry immediately
                 -- With the network drain fix, retries should succeed quickly
                 if contextKey then
-                    DependencyStatus.markError(contextKey, name, err)
+                    DependencyStatus.markError(contextKey, dependencyName, err)
                 end
                 return nil
             end
@@ -271,7 +279,7 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
             }
             proxy._pending[key] = nil
             if contextKey then
-                DependencyStatus.markSuccess(contextKey, name, os.epoch("utc") - startedAt)
+                DependencyStatus.markSuccess(contextKey, dependencyName, os.epoch("utc") - startedAt)
             end
 
             if results and #results > 0 then
@@ -295,7 +303,7 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
 
     proxy.reconnect = function()
         proxy._reconnecting = true
-        local found = client:rediscover(name)
+        local found = client:rediscover(remoteKey)
         proxy._reconnecting = false
 
         if found then
@@ -317,6 +325,10 @@ function RemoteProxy.create(client, hostId, name, pType, methods)
 
     proxy.getMethods = function()
         return methods
+    end
+
+    proxy.getDisplayName = function()
+        return proxy._displayName
     end
 
     return proxy

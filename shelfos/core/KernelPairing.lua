@@ -48,8 +48,8 @@ function KernelPairing.acceptFromPocket(kernel)
 
     -- Close existing channel temporarily
     if kernel.channel then
-        rednet.unhost("shelfos")
-        kernel.channel:close()
+        local KernelNetwork = mpm('shelfos/core/KernelNetwork')
+        KernelNetwork.close(kernel.channel)
         kernel.channel = nil
     end
 
