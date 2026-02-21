@@ -1,5 +1,4 @@
 local KernelNetwork = mpm('shelfos/core/KernelNetwork')
-local MachineActivity = mpm('peripherals/MachineActivity')
 
 local KernelDispatcher = {}
 
@@ -23,10 +22,6 @@ function KernelDispatcher.run(kernel)
 
     table.insert(tasks, function()
         KernelNetwork.loop(kernel, runningRef)
-    end)
-
-    table.insert(tasks, function()
-        MachineActivity.runLoop(runningRef)
     end)
 
     parallel.waitForAny(table.unpack(tasks))
