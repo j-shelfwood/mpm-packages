@@ -37,17 +37,23 @@ function TerminalDashboard.new()
     self.messageAt = os.epoch("utc")
     self.redrawPending = true
     self.lastRenderAt = 0
+    self.lastWaitAvg = 0
+    self.lastWaitPeak = 0
+    self.lastHandlerAvg = 0
+    self.lastHandlerPeak = 0
+    self.lastCallAvg = 0
     return self
 end
 
 function TerminalDashboard:requestRedraw()
     self.redrawPending = true
+    pcall(os.queueEvent, "dashboard_dirty")
 end
 
 function TerminalDashboard:setIdentity(name, id)
     self.identityName = name or self.identityName
     self.identityId = id or self.identityId
-    self.redrawPending = true
+    self:requestRedraw()
 end
 
 function TerminalDashboard:setNetwork(label, color, modemType, state)
@@ -55,14 +61,14 @@ function TerminalDashboard:setNetwork(label, color, modemType, state)
     self.networkColor = color or self.networkColor
     self.networkState = state or ((label == "Connected") and "connected" or "offline")
     if modemType then self.modemType = modemType end
-    self.redrawPending = true
+    self:requestRedraw()
 end
 
 function TerminalDashboard:setMessage(message, color)
     self.message = message or self.message
     self.messageColor = color or colors.lightGray
     self.messageAt = os.epoch("utc")
-    self.redrawPending = true
+    self:requestRedraw()
 end
 
 function TerminalDashboard:markActivity(key, message, color)
@@ -77,20 +83,46 @@ function TerminalDashboard:recordNetworkDrain(drained)
     if (drained or 0) > 0 then
         self.stats.rx = self.stats.rx + drained
         self.lastActivity.rx = os.epoch("utc")
-        self.redrawPending = true
+        self:requestRedraw()
     end
+end
+
+local function shouldRedrawMetric(avg, peak, prevAvg, prevPeak)
+    if peak > prevPeak then
+        return true
+    end
+    return math.abs(avg - prevAvg) >= 5
 end
 
 function TerminalDashboard:recordEventWaitMs(ms)
     DashboardUtils.appendSample(self.waitMsSamples, ms or 0, 100)
+    local avg = DashboardUtils.average(self.waitMsSamples)
+    local peak = DashboardUtils.maxValue(self.waitMsSamples)
+    if shouldRedrawMetric(avg, peak, self.lastWaitAvg, self.lastWaitPeak) then
+        self.lastWaitAvg = avg
+        self.lastWaitPeak = peak
+        self:requestRedraw()
+    end
 end
 
 function TerminalDashboard:recordHandlerMs(ms)
     DashboardUtils.appendSample(self.handlerMsSamples, ms or 0, 100)
+    local avg = DashboardUtils.average(self.handlerMsSamples)
+    local peak = DashboardUtils.maxValue(self.handlerMsSamples)
+    if shouldRedrawMetric(avg, peak, self.lastHandlerAvg, self.lastHandlerPeak) then
+        self.lastHandlerAvg = avg
+        self.lastHandlerPeak = peak
+        self:requestRedraw()
+    end
 end
 
 function TerminalDashboard:recordCallMs(ms)
     DashboardUtils.appendSample(self.callDurationSamples, ms or 0, 80)
+    local avg = DashboardUtils.average(self.callDurationSamples)
+    if math.abs(avg - self.lastCallAvg) >= 5 then
+        self.lastCallAvg = avg
+        self:requestRedraw()
+    end
 end
 
 function TerminalDashboard:onHostActivity(activity, data)

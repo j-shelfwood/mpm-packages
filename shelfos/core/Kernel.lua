@@ -135,28 +135,16 @@ function Kernel:keyboardLoop(runningRef)
 end
 
 function Kernel:dashboardLoop(runningRef)
-    local dashboardTimer = nil
-
-    local function ensureDashboardTimer()
-        if not dashboardTimer then
-            dashboardTimer = os.startTimer(0.25)
-        end
-    end
-
-    ensureDashboardTimer()
-
     while runningRef.value do
         local event, p1 = os.pullEvent()
 
-        if event == "timer" and p1 == dashboardTimer then
-            dashboardTimer = nil
+        if event == "dashboard_dirty" then
             if self.dashboard and not Terminal.isDialogOpen() and not self.pairingActive then
                 self.dashboard:tick()
                 if self.dashboard:shouldRender() then
                     self.dashboard:render(self)
                 end
             end
-            ensureDashboardTimer()
         elseif event == "term_resize" then
             if not Terminal.isDialogOpen() then
                 Terminal.resize()
@@ -170,7 +158,6 @@ function Kernel:dashboardLoop(runningRef)
                     self.dashboard:requestRedraw()
                 end
             end
-            ensureDashboardTimer()
         end
     end
 end

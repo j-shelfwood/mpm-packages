@@ -2,6 +2,8 @@ local Core = mpm('ui/Core')
 
 local MonitorLifecycle = {}
 
+local DIRTY_RENDER_INTERVAL = 0.25
+
 local function getListenEvents(monitor)
     if monitor and monitor.viewInstance and type(monitor.viewInstance.listenEvents) == "table" then
         return monitor.viewInstance.listenEvents
@@ -38,7 +40,7 @@ local function dispatchViewEvent(monitor, eventName, p1, p2, p3)
         return false
     end
     if shouldRender then
-        monitor:render()
+        MonitorLifecycle.markDirty(monitor)
     end
     return true
 end
@@ -76,6 +78,17 @@ function MonitorLifecycle.scheduleRender(monitor, offset)
     monitor.renderTimer = os.startTimer(sleepTime + phase)
 end
 
+function MonitorLifecycle.markDirty(monitor)
+    if not monitor or not monitor.connected or monitor.inConfigMenu then
+        return
+    end
+    monitor.dirty = true
+    if monitor.dirtyTimer then
+        return
+    end
+    monitor.dirtyTimer = os.startTimer(DIRTY_RENDER_INTERVAL)
+end
+
 function MonitorLifecycle.cancelTimers(monitor)
     if monitor.renderTimer then
         os.cancelTimer(monitor.renderTimer)
@@ -88,6 +101,10 @@ function MonitorLifecycle.cancelTimers(monitor)
     if monitor.settingsTimer then
         os.cancelTimer(monitor.settingsTimer)
         monitor.settingsTimer = nil
+    end
+    if monitor.dirtyTimer then
+        os.cancelTimer(monitor.dirtyTimer)
+        monitor.dirtyTimer = nil
     end
 end
 
@@ -118,6 +135,13 @@ function MonitorLifecycle.handleTimer(monitor, timerId)
         end
         monitor:scheduleRender()
         return true
+    elseif timerId == monitor.dirtyTimer then
+        monitor.dirtyTimer = nil
+        if monitor.dirty then
+            monitor.dirty = false
+            monitor:render()
+        end
+        return true
     end
     return false
 end
@@ -140,6 +164,7 @@ function MonitorLifecycle.disconnect(monitor)
     monitor.showingSettings = false
     monitor.settingsButton = nil
     monitor.inConfigMenu = false
+    monitor.dirty = false
 
     MonitorLifecycle.cancelTimers(monitor)
 end

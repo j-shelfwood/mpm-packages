@@ -162,11 +162,8 @@ end
 -- @param kernel Kernel instance with channel, discovery, peripheralHost, monitors
 -- @param runningRef Shared running flag table { value = true/false }
 function KernelNetwork.loop(kernel, runningRef)
-    local lastHostAnnounce = 0
-    local hostAnnounceInterval = 10000  -- 10 seconds
     local lastPeriphDiscovery = 0
-    local periphDiscoveryInterval = 5000   -- Start aggressive (5s)
-    local maxDiscoveryInterval = 30000     -- Slow down to 30s once found
+    local periphDiscoveryInterval = 120000   -- Low-bandwidth discovery sweep
     local lastCleanup = 0
     local cleanupInterval = 5000           -- Clean expired requests every 5s
     local lastDiscoveryCleanup = 0
@@ -200,13 +197,8 @@ function KernelNetwork.loop(kernel, runningRef)
                 lastDiscoveryCleanup = os.epoch("utc")
             end
 
-            -- Periodic peripheral host announce
+            -- Peripheral host subscription polling
             if kernel.peripheralHost then
-                local now = os.epoch("utc")
-                if now - lastHostAnnounce > hostAnnounceInterval then
-                    kernel.peripheralHost:announce()
-                    lastHostAnnounce = now
-                end
                 kernel.peripheralHost:pollSubscriptions()
             end
 
@@ -220,11 +212,6 @@ function KernelNetwork.loop(kernel, runningRef)
                     lastPeriphDiscovery = now
                     if kernel.dashboard then
                         kernel.dashboard:markActivity("discover", "Remote peripheral discovery", colors.yellow)
-                    end
-
-                    -- Back off once we have peripherals
-                    if kernel.peripheralClient:getCount() > 0 then
-                        periphDiscoveryInterval = maxDiscoveryInterval
                     end
                 end
 
