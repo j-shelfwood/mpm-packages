@@ -32,13 +32,9 @@ tests/
     │   ├── harness.lua
     │   └── ui_driver.lua
     └── scenarios/
-        ├── 01_readme_contract_scenario.lua
-        ├── 02_shelfos_swarm_boot_scenario.lua
-        ├── 03_pairing_contract_scenario.lua
-        ├── 04_ui_keystroke_interaction_scenario.lua
-        ├── 05_mpm_install_startup_scenario.lua
-        ├── 06_pairing_runtime_scenario.lua
-        └── 07_view_rendering_scenario.lua
+        ├── 01_*.lua
+        ├── ...
+        └── 19_mpm_storage_hygiene_scenario.lua
 ```
 
 ## Coverage Tracks
@@ -57,6 +53,24 @@ tests/
 
 5. **View rendering smoke**
    - renders real view modules (`views/Clock`) to an in-memory terminal buffer and asserts rendered output
+
+6. **MPM storage hygiene**
+   - verifies stale manifest file pruning on `mpm update`
+   - verifies orphan dependency cleanup and `mpm prune --dry-run`
+   - verifies stale core file pruning on `mpm selfupdate`
+   - verifies disk usage output after update/selfupdate
+
+## Coverage Critique
+
+Current strengths:
+- Real CraftOS runtime execution catches API-level behavioral regressions.
+- End-to-end provisioning and startup lifecycle is already covered.
+
+Current weaknesses:
+- Network interactions are mostly mocked per-scenario and do not exercise real remote taps.
+- No deterministic fault-injection matrix for low disk, write failures, and interrupted updates.
+- No line/branch coverage metrics are collected, so blind spots are inferred, not measured.
+- `mpm` core behaviors were previously underrepresented; scenario `19_*` begins filling this gap.
 
 ## Extending Coverage
 
