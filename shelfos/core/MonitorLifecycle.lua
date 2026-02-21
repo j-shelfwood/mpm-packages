@@ -62,10 +62,6 @@ function MonitorLifecycle.scheduleRender(monitor, offset)
         return
     end
 
-    if not listensFor(monitor, "timer") then
-        return
-    end
-
     if monitor.renderTimer then
         os.cancelTimer(monitor.renderTimer)
     end
