@@ -429,10 +429,9 @@ function Config.reconcile(config)
     end
     config.monitors = deduped
 
-    -- Phase 2b: Remove configured monitors no longer discoverable.
-    -- Guard this behind a non-empty discovery result to avoid wiping config
-    -- during transient/no-hardware boot states.
-    if #monitors > 0 then
+    -- Phase 2b: Optional pruning of missing monitors.
+    -- Leave disabled by default to avoid nuking configs when peripherals are offline.
+    if config.settings and config.settings.pruneMissingMonitors == true and #monitors > 0 then
         local pruned = {}
         for _, entry in ipairs(config.monitors) do
             if canonicalSet[entry.peripheral] then

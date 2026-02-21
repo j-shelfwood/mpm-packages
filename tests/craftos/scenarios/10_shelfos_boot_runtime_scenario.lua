@@ -253,6 +253,9 @@ return function(h)
         end
 
         local config = {
+            settings = {
+                pruneMissingMonitors = true
+            },
             monitors = {
                 { peripheral = "left", label = "left", view = "Clock", viewConfig = {} },
                 { peripheral = "monitor_99", label = "monitor_99", view = "Clock", viewConfig = {} }
