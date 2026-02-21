@@ -51,4 +51,42 @@ function DashboardUtils.formatUptime(ms)
     return string.format("%ds", secs)
 end
 
+-- Compute evenly-sized column boxes within a horizontal region.
+-- @param startX Left-most x coordinate (1-based)
+-- @param totalWidth Width available from startX
+-- @param columnCount Desired number of columns
+-- @param minWidth Minimum width per column (default: 10)
+-- @param gutter Spaces between columns (default: 2)
+-- @return Array of { x = number, width = number }
+function DashboardUtils.layoutColumns(startX, totalWidth, columnCount, minWidth, gutter)
+    startX = startX or 1
+    totalWidth = math.max(1, totalWidth or 1)
+    columnCount = math.max(1, columnCount or 1)
+    minWidth = math.max(1, minWidth or 10)
+    gutter = math.max(0, gutter or 2)
+
+    local maxColumns = columnCount
+    while maxColumns > 1 do
+        local needed = (maxColumns * minWidth) + ((maxColumns - 1) * gutter)
+        if needed <= totalWidth then
+            break
+        end
+        maxColumns = maxColumns - 1
+    end
+
+    local usableWidth = totalWidth - ((maxColumns - 1) * gutter)
+    local baseWidth = math.floor(usableWidth / maxColumns)
+    local remainder = usableWidth % maxColumns
+
+    local columns = {}
+    local x = startX
+    for i = 1, maxColumns do
+        local width = baseWidth + ((i <= remainder) and 1 or 0)
+        table.insert(columns, { x = x, width = width })
+        x = x + width + gutter
+    end
+
+    return columns
+end
+
 return DashboardUtils

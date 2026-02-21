@@ -133,6 +133,94 @@ function TerminalDashboard:shouldRender(nowMs)
     return (now - self.lastRenderAt) >= 1000
 end
 
+local function drawMetricBounded(x, y, width, label, value, valueColor)
+    if width <= 0 then
+        return
+    end
+
+    local labelText = tostring(label or "") .. ": "
+    local valueText = tostring(value or "")
+    local safeWidth = math.max(1, width)
+
+    term.setCursorPos(x, y)
+    term.setBackgroundColor(colors.black)
+    term.setTextColor(colors.lightGray)
+
+    if #labelText >= safeWidth then
+        term.write(DashboardUtils.truncateText(labelText, safeWidth))
+        term.setTextColor(colors.white)
+        return
+    end
+
+    term.write(labelText)
+    term.setTextColor(valueColor or colors.white)
+    term.write(DashboardUtils.truncateText(valueText, safeWidth - #labelText))
+    term.setTextColor(colors.white)
+end
+
+local function drawActivityBounded(x, y, width, label, lastActivityTs, count, opts)
+    if width <= 0 then
+        return
+    end
+
+    opts = opts or {}
+    local flashMs = opts.flashMs or 700
+    local activeColor = opts.activeColor or colors.lime
+    local idleColor = opts.idleColor or colors.gray
+    local labelColor = opts.labelColor or colors.lightGray
+    local countColor = opts.countColor or colors.white
+    local now = os.epoch("utc")
+    local isActive = lastActivityTs and ((now - lastActivityTs) <= flashMs) or false
+    local safeWidth = math.max(1, width)
+
+    term.setCursorPos(x, y)
+    term.setBackgroundColor(colors.black)
+    term.setTextColor(colors.white)
+    term.write("[")
+    if safeWidth <= 1 then
+        return
+    end
+
+    term.setBackgroundColor(isActive and activeColor or idleColor)
+    term.write(" ")
+    if safeWidth <= 2 then
+        term.setBackgroundColor(colors.black)
+        term.setTextColor(colors.white)
+        return
+    end
+
+    term.setBackgroundColor(colors.black)
+    term.setTextColor(colors.white)
+    term.write("] ")
+    if safeWidth <= 4 then
+        return
+    end
+
+    local remaining = safeWidth - 4
+    local labelText = tostring(label or "")
+    if count == nil then
+        term.setTextColor(labelColor)
+        term.write(DashboardUtils.truncateText(labelText, remaining))
+        term.setTextColor(colors.white)
+        return
+    end
+
+    local countText = " " .. tostring(count)
+    if #countText >= remaining then
+        term.setTextColor(labelColor)
+        term.write(DashboardUtils.truncateText(labelText .. countText, remaining))
+        term.setTextColor(colors.white)
+        return
+    end
+
+    local labelWidth = remaining - #countText
+    term.setTextColor(labelColor)
+    term.write(DashboardUtils.truncateText(labelText, labelWidth))
+    term.setTextColor(countColor)
+    term.write(countText)
+    term.setTextColor(colors.white)
+end
+
 function TerminalDashboard:render(kernel)
     if Terminal.isDialogOpen() then
         return
@@ -146,22 +234,40 @@ function TerminalDashboard:render(kernel)
     TermUI.drawTitleBar("ShelfOS Dashboard")
 
     local w, h = TermUI.getSize()
-    local rightCol = math.max(2, math.floor(w / 2))
+    local contentX = 2
+    local contentWidth = math.max(1, w - 1)
+    local metricCols = DashboardUtils.layoutColumns(contentX, contentWidth, 2, 18, 3)
+    local leftCol = metricCols[1]
+    local rightCol = metricCols[2]
     local now = os.epoch("utc")
+    local swarmOnline = self.networkState == "connected"
+
+    local function drawMetricRow(y, leftLabel, leftValue, leftColor, rightLabel, rightValue, rightColor)
+        drawMetricBounded(leftCol.x, y, leftCol.width, leftLabel, leftValue, leftColor)
+        if rightCol and rightLabel then
+            drawMetricBounded(rightCol.x, y, rightCol.width, rightLabel, rightValue, rightColor)
+            return y + 1
+        end
+
+        local nextY = y + 1
+        if rightLabel then
+            drawMetricBounded(leftCol.x, nextY, leftCol.width, rightLabel, rightValue, rightColor)
+            nextY = nextY + 1
+        end
+        return nextY
+    end
 
     local y = 3
-    local swarmOnline = self.networkState == "connected"
-    TermUI.drawMetric(2, y, "Computer", self.identityName, colors.white)
-    TermUI.drawMetric(rightCol, y, "Uptime", DashboardUtils.formatUptime(now - self.startedAt), colors.white)
-    y = y + 1
-    TermUI.drawMetric(2, y, "Computer ID", self.identityId, colors.lightGray)
-    TermUI.drawMetric(rightCol, y, "Modem", self.modemType, colors.lightGray)
-    y = y + 1
-    TermUI.drawMetric(2, y, "Network", self.networkLabel, self.networkColor)
-    TermUI.drawMetric(rightCol, y, "Messages/s", swarmOnline and string.format("%.1f", self.rate.msgPerSec) or "n/a", swarmOnline and colors.cyan or colors.gray)
-    y = y + 1
+    y = drawMetricRow(y, "Computer", self.identityName, colors.white, "Uptime", DashboardUtils.formatUptime(now - self.startedAt), colors.white)
+    y = drawMetricRow(y, "Computer ID", self.identityId, colors.lightGray, "Modem", self.modemType, colors.lightGray)
+    if swarmOnline then
+        y = drawMetricRow(y, "Network", self.networkLabel, self.networkColor, "Messages/s", string.format("%.1f", self.rate.msgPerSec), colors.cyan)
+    else
+        y = drawMetricRow(y, "Network", self.networkLabel, self.networkColor, nil, nil, nil)
+    end
+
     if not swarmOnline then
-        TermUI.drawText(2, y, "Swarm inactive (press L to pair)", colors.orange)
+        TermUI.drawText(contentX, y, DashboardUtils.truncateText("Swarm inactive (press L to pair)", contentWidth), colors.orange)
         y = y + 1
     end
 
@@ -174,23 +280,42 @@ function TerminalDashboard:render(kernel)
     if kernel and kernel.peripheralClient then
         remoteCount = kernel.peripheralClient:getCount()
     end
-    TermUI.drawMetric(2, y, "Monitors", monitorCount, colors.white)
-    TermUI.drawMetric(rightCol, y, "Remote", swarmOnline and remoteCount or "n/a", swarmOnline and colors.white or colors.gray)
+    if swarmOnline then
+        y = drawMetricRow(y, "Monitors", monitorCount, colors.white, "Remote", remoteCount, colors.white)
+    else
+        y = drawMetricRow(y, "Monitors", monitorCount, colors.white, nil, nil, nil)
+    end
     y = y + 2
 
-    TermUI.drawSeparator(y, colors.gray)
-    y = y + 1
-    local col2 = math.max(2, math.floor(w / 3) + 1)
-    local col3 = math.max(col2 + 1, math.floor((w * 2) / 3) + 1)
-    local activityOpts = swarmOnline and {} or { idleColor = colors.lightGray, labelColor = colors.gray, countColor = colors.gray }
-    TermUI.drawActivityLight(2, y, "DISCOVER", self.lastActivity.discover, swarmOnline and self.stats.discover or "n/a", activityOpts)
-    TermUI.drawActivityLight(col2, y, "CALL", self.lastActivity.call, swarmOnline and self.stats.call or "n/a", activityOpts)
-    TermUI.drawActivityLight(col3, y, "ANNOUNCE", self.lastActivity.announce, swarmOnline and self.stats.announce or "n/a", activityOpts)
-    y = y + 1
-    TermUI.drawActivityLight(2, y, "RX", self.lastActivity.rx, swarmOnline and self.stats.rx or "n/a", activityOpts)
-    TermUI.drawActivityLight(col2, y, "RESCAN", self.lastActivity.rescan, swarmOnline and self.stats.rescan or "n/a", activityOpts)
-    TermUI.drawActivityLight(col3, y, "ERROR", self.lastActivity.call_error, swarmOnline and self.stats.call_error or "n/a", activityOpts)
-    y = y + 2
+    if swarmOnline then
+        TermUI.drawSeparator(y, colors.gray)
+        y = y + 1
+
+        local activityCols = DashboardUtils.layoutColumns(contentX, contentWidth, 3, 14, 2)
+        local activityItems = {
+            { label = "DISCOVER", ts = self.lastActivity.discover, count = self.stats.discover },
+            { label = "CALL", ts = self.lastActivity.call, count = self.stats.call },
+            { label = "ANNOUNCE", ts = self.lastActivity.announce, count = self.stats.announce },
+            { label = "RX", ts = self.lastActivity.rx, count = self.stats.rx },
+            { label = "RESCAN", ts = self.lastActivity.rescan, count = self.stats.rescan },
+            { label = "ERROR", ts = self.lastActivity.call_error, count = self.stats.call_error }
+        }
+
+        local perRow = #activityCols
+        for idx, item in ipairs(activityItems) do
+            local colIdx = ((idx - 1) % perRow) + 1
+            local rowIdx = math.floor((idx - 1) / perRow)
+            local box = activityCols[colIdx]
+            drawActivityBounded(box.x, y + rowIdx, box.width, item.label, item.ts, item.count)
+        end
+
+        y = y + math.ceil(#activityItems / perRow) + 1
+    else
+        TermUI.drawSeparator(y, colors.gray)
+        y = y + 1
+        TermUI.drawText(contentX, y, DashboardUtils.truncateText("Swarm metrics hidden while offline", contentWidth), colors.lightGray)
+        y = y + 2
+    end
 
     local avgWaitMs = DashboardUtils.average(self.waitMsSamples)
     local peakWaitMs = DashboardUtils.maxValue(self.waitMsSamples)
@@ -203,21 +328,24 @@ function TerminalDashboard:render(kernel)
     elseif avgHandlerMs > 60 then
         loopColor = colors.orange
     end
-    TermUI.drawMetric(2, y, "Wait avg/peak", string.format("%.0f/%.0f ms", avgWaitMs, peakWaitMs), colors.lightGray)
-    TermUI.drawMetric(rightCol, y, "Call avg", swarmOnline and string.format("%.0f ms", avgCallMs) or "n/a", swarmOnline and colors.white or colors.gray)
+    if swarmOnline then
+        y = drawMetricRow(y, "Wait avg/peak", string.format("%.0f/%.0f ms", avgWaitMs, peakWaitMs), colors.lightGray, "Call avg", string.format("%.0f ms", avgCallMs), colors.white)
+    else
+        y = drawMetricRow(y, "Wait avg/peak", string.format("%.0f/%.0f ms", avgWaitMs, peakWaitMs), colors.lightGray, nil, nil, nil)
+    end
+    y = drawMetricRow(y, "Handler avg/peak", string.format("%.0f/%.0f ms", avgHandlerMs, peakHandlerMs), loopColor, nil, nil, nil)
+    if swarmOnline then
+        y = drawMetricRow(y, "Shared Local", sharedCount, colors.white, nil, nil, nil)
+    end
     y = y + 1
-    TermUI.drawMetric(2, y, "Handler avg/peak", string.format("%.0f/%.0f ms", avgHandlerMs, peakHandlerMs), loopColor)
-    y = y + 1
-    TermUI.drawMetric(2, y, "Shared Local", swarmOnline and sharedCount or "n/a", swarmOnline and colors.white or colors.gray)
-    y = y + 2
 
     if kernel and #kernel.monitors > 0 and y < h - 3 then
-        TermUI.drawText(2, y, "Views", colors.lightGray)
+        TermUI.drawText(contentX, y, "Views", colors.lightGray)
         y = y + 1
         for _, monitor in ipairs(kernel.monitors) do
             if y >= h - 2 then break end
             local row = monitor:getName() .. " -> " .. (monitor:getViewName() or "None")
-            TermUI.drawText(3, y, DashboardUtils.truncateText(row, math.max(1, w - 3)), colors.white)
+            TermUI.drawText(contentX + 1, y, DashboardUtils.truncateText(row, math.max(1, w - (contentX + 1))), colors.white)
             y = y + 1
         end
     end
