@@ -15,8 +15,13 @@
   },
   {
     "name": "views",
-    "description": "Display modules for various types of data visualization (AE2 storage, fluids, machines)",
+    "description": "Core display modules for ShelfOS (Clock + NetworkDashboard plus shared view helpers)",
     "dependencies": ["utils", "peripherals", "ui"]
+  },
+  {
+    "name": "views-extra",
+    "description": "Optional ShelfOS views (install to unlock additional dashboards and browsers)",
+    "dependencies": ["views", "utils", "peripherals", "ui"]
   },
   {
     "name": "peripherals",

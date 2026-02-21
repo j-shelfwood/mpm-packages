@@ -1,7 +1,7 @@
 return function(h)
     h:test("view rendering: EnergyStatus detailed mode renders critical sections", function()
         h:with_ui_driver(51, 19, function(driver)
-            local EnergyStatus = mpm("views/EnergyStatus")
+            local EnergyStatus = mpm("views-extra/EnergyStatus")
             local instance = EnergyStatus.new(driver.buffer, {
                 displayMode = "detailed",
                 warningThreshold = 100
@@ -57,7 +57,7 @@ return function(h)
 
     h:test("view rendering: DriveStatus grid renders cell count and percent", function()
         h:with_ui_driver(51, 19, function(driver)
-            local DriveStatus = mpm("views/DriveStatus")
+            local DriveStatus = mpm("views-extra/DriveStatus")
             local instance = DriveStatus.new(driver.buffer, {
                 showEmpty = true
             }, "test_terminal")
@@ -78,7 +78,7 @@ return function(h)
 
     h:test("view rendering: CraftingCPU busy mode shows task and progress", function()
         h:with_ui_driver(51, 19, function(driver)
-            local CraftingCPU = mpm("views/CraftingCPU")
+            local CraftingCPU = mpm("views-extra/CraftingCPU")
             local instance = CraftingCPU.new(driver.buffer, {
                 cpu = "CPU-1"
             }, "test_terminal")

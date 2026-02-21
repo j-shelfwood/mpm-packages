@@ -1,54 +1,75 @@
 return function(h)
-    local function getViewNames()
-        local manifestPath = h.workspace .. "/views/manifest.json"
-        local content = h:read_file(manifestPath)
-        h:assert_not_nil(content, "views/manifest.json should exist")
+    local function collectViewEntries()
+        local entries = {}
 
-        local manifest = textutils.unserialiseJSON(content)
-        h:assert_not_nil(manifest, "views/manifest.json should parse")
+        for _, packageName in ipairs({ "views", "views-extra" }) do
+            local manifestPath = h.workspace .. "/" .. packageName .. "/manifest.json"
+            local content = h:read_file(manifestPath)
+            if content then
+                local manifest = textutils.unserialiseJSON(content)
+                if manifest then
+                    for _, filename in ipairs(manifest.files or {}) do
+                        local isUtility = filename == "Manager.lua" or filename == "BaseView.lua"
+                        local isRenderer = filename:match("Renderers%.lua$") ~= nil
+                        local isSubdirectory = filename:find("/") ~= nil
 
-        local views = {}
-        for _, filename in ipairs(manifest.files or {}) do
-            local isUtility = filename == "Manager.lua" or filename == "BaseView.lua"
-            local isRenderer = filename:match("Renderers%.lua$") ~= nil
-            local isSubdirectory = filename:find("/") ~= nil
-
-            if not isUtility and not isRenderer and not isSubdirectory then
-                views[#views + 1] = filename:gsub("%.lua$", "")
+                        if not isUtility and not isRenderer and not isSubdirectory then
+                            entries[#entries + 1] = {
+                                package = packageName,
+                                name = filename:gsub("%.lua$", ""),
+                                file = filename
+                            }
+                        end
+                    end
+                end
             end
         end
 
-        table.sort(views)
+        table.sort(entries, function(a, b)
+            return a.name < b.name
+        end)
+
+        return entries
+    end
+
+    local function getViewNames()
+        local entries = collectViewEntries()
+        local views = {}
+        for _, entry in ipairs(entries) do
+            views[#views + 1] = entry.name
+        end
         return views
     end
 
     local function getAEBoundViews()
-        local views = getViewNames()
+        local entries = collectViewEntries()
         local aeViews = {}
 
-        for _, viewName in ipairs(views) do
-            local path = h.workspace .. "/views/" .. viewName .. ".lua"
+        for _, entry in ipairs(entries) do
+            local path = h.workspace .. "/" .. entry.package .. "/" .. entry.file
             local content = h:read_file(path) or ""
             if content:find("peripherals/AEInterface", 1, true) then
-                aeViews[#aeViews + 1] = viewName
+                aeViews[#aeViews + 1] = { package = entry.package, name = entry.name }
             end
         end
 
-        table.sort(aeViews)
+        table.sort(aeViews, function(a, b)
+            return a.name < b.name
+        end)
         return aeViews
     end
 
     h:test("view mounts: all mount() checks execute without throwing", function()
         h.module_cache = {}
-        local views = getViewNames()
+        local entries = collectViewEntries()
 
-        for _, viewName in ipairs(views) do
-            local View = mpm("views/" .. viewName)
-            h:assert_not_nil(View, "View should load: " .. viewName)
+        for _, entry in ipairs(entries) do
+            local View = mpm(entry.package .. "/" .. entry.name)
+            h:assert_not_nil(View, "View should load: " .. entry.name)
 
             if type(View.mount) == "function" then
                 local ok = pcall(View.mount)
-                h:assert_true(ok, "mount() should not throw for view: " .. viewName)
+                h:assert_true(ok, "mount() should not throw for view: " .. entry.name)
             end
         end
     end)
@@ -65,18 +86,18 @@ return function(h)
         end
 
         local okRun, err = pcall(function()
-            local views = getViewNames()
+            local entries = collectViewEntries()
             local hadClock = false
 
-            for _, viewName in ipairs(views) do
-                local View = mpm("views/" .. viewName)
-                if viewName == "Clock" then
+            for _, entry in ipairs(entries) do
+                local View = mpm(entry.package .. "/" .. entry.name)
+                if entry.name == "Clock" then
                     hadClock = true
                 end
 
                 if View and type(View.mount) == "function" then
                     local okMount = pcall(View.mount)
-                    h:assert_true(okMount, "mount() should not throw when AEInterface missing: " .. viewName)
+                    h:assert_true(okMount, "mount() should not throw when AEInterface missing: " .. entry.name)
                 end
             end
 
@@ -110,17 +131,17 @@ return function(h)
             local aeViews = getAEBoundViews()
             h:assert_true(#aeViews > 0, "Expected at least one AE-bound view")
 
-            for _, viewName in ipairs(aeViews) do
-                local View = mpm("views/" .. viewName)
-                h:assert_not_nil(View, "AE view should load: " .. viewName)
-                h:assert_true(type(View.new) == "function", "AE view should expose new(): " .. viewName)
+            for _, entry in ipairs(aeViews) do
+                local View = mpm(entry.package .. "/" .. entry.name)
+                h:assert_not_nil(View, "AE view should load: " .. entry.name)
+                h:assert_true(type(View.new) == "function", "AE view should expose new(): " .. entry.name)
 
                 local okNew, instance = pcall(View.new, fakeMonitor, {}, "monitor_0")
-                h:assert_true(okNew, "new() should not throw when AEInterface missing: " .. viewName)
+                h:assert_true(okNew, "new() should not throw when AEInterface missing: " .. entry.name)
 
                 if okNew and instance and type(instance.getData) == "function" then
                     local okData = pcall(instance.getData, instance)
-                    h:assert_true(okData, "getData() should not throw when AEInterface missing: " .. viewName)
+                    h:assert_true(okData, "getData() should not throw when AEInterface missing: " .. entry.name)
                 end
             end
         end)

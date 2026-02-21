@@ -13,6 +13,8 @@ local mountableCache = nil
 local mountableCacheAt = 0
 local MOUNTABLE_CACHE_TTL_MS = 5000
 local selectableCache = nil
+local viewSources = {}
+local VIEW_PACKAGES = { "views", "views-extra" }
 
 local function copyArray(arr)
     local copy = {}
@@ -44,39 +46,39 @@ end
 
 -- Get list of all available views from manifest
 function Manager.getAvailableViews()
-    local manifestPath = "/mpm/Packages/views/manifest.json"
-
-    if not fs.exists(manifestPath) then
-        return {}
-    end
-
-    local file = fs.open(manifestPath, "r")
-    if not file then
-        return {}
-    end
-
-    local content = file.readAll()
-    file.close()
-
-    local ok, manifest = pcall(textutils.unserializeJSON, content)
-    if not ok or not manifest then
-        return {}
-    end
-
     local views = {}
-    for _, filename in ipairs(manifest.files or {}) do
-        -- Skip non-view files:
-        -- 1. Utility files: Manager.lua, BaseView.lua
-        -- 2. Renderer helpers: *Renderers.lua (e.g., BaseViewRenderers.lua)
-        -- 3. Factories: anything in subdirectories (contains '/')
-        local isUtility = filename == "Manager.lua" or filename == "BaseView.lua" or filename == "AEViewSupport.lua"
-        local isRenderer = filename:match("Renderers%.lua$") ~= nil
-        local isSubdirectory = filename:find("/") ~= nil
+    viewSources = {}
 
-        if not isUtility and not isRenderer and not isSubdirectory then
-            -- Remove .lua extension
-            local viewName = filename:gsub("%.lua$", "")
-            table.insert(views, viewName)
+    for _, packageName in ipairs(VIEW_PACKAGES) do
+        local manifestPath = "/mpm/Packages/" .. packageName .. "/manifest.json"
+        if fs.exists(manifestPath) then
+            local file = fs.open(manifestPath, "r")
+            if file then
+                local content = file.readAll()
+                file.close()
+
+                local ok, manifest = pcall(textutils.unserializeJSON, content)
+                if ok and manifest then
+                    for _, filename in ipairs(manifest.files or {}) do
+                        -- Skip non-view files:
+                        -- 1. Utility files: Manager.lua, BaseView.lua
+                        -- 2. Renderer helpers: *Renderers.lua (e.g., BaseViewRenderers.lua)
+                        -- 3. Factories: anything in subdirectories (contains '/')
+                        local isUtility = filename == "Manager.lua" or filename == "BaseView.lua" or filename == "AEViewSupport.lua"
+                        local isRenderer = filename:match("Renderers%.lua$") ~= nil
+                        local isSubdirectory = filename:find("/") ~= nil
+
+                        if not isUtility and not isRenderer and not isSubdirectory then
+                            -- Remove .lua extension
+                            local viewName = filename:gsub("%.lua$", "")
+                            if not viewSources[viewName] then
+                                viewSources[viewName] = packageName
+                                table.insert(views, viewName)
+                            end
+                        end
+                    end
+                end
+            end
         end
     end
 
@@ -102,8 +104,14 @@ function Manager.load(viewName)
         return viewCache[viewName]
     end
 
+    if not viewSources[viewName] then
+        Manager.getAvailableViews()
+    end
+
+    local packageName = viewSources[viewName] or "views"
+
     -- Try to load
-    local ok, View = pcall(mpm, 'views/' .. viewName)
+    local ok, View = pcall(mpm, packageName .. '/' .. viewName)
     if not ok then
         print("[ViewManager] Error loading " .. viewName .. ": " .. tostring(View))
         return nil
@@ -206,6 +214,7 @@ function Manager.clearCache()
     mountableCache = nil
     mountableCacheAt = 0
     selectableCache = nil
+    viewSources = {}
     local ok, AEViewSupport = pcall(mpm, 'views/AEViewSupport')
     if ok and AEViewSupport and type(AEViewSupport.invalidateCapabilities) == "function" then
         AEViewSupport.invalidateCapabilities()
@@ -216,6 +225,7 @@ function Manager.invalidateMountableCache()
     mountableCache = nil
     mountableCacheAt = 0
     selectableCache = nil
+    viewSources = {}
     local ok, AEViewSupport = pcall(mpm, 'views/AEViewSupport')
     if ok and AEViewSupport and type(AEViewSupport.invalidateCapabilities) == "function" then
         AEViewSupport.invalidateCapabilities()
