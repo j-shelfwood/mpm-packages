@@ -5,6 +5,7 @@
   "files": [
     "MachineGrid.lua",
     "MachineList.lua",
+    "MekDashboard.lua",
     "MekGeneratorStatus.lua",
     "MekMultiblockStatus.lua",
     "MekMachineGauge.lua",
