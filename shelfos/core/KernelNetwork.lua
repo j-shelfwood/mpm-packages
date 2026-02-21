@@ -207,6 +207,7 @@ function KernelNetwork.loop(kernel, runningRef)
                     kernel.peripheralHost:announce()
                     lastHostAnnounce = now
                 end
+                kernel.peripheralHost:pollSubscriptions()
             end
 
             -- Periodic re-discovery of remote peripherals

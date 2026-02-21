@@ -2,6 +2,47 @@ local Core = mpm('ui/Core')
 
 local MonitorLifecycle = {}
 
+local function getListenEvents(monitor)
+    if monitor and monitor.viewInstance and type(monitor.viewInstance.listenEvents) == "table" then
+        return monitor.viewInstance.listenEvents
+    end
+    if monitor and monitor.view and type(monitor.view.listenEvents) == "table" then
+        return monitor.view.listenEvents
+    end
+    return {}
+end
+
+local function listensFor(monitor, eventName)
+    local events = getListenEvents(monitor)
+    for _, name in ipairs(events) do
+        if name == eventName then
+            return true
+        end
+    end
+    return false
+end
+
+local function dispatchViewEvent(monitor, eventName, p1, p2, p3)
+    if not monitor or not monitor.viewInstance or monitor.inConfigMenu or monitor.pairingMode then
+        return false
+    end
+    if not listensFor(monitor, eventName) then
+        return false
+    end
+    if type(monitor.viewInstance.onEvent) ~= "function" then
+        return false
+    end
+    local ok, shouldRender = pcall(monitor.viewInstance.onEvent, monitor.viewInstance, eventName, p1, p2, p3)
+    if not ok then
+        print("[Monitor] Event error on " .. (monitor.peripheralName or "unknown") .. ": " .. tostring(shouldRender))
+        return false
+    end
+    if shouldRender then
+        monitor:render()
+    end
+    return true
+end
+
 function MonitorLifecycle.scheduleLoadRetry(monitor, delaySeconds)
     if monitor.inConfigMenu then
         return
@@ -16,6 +57,10 @@ end
 
 function MonitorLifecycle.scheduleRender(monitor, offset)
     if not monitor.connected or monitor.inConfigMenu then
+        return
+    end
+
+    if not listensFor(monitor, "timer") then
         return
     end
 
@@ -64,7 +109,9 @@ function MonitorLifecycle.handleTimer(monitor, timerId)
         return true
     elseif timerId == monitor.renderTimer then
         local ok, err = pcall(function()
-            monitor:render()
+            if not dispatchViewEvent(monitor, "timer", timerId) then
+                monitor:render()
+            end
         end)
         if not ok then
             print("[Monitor] Render error on " .. (monitor.peripheralName or "unknown") .. ": " .. tostring(err))
@@ -170,6 +217,8 @@ function MonitorLifecycle.runLoop(monitor, running)
             if p1 == monitor.peripheralName and monitor.connected then
                 monitor:disconnect()
             end
+        else
+            dispatchViewEvent(monitor, event, p1, p2, p3)
         end
     end
 end

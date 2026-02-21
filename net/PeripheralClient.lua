@@ -4,6 +4,7 @@
 local PeripheralDiscovery = mpm('net/PeripheralDiscovery')
 local PeripheralRPC = mpm('net/PeripheralRPC')
 local PeripheralRegistry = mpm('net/PeripheralRegistry')
+local Protocol = mpm('net/Protocol')
 
 local PeripheralClient = {}
 PeripheralClient.__index = PeripheralClient
@@ -45,6 +46,12 @@ end
 
 function PeripheralClient:registerHandlers()
     PeripheralDiscovery.registerHandlers(self)
+
+    if self.channel then
+        self.channel:on(Protocol.MessageType.PERIPH_STATE_PUSH, function(senderId, msg)
+            self:handleStatePush(senderId, msg)
+        end)
+    end
 end
 
 function PeripheralClient:handleAnnounce(senderId, msg)
@@ -61,6 +68,18 @@ end
 
 function PeripheralClient:handleError(senderId, msg)
     PeripheralRPC.handleError(self, senderId, msg)
+end
+
+function PeripheralClient:handleStatePush(senderId, msg)
+    local data = msg.data or {}
+    local hostId = data.hostId or senderId
+    local key = tostring(hostId) .. "::" .. tostring(data.peripheral or "")
+    local info = self.remotePeripherals and self.remotePeripherals[key] or nil
+    if info and info.proxy and type(info.proxy._applyStatePush) == "function" then
+        info.proxy:_applyStatePush(data.method, data.results, data.meta)
+    end
+    local eventName = data.event or "remote_periph_update"
+    pcall(os.queueEvent, eventName, data.peripheral, data.method, data.results, data.meta, hostId)
 end
 
 function PeripheralClient:registerRemote(hostId, name, pType, methods, computerName, deferIndexRebuild)
@@ -113,6 +132,24 @@ end
 
 function PeripheralClient:callAsync(hostId, peripheralName, methodName, args, callback, timeout, options)
     PeripheralRPC.callAsync(self, hostId, peripheralName, methodName, args, callback, timeout, options)
+end
+
+function PeripheralClient:subscribe(hostId, peripheralName, methodName, args, intervalMs, eventName)
+    if not self.channel then
+        return false, "not_connected"
+    end
+    local msg = Protocol.createPeriphSubscribe(peripheralName, methodName, args, intervalMs, eventName)
+    self.channel:send(hostId, msg)
+    return true, nil
+end
+
+function PeripheralClient:unsubscribe(hostId, peripheralName, methodName, args)
+    if not self.channel then
+        return false, "not_connected"
+    end
+    local msg = Protocol.createPeriphUnsubscribe(peripheralName, methodName, args)
+    self.channel:send(hostId, msg)
+    return true, nil
 end
 
 function PeripheralClient:rediscover(name)

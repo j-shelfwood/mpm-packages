@@ -96,6 +96,7 @@ function BaseView.create(definition)
     return {
         sleepTime = definition.sleepTime or 1,
         configSchema = definition.configSchema or {},
+        listenEvents = definition.listenEvents or { "timer" },
 
         mount = definition.mount or function() return true end,
 
@@ -114,7 +115,8 @@ function BaseView.create(definition)
                 _scrollOffset = 0,
                 _pageSize = nil,
                 _touchZones = {},
-                _data = nil
+                _data = nil,
+                listenEvents = definition.listenEvents or { "timer" }
             }
 
             if viewType == BaseView.Type.INTERACTIVE then
@@ -161,6 +163,13 @@ function BaseView.create(definition)
 
         getData = function(self)
             return definition.getData(self)
+        end,
+
+        onEvent = function(self, event, ...)
+            if definition.onEvent then
+                return definition.onEvent(self, event, ...)
+            end
+            return event == "timer"
         end,
 
         renderWithData = function(self, data)

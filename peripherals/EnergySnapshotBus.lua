@@ -35,6 +35,16 @@ local function nowMs()
     return os.epoch("utc")
 end
 
+local function dataHash(value)
+    if type(value) == "table" then
+        local ok, serialized = pcall(textutils.serialize, value)
+        if ok and serialized then
+            return serialized
+        end
+    end
+    return tostring(value)
+end
+
 local function joulesToFE(value)
     if type(mekanismEnergyHelper) == "table" and type(mekanismEnergyHelper.joulesToFE) == "function" then
         local ok, converted = pcall(mekanismEnergyHelper.joulesToFE, value)
@@ -79,6 +89,7 @@ local function pollStatus(entry)
     }
 
     local started = nowMs()
+    local prevHash = entry.status and entry.status.hash or nil
     local storedOk, stored = pcall(p.getEnergy)
     local capacityOk, capacity = pcall(p.getEnergyCapacity)
 
@@ -104,12 +115,17 @@ local function pollStatus(entry)
     end
 
     local finished = nowMs()
+    local hash = dataHash(status)
     entry.status = {
         ok = true,
         data = status,
         updatedAt = finished,
-        latencyMs = finished - started
+        latencyMs = finished - started,
+        hash = hash
     }
+    if prevHash ~= hash then
+        pcall(os.queueEvent, "energy_snapshot_updated", entry.name, entry.status)
+    end
     return true
 end
 

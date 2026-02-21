@@ -149,6 +149,25 @@ function RemoteProxy.create(client, hostId, name, pType, methods, key, displayNa
         return table.concat(parts, "_")
     end
 
+    function proxy:_applyStatePush(methodName, results, meta)
+        local key = cacheKey(methodName, nil)
+        proxy._cache[key] = {
+            results = results or {},
+            timestamp = os.epoch("utc"),
+            meta = meta
+        }
+        proxy._pending[key] = nil
+        proxy._nextRefreshAt[key] = nil
+    end
+
+    function proxy.subscribe(methodName, args, intervalMs, eventName)
+        return client:subscribe(proxy._hostId, remoteName, methodName, args or {}, intervalMs, eventName)
+    end
+
+    function proxy.unsubscribe(methodName, args)
+        return client:unsubscribe(proxy._hostId, remoteName, methodName, args or {})
+    end
+
     local function pruneCache(now)
         if (now - (proxy._lastCacheSweepAt or 0)) < CACHE_SWEEP_INTERVAL_MS and next(proxy._cache) ~= nil then
             return

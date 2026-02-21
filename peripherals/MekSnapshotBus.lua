@@ -186,6 +186,25 @@ local function nowMs()
     return os.epoch("utc")
 end
 
+local function dataHash(value)
+    if type(value) == "table" then
+        local ok, serialized = pcall(textutils.serialize, value)
+        if ok and serialized then
+            return serialized
+        end
+    end
+    return tostring(value)
+end
+
+local function recordSnapshot(entry, kind, snapshot)
+    local hash = dataHash(snapshot)
+    if entry.snapshotHash ~= hash then
+        entry.snapshotHash = hash
+        pcall(os.queueEvent, "mek_snapshot_updated", kind, entry.name, snapshot)
+    end
+    entry.snapshot = snapshot
+end
+
 local function safeCall(p, method)
     if not p or type(p[method]) ~= "function" then return nil end
     local ok, result = pcall(p[method])
@@ -225,7 +244,7 @@ local function pollGenerator(entry, now)
         extra.burnRate = safeCall(p, "getBurnRate") or 0
     end
 
-    entry.snapshot = {
+    local snapshot = {
         name = entry.name,
         type = entry.type,
         production = production,
@@ -235,6 +254,7 @@ local function pollGenerator(entry, now)
         extra = extra,
         updatedAt = now
     }
+    recordSnapshot(entry, "generator", snapshot)
     entry.nextPollAt = now + FAST_POLL_MS
     return true
 end
@@ -256,7 +276,7 @@ local function pollMultiblock(entry, now)
         end
     end
 
-    entry.snapshot = {
+    local snapshot = {
         name = entry.name,
         type = entry.type,
         label = cfg.label,
@@ -265,6 +285,7 @@ local function pollMultiblock(entry, now)
         status = status,
         updatedAt = now
     }
+    recordSnapshot(entry, "multiblock", snapshot)
     entry.nextPollAt = now + MEDIUM_POLL_MS
     return true
 end
@@ -329,7 +350,7 @@ local function pollMachine(entry, now)
         chemicalPct = safeCall(p, "getFilledPercentage")
     }
 
-    entry.snapshot = data
+    recordSnapshot(entry, "machine", data)
     entry.updatedAt = now
     entry.nextPollAt = now + FAST_POLL_MS
     return true

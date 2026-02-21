@@ -47,6 +47,26 @@ local function simpleHash(str)
     return string.format("%08x", h)
 end
 
+local function subscriptionKey(peripheralName, methodName, args)
+    local ok, encoded = pcall(textutils.serialize, args or {})
+    return table.concat({
+        tostring(peripheralName or ""),
+        tostring(methodName or ""),
+        ok and encoded or ""
+    }, "|")
+end
+
+local function hashResults(results)
+    if type(results) ~= "table" then
+        return tostring(results)
+    end
+    local ok, encoded = pcall(textutils.serialize, results)
+    if ok and encoded then
+        return encoded
+    end
+    return tostring(results)
+end
+
 local function hashResourceRows(items)
     if type(items) ~= "table" then
         return nil
@@ -131,6 +151,7 @@ function PeripheralHost.new(channel, computerId, computerName)
     self.peripherals = {}  -- {name -> {type, methods, peripheral}}
     self.stateHash = ""
     self.activityListener = nil
+    self.subscriptions = {} -- { clientId -> { [key] = sub } }
 
     return self
 end
@@ -256,6 +277,114 @@ local function sendCallError(self, senderId, msg, peripheralName, methodName, de
     })
 end
 
+local function methodExists(info, methodName)
+    if not info or type(info.methods) ~= "table" then
+        return false
+    end
+    for _, m in ipairs(info.methods) do
+        if m == methodName then
+            return true
+        end
+    end
+    return false
+end
+
+function PeripheralHost:handleSubscribe(senderId, msg)
+    local peripheralName = msg.data.peripheral
+    local methodName = msg.data.method
+    local args = msg.data.args or {}
+    local intervalMs = msg.data.intervalMs
+    local eventName = msg.data.event
+
+    local info = self.peripherals[peripheralName]
+    if not info then
+        self.channel:send(senderId, Protocol.createError(msg, "Peripheral not found: " .. tostring(peripheralName)))
+        return
+    end
+
+    if not methodExists(info, methodName) then
+        self.channel:send(senderId, Protocol.createError(msg, "Method not found: " .. tostring(methodName)))
+        return
+    end
+
+    local key = subscriptionKey(peripheralName, methodName, args)
+    self.subscriptions[senderId] = self.subscriptions[senderId] or {}
+    self.subscriptions[senderId][key] = {
+        key = key,
+        peripheral = peripheralName,
+        method = methodName,
+        args = args,
+        intervalMs = intervalMs or 1000,
+        event = eventName,
+        nextAt = 0,
+        lastHash = nil
+    }
+
+    self.channel:send(senderId, Protocol.createResponse(msg, Protocol.MessageType.OK, {
+        subscribed = true
+    }))
+end
+
+function PeripheralHost:handleUnsubscribe(senderId, msg)
+    local peripheralName = msg.data.peripheral
+    local methodName = msg.data.method
+    local args = msg.data.args or {}
+    local key = subscriptionKey(peripheralName, methodName, args)
+    if self.subscriptions[senderId] then
+        self.subscriptions[senderId][key] = nil
+    end
+    self.channel:send(senderId, Protocol.createResponse(msg, Protocol.MessageType.OK, {
+        unsubscribed = true
+    }))
+end
+
+function PeripheralHost:pollSubscriptions()
+    if not self.channel then return end
+    local now = os.epoch("utc")
+
+    for clientId, subs in pairs(self.subscriptions) do
+        for _, sub in pairs(subs) do
+            if now >= (sub.nextAt or 0) then
+                sub.nextAt = now + (sub.intervalMs or 1000)
+                local info = self.peripherals[sub.peripheral]
+                if info then
+                    local p = info.peripheral
+                    local method = p and p[sub.method]
+                    if method then
+                        local results = {pcall(method, table.unpack(sub.args or {}))}
+                        local ok = table.remove(results, 1)
+                        if ok then
+                            local resultHash = nil
+                            if STRIP_METHODS[sub.method] and results[1] and type(results[1]) == "table" then
+                                results[1] = stripResourceList(results[1])
+                                resultHash = hashResourceRows(results[1])
+                            else
+                                resultHash = hashResults(results)
+                            end
+
+                            if resultHash ~= sub.lastHash then
+                                sub.lastHash = resultHash
+                                local payload = {
+                                    peripheral = sub.peripheral,
+                                    method = sub.method,
+                                    args = sub.args,
+                                    results = results,
+                                    meta = {
+                                        resultHash = resultHash
+                                    },
+                                    event = sub.event,
+                                    hostId = self.computerId
+                                }
+                                self.channel:send(clientId, Protocol.createPeriphStatePush(payload))
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
 -- Handle peripheral method call
 -- @param senderId Requesting computer ID
 -- @param msg The call message
@@ -274,15 +403,7 @@ function PeripheralHost:handleCall(senderId, msg)
     end
 
     -- Check method exists
-    local methodExists = false
-    for _, m in ipairs(info.methods) do
-        if m == methodName then
-            methodExists = true
-            break
-        end
-    end
-
-    if not methodExists then
+    if not methodExists(info, methodName) then
         sendCallError(self, senderId, msg, peripheralName, methodName, "Method not found: " .. methodName, "Method not found")
         return
     end
@@ -354,6 +475,14 @@ function PeripheralHost:registerHandlers()
 
     self.channel:on(Protocol.MessageType.PERIPH_CALL, function(senderId, msg)
         self:handleCall(senderId, msg)
+    end)
+
+    self.channel:on(Protocol.MessageType.PERIPH_SUBSCRIBE, function(senderId, msg)
+        self:handleSubscribe(senderId, msg)
+    end)
+
+    self.channel:on(Protocol.MessageType.PERIPH_UNSUBSCRIBE, function(senderId, msg)
+        self:handleUnsubscribe(senderId, msg)
     end)
 end
 

@@ -64,6 +64,16 @@ local function nowMs()
     return os.epoch("utc")
 end
 
+local function dataHash(value)
+    if type(value) == "table" then
+        local ok, serialized = pcall(textutils.serialize, value)
+        if ok and serialized then
+            return serialized
+        end
+    end
+    return tostring(value)
+end
+
 local function bridgeName(bridge)
     if not bridge then return nil end
     return Peripherals.getName(bridge)
@@ -122,17 +132,22 @@ local function pollOne(entry, spec, now)
         return false
     end
 
+    local prev = entry.cache[spec.key]
+    local prevHash = prev and prev.hash or nil
+
     entry.nextAt[spec.key] = now + spec.intervalMs
     local started = nowMs()
     local ok, data = pcall(spec.fn, entry.bridge)
     local finished = nowMs()
+    local hash = tostring(ok) .. "|" .. dataHash(data)
 
     if ok then
         entry.cache[spec.key] = {
             ok = true,
             data = data,
             updatedAt = finished,
-            latencyMs = finished - started
+            latencyMs = finished - started,
+            hash = hash
         }
     else
         local prev = entry.cache[spec.key]
@@ -141,8 +156,13 @@ local function pollOne(entry, spec, now)
             data = prev and prev.data or nil,
             updatedAt = finished,
             latencyMs = finished - started,
-            error = tostring(data)
+            error = tostring(data),
+            hash = hash
         }
+    end
+
+    if prevHash ~= hash then
+        pcall(os.queueEvent, "ae_snapshot_updated", entry.name, spec.key, entry.cache[spec.key])
     end
 
     return true

@@ -47,6 +47,9 @@ Protocol.MessageType = {
     PERIPH_CALL = "periph_call",            -- Call method on remote peripheral
     PERIPH_RESULT = "periph_result",        -- Result of peripheral call
     PERIPH_ERROR = "periph_error",          -- Error from peripheral call
+    PERIPH_SUBSCRIBE = "periph_subscribe",  -- Subscribe to peripheral updates
+    PERIPH_UNSUBSCRIBE = "periph_unsubscribe", -- Unsubscribe from updates
+    PERIPH_STATE_PUSH = "periph_state_push", -- Push peripheral state update
 
     -- Pocket Pairing (bootstrap without crypto)
     PAIR_READY = "pair_ready",              -- Computer → Pocket: ready to receive secret
@@ -234,7 +237,9 @@ function Protocol.isRequest(msg)
         [Protocol.MessageType.SET_CONFIG] = true,
         [Protocol.MessageType.INPUT_REQUEST] = true,
         [Protocol.MessageType.PERIPH_DISCOVER] = true,
-        [Protocol.MessageType.PERIPH_CALL] = true
+        [Protocol.MessageType.PERIPH_CALL] = true,
+        [Protocol.MessageType.PERIPH_SUBSCRIBE] = true,
+        [Protocol.MessageType.PERIPH_UNSUBSCRIBE] = true
     }
     return requestTypes[msg.type] == true
 end
@@ -299,6 +304,31 @@ function Protocol.createPeriphCall(peripheralName, methodName, args)
         method = methodName,
         args = args or {}
     })
+end
+
+-- Create peripheral subscription request
+function Protocol.createPeriphSubscribe(peripheralName, methodName, args, intervalMs, eventName)
+    return Protocol.createRequest(Protocol.MessageType.PERIPH_SUBSCRIBE, {
+        peripheral = peripheralName,
+        method = methodName,
+        args = args or {},
+        intervalMs = intervalMs,
+        event = eventName
+    })
+end
+
+-- Create peripheral unsubscribe request
+function Protocol.createPeriphUnsubscribe(peripheralName, methodName, args)
+    return Protocol.createRequest(Protocol.MessageType.PERIPH_UNSUBSCRIBE, {
+        peripheral = peripheralName,
+        method = methodName,
+        args = args or {}
+    })
+end
+
+-- Create peripheral state push message
+function Protocol.createPeriphStatePush(payload)
+    return Protocol.createMessage(Protocol.MessageType.PERIPH_STATE_PUSH, payload or {})
 end
 
 -- Create peripheral result response

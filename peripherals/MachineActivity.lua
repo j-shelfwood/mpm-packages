@@ -8,6 +8,7 @@ local MachineActivity = {}
 local discoveryCache = nil
 local discoveryCacheAt = 0
 local DISCOVERY_CACHE_TTL_MS = 5000
+local WATCH_INTERVAL_MS = 1200
 
 -- Activity detection strategies by method availability
 local ACTIVITY_STRATEGIES = {
@@ -467,6 +468,38 @@ function MachineActivity.getShortName(peripheralType)
     name = name:sub(1, 1):upper() .. name:sub(2)
 
     return name
+end
+
+function MachineActivity.runLoop(runningRef)
+    local lastStates = {}
+    local lastDiscoveryAt = 0
+    local machines = {}
+
+    while runningRef.value do
+        local now = os.epoch("utc")
+        if (now - lastDiscoveryAt) > DISCOVERY_CACHE_TTL_MS then
+            local discovered = MachineActivity.discoverAll(true)
+            machines = {}
+            for _, data in pairs(discovered or {}) do
+                for _, machine in ipairs(data.machines or {}) do
+                    table.insert(machines, machine)
+                end
+            end
+            lastDiscoveryAt = now
+        end
+
+        for _, machine in ipairs(machines) do
+            local isActive, activityData = MachineActivity.getActivity(machine.peripheral)
+            local prev = lastStates[machine.name]
+            if prev == nil or prev ~= isActive then
+                lastStates[machine.name] = isActive
+                pcall(os.queueEvent, "machine_status_transition", machine.name, isActive, activityData)
+            end
+            Yield.sleep(0)
+        end
+
+        Yield.sleep(WATCH_INTERVAL_MS / 1000)
+    end
 end
 
 return MachineActivity
