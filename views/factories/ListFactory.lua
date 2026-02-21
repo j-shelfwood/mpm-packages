@@ -69,10 +69,14 @@ function ListFactory.create(config)
         end
     end
 
+    local listenEvents, onEvent = AEViewSupport.buildListener({ config.dataMethod })
+
     return BaseView.grid({
         sleepTime = config.sleepTime,
         configSchema = baseConfigSchema,
         minCellWidth = config.minCellWidth or 16,
+        listenEvents = listenEvents,
+        onEvent = onEvent,
 
         mount = function()
             return AEViewSupport.mount(config.mountCheck)
@@ -132,6 +136,18 @@ function ListFactory.create(config)
 
             DataOps.sortByAmountOrName(filtered, self.sortBy, config.amountField, sortField, "registryName")
             self.totalAmount = DataOps.totalByAmount(filtered, config.amountField, config.unitDivisor)
+
+            -- Viewport slice: only pass visible items to renderWithData.
+            -- renderWithData runs with the buffer hidden (no yields allowed),
+            -- so it must be O(1) relative to total inventory size.
+            local maxItems = config.maxItems or 100
+            if #filtered > maxItems then
+                local sliced = {}
+                for i = 1, maxItems do
+                    sliced[i] = filtered[i]
+                end
+                return sliced
+            end
 
             return filtered
         end,

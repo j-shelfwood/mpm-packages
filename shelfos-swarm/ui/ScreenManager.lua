@@ -174,6 +174,10 @@ function ScreenManager:run()
         -- Wait for any event
         local event = { os.pullEvent() }
 
+        if event[1] == "rednet_message" and self.app and self.app.channel and event[4] == self.app.channel.protocol then
+            self.app.channel:handleEnvelope(event[2], event[3])
+        end
+
         -- Route to current screen
         if screen.handleEvent then
             local action = screen.handleEvent(self.ctx, table.unpack(event))

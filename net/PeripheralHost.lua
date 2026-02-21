@@ -443,7 +443,14 @@ function PeripheralHost:handleCall(senderId, msg)
                 unchanged = responseResults == nil
             }
         end
-        self.channel:send(senderId, response)
+        -- Large read-only payloads (getItems, getFluids, etc.) bypass HMAC signing
+        -- to avoid CPU Watchdog crashes from serializing + hashing 50k-item arrays.
+        -- Request authentication (PERIPH_CALL) is still HMAC-verified.
+        if STRIP_METHODS[methodName] then
+            self.channel:sendUnsigned(senderId, response)
+        else
+            self.channel:send(senderId, response)
+        end
         self:emitActivity("call", {
             senderId = senderId,
             peripheral = peripheralName,

@@ -6,8 +6,12 @@ local BaseView = mpm('views/BaseView')
 local AEViewSupport = mpm('views/AEViewSupport')
 local Text = mpm('utils/Text')
 
+local listenEvents, onEvent = AEViewSupport.buildListener({ "drives" })
+
 return BaseView.grid({
     sleepTime = 5,
+    listenEvents = listenEvents,
+    onEvent = onEvent,
 
     configSchema = {
         {

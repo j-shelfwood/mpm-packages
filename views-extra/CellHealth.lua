@@ -8,6 +8,8 @@ local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Yield = mpm('utils/Yield')
 
+local listenEvents, onEvent = AEViewSupport.buildListener({ "cells" })
+
 -- Parse cell size from bytes (1k, 4k, 16k, 64k, 256k)
 local function getCellSize(bytes)
     if not bytes then return "?" end
@@ -34,6 +36,8 @@ end
 
 return BaseView.custom({
     sleepTime = 5,
+    listenEvents = listenEvents,
+    onEvent = onEvent,
 
     configSchema = {
         {

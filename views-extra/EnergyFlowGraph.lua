@@ -16,6 +16,7 @@ local OUTLIER_FACTOR = 16
 local IO_GRAPH_HISTORY_SIZE = 240
 local PARALLEL_BATCH_SIZE = 6
 
+
 local function formatRate(fePerTick)
     local abs = math.abs(fePerTick)
     if abs >= 1e9 then
@@ -471,6 +472,7 @@ end
 
 return BaseView.custom({
     sleepTime = 1,
+    listenEvents = {},
 
     configSchema = {
         {

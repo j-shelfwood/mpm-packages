@@ -98,6 +98,22 @@ function Channel:send(targetId, message)
     return rednet.send(targetId, envelope, self.protocol)
 end
 
+-- Send a large read-only response WITHOUT HMAC signing.
+-- Use ONLY for PERIPH_RESULT responses carrying massive payloads (e.g. ME item lists).
+-- Request authentication (PERIPH_CALL) still uses Crypto.wrap - this only bypasses
+-- the expensive payload hash on responses that contain no capability grants.
+-- @param targetId Target computer ID
+-- @param message Message table
+-- @return success
+function Channel:sendUnsigned(targetId, message)
+    if not self.opened then
+        return false
+    end
+    -- Wrap in a plain envelope that receivers can detect as unsigned
+    local envelope = { _unsigned = true, d = message }
+    return rednet.send(targetId, envelope, self.protocol)
+end
+
 -- Broadcast a message
 -- @param message Message table (MUST have crypto secret set)
 function Channel:broadcast(message)
@@ -167,6 +183,11 @@ function Channel:receive(timeout)
         return nil, nil
     end
 
+    -- Accept unsigned PERIPH_RESULT envelopes (bypass heavy HMAC for read-only payloads)
+    if type(envelope) == "table" and envelope._unsigned == true then
+        return senderId, envelope.d
+    end
+
     -- Unwrap and verify crypto signature
     local data, err = Crypto.unwrap(envelope)
     if not data then
@@ -174,6 +195,56 @@ function Channel:receive(timeout)
     end
 
     return senderId, data
+end
+
+-- Handle an incoming rednet envelope (event-driven).
+-- @param senderId Sender computer ID
+-- @param envelope Raw message payload from rednet_message
+-- @return handled:boolean, received:boolean
+function Channel:handleEnvelope(senderId, envelope)
+    if not self.opened then
+        return false, false
+    end
+
+    if not Crypto.hasSecret() then
+        return false, false
+    end
+
+    if not senderId or not envelope then
+        return false, false
+    end
+
+    local message = nil
+    local data = nil
+    -- Accept unsigned PERIPH_RESULT envelopes (bypass HMAC for read-only payloads)
+    if type(envelope) == "table" and envelope._unsigned == true then
+        data = envelope.d
+    else
+        data = Crypto.unwrap(envelope)
+    end
+    if type(data) == "table" and data.type then
+        message = data
+    end
+
+    if not message then
+        return false, true
+    end
+
+    local valid = Protocol.validate(message)
+    if not valid then
+        return false, true
+    end
+
+    local handler = self.handlers[message.type]
+    if handler then
+        local ok, result = pcall(handler, senderId, message, self)
+        if not ok then
+            print("[Channel] Handler error for " .. tostring(message.type) .. ": " .. tostring(result))
+        end
+        return ok, true
+    end
+
+    return false, true
 end
 
 -- Register a message handler

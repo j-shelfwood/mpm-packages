@@ -7,17 +7,9 @@ local BaseView = mpm('views/BaseView')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Text = mpm('utils/Text')
 local Activity = mpm('peripherals/MachineActivity')
-local MachineSnapshotBus = mpm('peripherals/MachineSnapshotBus')
 local Yield = mpm('utils/Yield')
 
-local MACHINE_POLL_ACTIVE_MS = 1000
-local MACHINE_POLL_IDLE_MS = 1500
-local MACHINE_IDLE_CRAFT_POLL_MS = 5000
-local MACHINE_IDLE_ENERGY_POLL_MS = 5000
-local TYPELIST_REFRESH_MS = 5000
-local SHARED_SWEEP_INTERVAL_MS = 500
-local MIN_POLLS_PER_SWEEP_ALL = 8
-local MIN_POLLS_PER_SWEEP_SINGLE = 16
+local listenEvents = {}
 
 _G._shelfos_machineGridShared = _G._shelfos_machineGridShared or {
     byFilter = {}
@@ -504,6 +496,8 @@ end
 
 return BaseView.custom({
     sleepTime = 1,
+    listenEvents = listenEvents,
+    onEvent = nil,
 
     configSchema = {
         {
@@ -533,7 +527,45 @@ return BaseView.custom({
     end,
 
     getData = function(self)
-        return MachineSnapshotBus.getSnapshot(self.modFilter, self.machineType)
+        -- Direct polling via MachineActivity (no snapshot bus)
+        local types = Activity.buildTypeList(self.modFilter)
+        local sections = {}
+        local totalActive = 0
+        local totalMachines = 0
+
+        for _, typeInfo in ipairs(types) do
+            if not self.machineType or typeInfo.type == self.machineType then
+                local active = 0
+                local machines = {}
+                for idx, machine in ipairs(typeInfo.machines or {}) do
+                    local isActive, _ = Activity.getActivity(machine.peripheral)
+                    if isActive then active = active + 1 end
+                    table.insert(machines, {
+                        label = machine.name:match("_(%d+)$") or machine.name,
+                        fullLabel = typeInfo.shortName .. " #" .. (machine.name:match("_(%d+)$") or tostring(idx)),
+                        shortName = typeInfo.shortName,
+                        name = machine.name,
+                        type = typeInfo.type,
+                        peripheral = machine.peripheral,
+                        isActive = isActive and true or false,
+                        energyPct = nil,
+                        crafting = nil
+                    })
+                    Yield.check(idx, 10)
+                end
+                table.insert(sections, {
+                    label = typeInfo.label,
+                    color = typeInfo.classification and typeInfo.classification.color or colors.white,
+                    active = active,
+                    total = #machines,
+                    machines = machines
+                })
+                totalActive = totalActive + active
+                totalMachines = totalMachines + #machines
+            end
+        end
+
+        return { sections = sections, totalActive = totalActive, totalMachines = totalMachines }
     end,
 
     render = function(self, data)

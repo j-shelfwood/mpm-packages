@@ -69,6 +69,7 @@ function KernelBoot.initializeMonitors(kernel)
     if kernel.dashboard then
         kernel.dashboard:requestRedraw()
     end
+    kernel:announceDiscovery()
 end
 
 function KernelBoot.boot(kernel)

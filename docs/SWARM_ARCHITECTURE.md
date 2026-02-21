@@ -145,15 +145,21 @@ transmitted. An attacker would need physical access to complete pairing.
 
 ### Swarm Protocol: `shelfos` (encrypted)
 
-All messages wrapped with `Crypto.wrap()`:
+Most messages wrapped with `Crypto.wrap()` (HMAC-signed):
 
-| Message | Purpose |
-|---------|---------|
-| `ANNOUNCE` | Zone advertising presence |
-| `DISCOVER` | Request zone metadata |
-| `PERIPH_ANNOUNCE` | Peripheral availability |
-| `PERIPH_CALL` | Remote peripheral method call |
-| `PERIPH_RESULT` | Method call response |
+| Message | Signed? | Purpose |
+|---------|---------|---------|
+| `ANNOUNCE` | Yes | Zone advertising presence |
+| `DISCOVER` | Yes | Request zone metadata |
+| `PERIPH_ANNOUNCE` | Yes | Peripheral availability |
+| `PERIPH_CALL` | Yes | Remote peripheral method call (authorization) |
+| `PERIPH_RESULT` (normal) | Yes | Method call response |
+| `PERIPH_RESULT` (large list) | **No** | Inventory response — unsigned to avoid CPU crash |
+
+**Large payload exception:** `PERIPH_RESULT` responses for `getItems`, `getFluids`, `getChemicals`
+and their craftable variants bypass `Crypto.wrap()` to prevent CPU Watchdog crashes from
+serializing + hashing 50,000-item ME arrays. The request (`PERIPH_CALL`) is still HMAC-verified.
+Unsigned responses are detected by `Channel:receive()` via `envelope._unsigned == true`.
 
 ## Secret Storage
 
@@ -252,7 +258,7 @@ ZONE                                    POCKET
 
 ### HMAC Signing
 
-All swarm messages are signed:
+Most swarm messages are HMAC-signed:
 
 ```lua
 envelope = {
@@ -263,6 +269,12 @@ envelope = {
     s = hmac(secret, payload + timestamp + nonce)
 }
 ```
+
+**Exception — large read-only payloads:** `PERIPH_RESULT` responses carrying massive inventory
+lists (ME Bridge `getItems`, `getFluids`, `getChemicals`, etc.) are sent unsigned to avoid CPU
+Watchdog crashes. These envelopes use `{ _unsigned = true, d = message }` and are accepted without
+HMAC verification. This is safe because the data is read-only inventory state — no capability is
+granted by receiving it. The originating `PERIPH_CALL` request was already HMAC-verified.
 
 ### Nonce Tracking
 

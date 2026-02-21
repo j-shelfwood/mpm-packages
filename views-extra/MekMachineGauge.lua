@@ -4,13 +4,41 @@
 local BaseView = mpm('views/BaseView')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Text = mpm('utils/Text')
-local Yield = mpm('utils/Yield')
+local Peripherals = mpm('utils/Peripherals')
 local Activity = mpm('peripherals/MachineActivity')
-local MekSnapshotBus = mpm('peripherals/MekSnapshotBus')
 
--- Get all Mekanism machines as options
+local listenEvents = {}
+
+local function safeCall(p, method)
+    if not p or type(p[method]) ~= "function" then return nil end
+    local ok, result = pcall(p[method])
+    if ok then return result end
+    return nil
+end
+
+-- Get all Mekanism machines as options (direct peripheral scan)
 local function getMachineOptions()
-    return MekSnapshotBus.getMachineOptions()
+    local names = Peripherals.getNames()
+    local options = {}
+    for _, name in ipairs(names) do
+        local pType = Peripherals.getType(name)
+        if pType then
+            local cls = Activity.classify(pType)
+            if cls and cls.mod == "mekanism" then
+                local p = Peripherals.wrap(name)
+                if p and Activity.supportsActivity(p) then
+                    local suffix = name:match("_(%d+)$") or "0"
+                    local shortName = Activity.getShortName(pType)
+                    table.insert(options, {
+                        value = name,
+                        label = shortName .. " (" .. suffix .. ")"
+                    })
+                end
+            end
+        end
+    end
+    table.sort(options, function(a, b) return a.label < b.label end)
+    return options
 end
 
 -- Draw a progress bar
@@ -28,7 +56,8 @@ local function drawProgressBar(monitor, x, y, width, pct, fgColor, bgColor, labe
 end
 
 return BaseView.custom({
-    sleepTime = 1,
+    sleepTime = 2,
+    listenEvents = listenEvents,
 
     configSchema = {
         {
@@ -51,7 +80,53 @@ return BaseView.custom({
 
     getData = function(self)
         if not self.machineName then return nil end
-        return MekSnapshotBus.getMachineDetail(self.machineName)
+        local p = Peripherals.wrap(self.machineName)
+        if not p then return nil end
+        local pType = Peripherals.getType(self.machineName)
+        local cls = pType and Activity.classify(pType) or {}
+        local isActive, activityData = Activity.getActivity(p)
+
+        local data = {
+            name = self.machineName,
+            type = pType or self.machineName,
+            label = pType and Activity.getShortName(pType) or self.machineName,
+            category = cls.category or "machine",
+            color = cls.color or colors.cyan,
+            isActive = isActive,
+            activityData = activityData,
+            typeSpecific = {
+                canSeeSun = safeCall(p, "canSeeSun"),
+                temperature = safeCall(p, "getTemperature"),
+            }
+        }
+
+        local energy = safeCall(p, "getEnergy")
+        local maxEnergy = safeCall(p, "getMaxEnergy")
+        local energyPct = safeCall(p, "getEnergyFilledPercentage")
+        if type(energy) == "number" and type(maxEnergy) == "number" then
+            data.energy = {
+                current = energy,
+                max = maxEnergy,
+                pct = type(energyPct) == "number" and energyPct or (maxEnergy > 0 and (energy / maxEnergy) or 0)
+            }
+        end
+
+        local progress = safeCall(p, "getRecipeProgress")
+        local ticks = safeCall(p, "getTicksRequired")
+        if type(progress) == "number" and type(ticks) == "number" and ticks > 0 then
+            data.recipe = { progress = progress, total = ticks, pct = progress / ticks }
+        end
+
+        local production = safeCall(p, "getProductionRate")
+        local maxOutput = safeCall(p, "getMaxOutput")
+        if type(production) == "number" then
+            data.production = { rate = production, max = type(maxOutput) == "number" and maxOutput or 0 }
+        end
+
+        data.upgrades = safeCall(p, "getInstalledUpgrades")
+        data.redstoneMode = safeCall(p, "getRedstoneMode")
+
+        return data
     end,
 
     render = function(self, data)

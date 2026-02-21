@@ -3,12 +3,62 @@
 
 local BaseView = mpm('views/BaseView')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
+local Peripherals = mpm('utils/Peripherals')
 local Yield = mpm('utils/Yield')
-local MekSnapshotBus = mpm('peripherals/MekSnapshotBus')
 
--- Get available generators
+local GENERATOR_TYPES = {
+    solarGenerator = true,
+    advancedSolarGenerator = true,
+    windGenerator = true,
+    heatGenerator = true,
+    bioGenerator = true,
+    gasBurningGenerator = true
+}
+
+local function safeCall(p, method, ...)
+    if not p or type(p[method]) ~= "function" then return nil end
+    local ok, result = pcall(p[method], ...)
+    if ok then return result end
+    return nil
+end
+
+local function discoverGenerators(filterType)
+    local names = Peripherals.getNames()
+    local found = {}
+    for idx, name in ipairs(names) do
+        local pType = Peripherals.getType(name)
+        if pType and GENERATOR_TYPES[pType] then
+            if filterType == "all" or filterType == nil or pType == filterType then
+                local p = Peripherals.wrap(name)
+                if p then
+                    table.insert(found, { name = name, type = pType, peripheral = p })
+                end
+            end
+        end
+        Yield.check(idx, 20)
+    end
+    return found
+end
+
 local function getGeneratorOptions()
-    return MekSnapshotBus.getGeneratorOptions()
+    local names = Peripherals.getNames()
+    local counts = {}
+    local total = 0
+    for _, name in ipairs(names) do
+        local pType = Peripherals.getType(name)
+        if pType and GENERATOR_TYPES[pType] then
+            counts[pType] = (counts[pType] or 0) + 1
+            total = total + 1
+        end
+    end
+    if total == 0 then return {} end
+    local options = { { value = "all", label = "All Generators (" .. total .. ")" } }
+    for typeName, count in pairs(counts) do
+        local label = typeName:gsub("(%l)(%u)", "%1 %2"):gsub("^%l", string.upper)
+        table.insert(options, { value = typeName, label = label .. " (" .. count .. ")" })
+    end
+    table.sort(options, function(a, b) return a.label < b.label end)
+    return options
 end
 
 -- Format energy rate
@@ -23,7 +73,8 @@ local function formatRate(joules)
 end
 
 return BaseView.custom({
-    sleepTime = 1,
+    sleepTime = 2,
+    listenEvents = {},
 
     configSchema = {
         {
@@ -36,7 +87,12 @@ return BaseView.custom({
     },
 
     mount = function()
-        return #MekSnapshotBus.getGeneratorOptions() > 0
+        local names = Peripherals.getNames()
+        for _, name in ipairs(names) do
+            local pType = Peripherals.getType(name)
+            if pType and GENERATOR_TYPES[pType] then return true end
+        end
+        return false
     end,
 
     init = function(self, config)
@@ -44,29 +100,38 @@ return BaseView.custom({
     end,
 
     getData = function(self)
-        local generators = MekSnapshotBus.getGenerators(self.filterType)
-        local data = {
-            generators = {},
-            totalProduction = 0,
-            maxProduction = 0
-        }
+        local generators = discoverGenerators(self.filterType)
+        local data = { generators = {}, totalProduction = 0, maxProduction = 0 }
 
         for idx, gen in ipairs(generators) do
-            local shortName = gen.name:match("_(%d+)$") or tostring(idx)
+            local p = gen.peripheral
+            local production = safeCall(p, "getProductionRate") or 0
+            local maxOutput = safeCall(p, "getMaxOutput") or 0
+            local energyPct = safeCall(p, "getEnergyFilledPercentage") or 0
+            local extra = {}
 
+            if gen.type == "solarGenerator" or gen.type == "advancedSolarGenerator" then
+                extra.canSeeSun = safeCall(p, "canSeeSun") == true
+            elseif gen.type == "heatGenerator" then
+                extra.temperature = safeCall(p, "getTemperature") or 0
+            elseif gen.type == "bioGenerator" then
+                extra.fuelPct = safeCall(p, "getBioFuelFilledPercentage") or 0
+            elseif gen.type == "gasBurningGenerator" then
+                extra.fuelPct = safeCall(p, "getFuelFilledPercentage") or 0
+            end
+
+            local shortName = gen.name:match("_(%d+)$") or tostring(idx)
             table.insert(data.generators, {
                 name = shortName,
                 type = gen.type,
-                production = gen.production or 0,
-                maxOutput = gen.maxOutput or 0,
-                energyPct = gen.energyPct or 0,
-                isActive = gen.isActive == true,
-                extra = gen.extra or {}
+                production = production,
+                maxOutput = maxOutput,
+                energyPct = energyPct,
+                isActive = production > 0,
+                extra = extra
             })
-
-            data.totalProduction = data.totalProduction + (gen.production or 0)
-            data.maxProduction = data.maxProduction + (gen.maxOutput or 0)
-
+            data.totalProduction = data.totalProduction + production
+            data.maxProduction = data.maxProduction + maxOutput
             Yield.check(idx, 5)
         end
 
@@ -81,11 +146,9 @@ return BaseView.custom({
             return
         end
 
-        -- Title with total production
         local title = "Generators: " .. formatRate(data.totalProduction)
         MonitorHelpers.writeCentered(self.monitor, 1, title, colors.yellow)
 
-        -- Calculate layout
         local cellWidth = math.max(8, math.floor((self.width - 2) / math.min(#generators, 4)))
         local cellHeight = 4
         local cols = math.floor((self.width - 1) / cellWidth)
@@ -102,27 +165,22 @@ return BaseView.custom({
 
             if y + cellHeight > self.height then break end
 
-            -- Background based on activity
             local bgColor = gen.isActive and colors.green or colors.gray
             self.monitor.setBackgroundColor(bgColor)
-
             for i = 0, cellHeight - 1 do
                 self.monitor.setCursorPos(x, y + i)
                 self.monitor.write(string.rep(" ", cellWidth - 1))
             end
 
-            -- Generator name
             self.monitor.setTextColor(colors.black)
             local typeShort = gen.type:gsub("Generator", ""):gsub("advanced", "Adv"):sub(1, cellWidth - 2)
             self.monitor.setCursorPos(x, y)
             self.monitor.write(typeShort)
 
-            -- Production rate
             self.monitor.setCursorPos(x, y + 1)
             local rateStr = formatRate(gen.production):sub(1, cellWidth - 2)
             self.monitor.write(rateStr)
 
-            -- Energy stored bar
             self.monitor.setCursorPos(x, y + 2)
             local barWidth = cellWidth - 2
             local filledWidth = math.floor(gen.energyPct * barWidth)
@@ -132,7 +190,6 @@ return BaseView.custom({
             self.monitor.setBackgroundColor(colors.lime)
             self.monitor.write(string.rep(" ", filledWidth))
 
-            -- Extra info line
             self.monitor.setBackgroundColor(bgColor)
             self.monitor.setTextColor(colors.black)
             self.monitor.setCursorPos(x, y + 3)
@@ -149,7 +206,6 @@ return BaseView.custom({
             if gen.isActive then activeCount = activeCount + 1 end
         end
 
-        -- Status bar
         self.monitor.setBackgroundColor(colors.black)
         self.monitor.setTextColor(colors.gray)
         self.monitor.setCursorPos(1, self.height)

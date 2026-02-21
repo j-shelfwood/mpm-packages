@@ -9,7 +9,8 @@ local Core = mpm('ui/Core')
 local ModalOverlay = mpm('ui/ModalOverlay')
 local Yield = mpm('utils/Yield')
 local Activity = mpm('peripherals/MachineActivity')
-local MachineSnapshotBus = mpm('peripherals/MachineSnapshotBus')
+
+local listenEvents = {}
 
 local function safeCall(p, method, ...)
     if not p or type(p[method]) ~= "function" then return nil end
@@ -178,6 +179,7 @@ end
 
 return BaseView.interactive({
     sleepTime = 1,
+    listenEvents = listenEvents,
 
     configSchema = {
         {
@@ -208,7 +210,7 @@ return BaseView.interactive({
     end,
 
     getData = function(self)
-        local types = MachineSnapshotBus.getTypeList(self.modFilter)
+        local types = Activity.buildTypeList(self.modFilter)
         self._types = types
 
         if self.machineType then

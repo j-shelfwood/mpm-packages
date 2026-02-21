@@ -12,8 +12,12 @@ local function isDegradedState(state)
     return state == "stale" or state == "unavailable" or state == "error"
 end
 
+local listenEvents, onEvent = AEViewSupport.buildListener({ "itemStorage", "fluidStorage" })
+
 return BaseView.custom({
     sleepTime = 1,
+    listenEvents = listenEvents,
+    onEvent = onEvent,
 
     configSchema = {
         {

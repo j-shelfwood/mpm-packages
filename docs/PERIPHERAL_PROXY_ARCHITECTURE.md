@@ -81,22 +81,19 @@ Runs on computers that have peripherals to share.
 
 ```lua
 PeripheralHost = {
-    -- Configuration
-    announceInterval = 10000,  -- 10 second heartbeat
-
     -- State
     peripherals = {},          -- {name -> {type, methods, peripheral}}
     stateHash = "",            -- stable signature of shared peripherals
 
     -- Core functions
     scan(),                    -- Discover local peripherals + refresh stateHash
-    announce(),                -- Broadcast heartbeat
+    announce(),                -- Broadcast on attach/detach or view change
     handleCall(sender, msg),   -- Execute RPC and return result/meta
     handleDiscover(sender, msg),
 }
 ```
 
-**Peripheral Heartbeat Message:**
+**Peripheral Announce Message (event-driven):**
 ```lua
 {
     type = "periph_announce",
@@ -275,6 +272,37 @@ View                Client              Network           Host              Peri
 
 For heavy list methods, clients may send `options.resultHash`. Hosts can return
 `meta = {resultHash=..., unchanged=true}` and omit list payload when unchanged.
+
+> **WARNING: Remote Peripherals are for low-bandwidth coordination and actions. Do NOT proxy massive
+> inventories (like ME Bridges returning 50,000 items) over Rednet as regular RPC calls. Monitors
+> requiring full ME system views must be connected via physical Wired Modems to the peripheral node,
+> or use PeripheralHost's push-subscription system which strips bulky fields and sends only changed
+> data. Proxying raw ME inventory lists over Rednet will cause CPU Watchdog crashes.**
+
+### Large Payload Optimization (PERIPH_RESULT)
+
+`PeripheralHost` applies two optimizations for `getItems`, `getFluids`, `getChemicals` and their
+craftable variants:
+
+1. **Field stripping**: Only `name`, `displayName`, `count`, `amount`, `isCraftable` are forwarded.
+   Tags, components, fingerprint, maxStackSize etc. are dropped server-side.
+
+2. **Unsigned transport**: Responses bypass `Crypto.wrap()` HMAC signing. The request
+   (`PERIPH_CALL`) is still HMAC-verified for authorization. Skipping payload hashing on the
+   response prevents CPU Watchdog crashes when serializing + hashing 50k-item arrays.
+
+```lua
+-- PeripheralHost.lua - large payloads skip HMAC on the response only
+if STRIP_METHODS[methodName] then
+    self.channel:sendUnsigned(senderId, response)   -- no HMAC on response
+else
+    self.channel:send(senderId, response)            -- HMAC signed
+end
+```
+
+The unsigned envelope is detected by `Channel:receive()` via `envelope._unsigned == true` and
+accepted without signature verification. **This is safe** because the data is read-only inventory
+state — no capability is granted by receiving it.
 
 ## Caching Strategy
 

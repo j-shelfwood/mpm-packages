@@ -107,8 +107,12 @@ local function getCPUOptions()
     return options
 end
 
+local listenEvents, onEvent = AEViewSupport.buildListener({ "craftingCPUs", "craftingTasks" })
+
 return BaseView.custom({
     sleepTime = 1,
+    listenEvents = listenEvents,
+    onEvent = onEvent,
 
     configSchema = {
         {

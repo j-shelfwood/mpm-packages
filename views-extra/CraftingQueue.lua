@@ -290,8 +290,12 @@ local function showTaskDetail(self, task)
     })
 end
 
+local listenEvents, onEvent = AEViewSupport.buildListener({ "craftingCPUs", "craftingTasks" })
+
 return BaseView.interactive({
     sleepTime = 1,
+    listenEvents = listenEvents,
+    onEvent = onEvent,
 
     configSchema = {
         {

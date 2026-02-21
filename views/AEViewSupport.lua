@@ -95,4 +95,12 @@ function AEViewSupport.readStatus(self, key)
     return status
 end
 
+-- buildListener is retained for API compatibility but the snapshot bus has been removed.
+-- Views now poll directly in getData() on a timer. listenEvents is empty; onEvent never fires.
+function AEViewSupport.buildListener(_keys)
+    return {}, function(_self, _eventName, _bridgeName, _key)
+        return false
+    end
+end
+
 return AEViewSupport

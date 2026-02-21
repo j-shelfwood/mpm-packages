@@ -41,7 +41,7 @@ return BaseView.custom({
         }
     },
 
-    listenEvents = { "ae_snapshot_updated" },
+    listenEvents = {},
 
     mount = function()
             return AEViewSupport.mount()
@@ -128,19 +128,8 @@ return BaseView.custom({
         return data
     end,
 
-    onEvent = function(self, eventName, bridgeName, key)
-        if eventName ~= "ae_snapshot_updated" then
-            return false
-        end
-        if self.interface and self.interface.bridgeName and bridgeName and bridgeName ~= self.interface.bridgeName then
-            return false
-        end
-        return key == "energy"
-            or key == "itemStorage"
-            or key == "fluidStorage"
-            or key == "craftingCPUs"
-            or key == "craftingTasks"
-            or key == "averageEnergyInput"
+    onEvent = function(_self, _eventName, _bridgeName, _key)
+        return false
     end,
 
     render = function(self, data)

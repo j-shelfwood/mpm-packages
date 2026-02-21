@@ -9,6 +9,7 @@ local EnergyInterface = mpm('peripherals/EnergyInterface')
 
 return BaseView.custom({
     sleepTime = 1,
+    listenEvents = {},
 
     configSchema = {
         {

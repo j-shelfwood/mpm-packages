@@ -117,9 +117,17 @@ function ResourceBrowserFactory.create(config)
         end
     end
 
+    local eventKeys = { config.dataMethod }
+    if config.craftableSource then
+        eventKeys = { "craftableItems", "items" }
+    end
+    local listenEvents, onEvent = AEViewSupport.buildListener(eventKeys)
+
     return BaseView.interactive({
         sleepTime = config.sleepTime,
         configSchema = baseConfigSchema,
+        listenEvents = listenEvents,
+        onEvent = onEvent,
 
         mount = function()
             return AEViewSupport.mount(config.mountCheck)

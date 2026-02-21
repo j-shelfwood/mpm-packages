@@ -9,8 +9,12 @@ local MonitorHelpers = mpm('utils/MonitorHelpers')
 local CraftDialog = mpm('ui/CraftDialog')
 local Yield = mpm('utils/Yield')
 
+local listenEvents, onEvent = AEViewSupport.buildListener({ "items" })
+
 return BaseView.custom({
     sleepTime = 1,
+    listenEvents = listenEvents,
+    onEvent = onEvent,
 
     configSchema = {
         {

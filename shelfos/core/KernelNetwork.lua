@@ -177,21 +177,6 @@ function KernelNetwork.loop(kernel, runningRef)
                 kernel.dashboard:recordNetworkDrain(drained)
             end
 
-            -- Periodic computer announce
-            if kernel.discovery and kernel.discovery:shouldAnnounce() then
-                local monitorInfo = {}
-                for _, m in ipairs(kernel.monitors) do
-                    table.insert(monitorInfo, {
-                        name = m:getName(),
-                        view = m:getViewName()
-                    })
-                end
-                kernel.discovery:announce(monitorInfo)
-                if kernel.dashboard then
-                    kernel.dashboard:markActivity("announce", "Swarm metadata announce", colors.cyan)
-                end
-            end
-
             if kernel.discovery and (os.epoch("utc") - lastDiscoveryCleanup) > discoveryCleanupInterval then
                 kernel.discovery:cleanup()
                 lastDiscoveryCleanup = os.epoch("utc")

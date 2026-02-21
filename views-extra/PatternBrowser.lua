@@ -18,6 +18,8 @@ local Text = mpm('utils/Text')
 local Core = mpm('ui/Core')
 local ModalOverlay = mpm('ui/ModalOverlay')
 
+local listenEvents, onEvent = AEViewSupport.buildListener({ "patterns" })
+
 -- Helper functions
 local function getDisplayName(pattern)
     if pattern.primaryOutput and pattern.primaryOutput.displayName then
@@ -140,6 +142,8 @@ end
 
 return BaseView.interactive({
     sleepTime = 10,
+    listenEvents = listenEvents,
+    onEvent = onEvent,
 
     configSchema = {
         {

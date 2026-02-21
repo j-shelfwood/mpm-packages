@@ -160,6 +160,46 @@ end
 - Define `render()` for drawing (no clear, no yield)
 - Define `formatItem()` for grid/list formatting
 
+## Viewport Slicing (MANDATORY)
+
+`renderWithData()` runs with the buffer HIDDEN and MUST NOT yield. This means it must be
+**O(1) relative to total inventory size** — iterating over 50,000 items while the buffer
+is hidden causes a CPU Watchdog crash.
+
+**The fix: slice arrays in `getData()` before returning.**
+
+```lua
+-- getData() - Phase 1 (buffer visible, can yield freely)
+getData = function(self)
+    local allItems = self.interface:items()  -- may be 50,000 items
+
+    -- Sort here (can be slow, we're in Phase 1)
+    table.sort(allItems, ...)
+
+    -- MANDATORY: slice to visible capacity before Phase 2
+    local maxVisible = self.width * self.height  -- worst-case upper bound
+    local maxItems = math.min(#allItems, 100)    -- or your view's configured cap
+    local sliced = {}
+    for i = 1, maxItems do
+        sliced[i] = allItems[i]
+    end
+    return sliced  -- renderWithData only iterates 100 items max
+end,
+
+-- renderWithData() - Phase 2 (buffer HIDDEN, no yields, no large loops)
+renderWithData = function(self, data)
+    -- data is already sliced - safe to iterate
+    for i, item in ipairs(data) do
+        -- draw item...
+    end
+end
+```
+
+**Hard limits enforced by the framework:**
+- `ListFactory` (ItemList, FluidList, ChemicalList): slices to `maxItems` (default 100) in `getData()`
+- `renderGrid` in BaseViewRenderers: caps at `def.maxItems or 50` as a safety net
+- Any custom `getData()` that returns a large array MUST slice it first
+
 ## Text Scale Management
 
 Text scale is managed ONCE by `Monitor.lua` during initialization:

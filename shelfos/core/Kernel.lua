@@ -8,9 +8,6 @@ local Terminal = mpm('shelfos/core/Terminal')
 local KernelNetwork = mpm('shelfos/core/KernelNetwork')
 local KernelMenu = mpm('shelfos/core/KernelMenu')
 local ViewManager = mpm('views/Manager')
-local MachineSnapshotBus = mpm('peripherals/MachineSnapshotBus')
-local EnergySnapshotBus = mpm('peripherals/EnergySnapshotBus')
-local MekSnapshotBus = mpm('peripherals/MekSnapshotBus')
 local MachineActivity = mpm('peripherals/MachineActivity')
 
 local Kernel = {}
@@ -44,6 +41,24 @@ end
 function Kernel:persistViewChange(peripheralName, viewName, viewConfig)
     if Config.setMonitorView(self.config, peripheralName, viewName, viewConfig) then
         Config.save(self.config)
+    end
+    self:announceDiscovery()
+end
+
+function Kernel:announceDiscovery()
+    if not self.discovery then
+        return
+    end
+    local monitorInfo = {}
+    for _, m in ipairs(self.monitors or {}) do
+        table.insert(monitorInfo, {
+            name = m:getName(),
+            view = m:getViewName()
+        })
+    end
+    self.discovery:announce(monitorInfo)
+    if self.dashboard then
+        self.dashboard:markActivity("announce", "Swarm metadata announce", colors.cyan)
     end
 end
 
@@ -107,9 +122,6 @@ function Kernel:keyboardLoop(runningRef)
 
         elseif event == "peripheral" or event == "peripheral_detach" then
             ViewManager.invalidateMountableCache()
-            MachineSnapshotBus.invalidate()
-            EnergySnapshotBus.invalidate()
-            MekSnapshotBus.invalidate()
             MachineActivity.invalidateCache()
 
             local recoveredMonitor = false
@@ -124,6 +136,7 @@ function Kernel:keyboardLoop(runningRef)
                     self.dashboard:setMessage("Peripheral " .. action .. ": " .. tostring(p1), colors.lightBlue)
                 end
             end
+            self:announceDiscovery()
         end
 
         if self.dashboard then

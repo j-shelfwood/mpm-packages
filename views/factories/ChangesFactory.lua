@@ -56,8 +56,12 @@ function ChangesFactory.create(config)
         }
     end
 
+    local listenEvents, onEvent = AEViewSupport.buildListener({ config.dataMethod })
+
     return BaseView.custom({
         sleepTime = 3,
+        listenEvents = listenEvents,
+        onEvent = onEvent,
 
         configSchema = SchemaFragments.periodSampleMinChange(config.defaultMinChange, config.unitDivisor),
 

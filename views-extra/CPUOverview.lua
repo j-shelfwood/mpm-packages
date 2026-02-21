@@ -101,8 +101,12 @@ local function getCPULabel(cpu, index, total)
     return "CPU " .. index .. "/" .. total .. " (" .. Text.formatBytesAsK(cpu.storage or 0) .. ")"
 end
 
+local listenEvents, onEvent = AEViewSupport.buildListener({ "craftingCPUs", "craftingTasks" })
+
 return BaseView.grid({
     sleepTime = 1,
+    listenEvents = listenEvents,
+    onEvent = onEvent,
 
     configSchema = {
         {

@@ -17,11 +17,10 @@ local state = {
     pendingDiscoverBySender = {}, -- { senderId -> true } while waiting for PERIPH_LIST
     selectedIdx = nil,
     spinnerFrame = 0,
-    discoveryTimer = nil,
     errorMsg = nil
 }
 
-local DISCOVERY_DURATION = 3000  -- 3 seconds to collect responses
+local DISCOVERY_DURATION = 3000  -- Deprecated (event-driven now)
 
 function ViewPeripherals.onEnter(ctx, args)
     state.phase = "discovering"
@@ -51,8 +50,73 @@ function ViewPeripherals.onEnter(ctx, args)
     end
 
     -- Start discovery timer
-    state.discoveryTimer = os.epoch("utc") + DISCOVERY_DURATION
-    os.startTimer(0.5)  -- Start polling
+    state.discoveryTimer = nil
+
+    local function handleMessage(senderId, msg)
+        if not msg or not msg.type then
+            return
+        end
+
+        if msg.type == Protocol.MessageType.PERIPH_ANNOUNCE or
+           msg.type == Protocol.MessageType.PERIPH_LIST then
+            local data = msg.data or {}
+            local computerId = data.computerId or ("computer_" .. senderId)
+            local computerName = data.computerName or ("Computer " .. senderId)
+            local hasPeripherals = type(data.peripherals) == "table"
+            local peripherals = hasPeripherals and data.peripherals or nil
+
+            -- Check if already in list
+            local found = false
+            for _, c in ipairs(state.computers) do
+                if c.senderId == senderId then
+                    found = true
+                    c.computerId = computerId
+                    c.computerName = computerName
+                    if peripherals then
+                        c.peripherals = peripherals
+                    end
+                    break
+                end
+            end
+
+            if not found then
+                table.insert(state.computers, {
+                    computerId = computerId,
+                    computerName = computerName,
+                    peripherals = peripherals or {},
+                    senderId = senderId
+                })
+            end
+
+            if msg.type == Protocol.MessageType.PERIPH_ANNOUNCE and not hasPeripherals and not state.pendingDiscoverBySender[senderId] then
+                local discoverMsg = Protocol.createPeriphDiscover()
+                pcall(function()
+                    ctx.app.channel:send(senderId, discoverMsg)
+                end)
+                state.pendingDiscoverBySender[senderId] = true
+            end
+
+            if msg.type == Protocol.MessageType.PERIPH_LIST then
+                state.pendingDiscoverBySender[senderId] = nil
+            end
+
+            if state.phase == "discovering" then
+                state.phase = "list"
+            end
+            state.spinnerFrame = (state.spinnerFrame + 1) % 4
+            ViewPeripherals.draw(ctx)
+        end
+    end
+
+    ctx.app.channel:on(Protocol.MessageType.PERIPH_ANNOUNCE, handleMessage)
+    ctx.app.channel:on(Protocol.MessageType.PERIPH_LIST, handleMessage)
+end
+
+function ViewPeripherals.onExit(ctx)
+    if ctx and ctx.app and ctx.app.channel then
+        ctx.app.channel:off(Protocol.MessageType.PERIPH_ANNOUNCE)
+        ctx.app.channel:off(Protocol.MessageType.PERIPH_LIST)
+    end
 end
 
 function ViewPeripherals.draw(ctx)
@@ -202,76 +266,6 @@ function ViewPeripherals.handleDiscovering(ctx, event, p1, p2, p3)
         if keyName and keyName:lower() == "b" then
             return "pop"
         end
-
-    elseif event == "timer" then
-        state.spinnerFrame = state.spinnerFrame + 1
-
-        -- Poll channel for PERIPH_ANNOUNCE responses
-        if ctx.app.channel then
-            -- Try to receive any pending messages
-            local senderId, msg = ctx.app.channel:receive(0)
-            while senderId and msg do
-                if msg.type == Protocol.MessageType.PERIPH_ANNOUNCE or
-                   msg.type == Protocol.MessageType.PERIPH_LIST then
-                    local data = msg.data or {}
-                    local computerId = data.computerId or ("computer_" .. senderId)
-                    local computerName = data.computerName or ("Computer " .. senderId)
-                    local hasPeripherals = type(data.peripherals) == "table"
-                    local peripherals = hasPeripherals and data.peripherals or nil
-
-                    -- Check if already in list
-                    local found = false
-                    for _, c in ipairs(state.computers) do
-                        if c.senderId == senderId then
-                            found = true
-                            c.computerId = computerId
-                            c.computerName = computerName
-                            -- Heartbeats may omit peripheral lists. Avoid clobbering
-                            -- a populated list with an empty/default payload.
-                            if peripherals then
-                                c.peripherals = peripherals
-                            end
-                            break
-                        end
-                    end
-
-                    if not found then
-                        table.insert(state.computers, {
-                            computerId = computerId,
-                            computerName = computerName,
-                            peripherals = peripherals or {},
-                            senderId = senderId
-                        })
-                    end
-
-                    -- Heartbeat-only announce requires an explicit discover request.
-                    if msg.type == Protocol.MessageType.PERIPH_ANNOUNCE and not hasPeripherals and not state.pendingDiscoverBySender[senderId] then
-                        local discoverMsg = Protocol.createPeriphDiscover()
-                        pcall(function()
-                            ctx.app.channel:send(senderId, discoverMsg)
-                        end)
-                        state.pendingDiscoverBySender[senderId] = true
-                    end
-
-                    if msg.type == Protocol.MessageType.PERIPH_LIST then
-                        state.pendingDiscoverBySender[senderId] = nil
-                    end
-                end
-
-                -- Try next message
-                senderId, msg = ctx.app.channel:receive(0)
-            end
-        end
-
-        -- Check if discovery period is over
-        if os.epoch("utc") >= state.discoveryTimer then
-            state.phase = "list"
-            ViewPeripherals.draw(ctx)
-            return nil
-        end
-
-        ViewPeripherals.draw(ctx)
-        os.startTimer(0.5)
     end
 
     return nil

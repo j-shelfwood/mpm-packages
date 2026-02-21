@@ -9,8 +9,12 @@ local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Yield = mpm('utils/Yield')
 local Core = mpm('ui/Core')
 
+local listenEvents, onEvent = AEViewSupport.buildListener({ "itemStorage", "fluidStorage" })
+
 return BaseView.custom({
     sleepTime = 2,
+    listenEvents = listenEvents,
+    onEvent = onEvent,
 
     configSchema = {
         {

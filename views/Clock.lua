@@ -115,6 +115,11 @@ end
 
 return BaseView.custom({
     sleepTime = 1,
+    listenEvents = { "timer" },
+    onEvent = function(self, event)
+        local _ = self
+        return event == "timer"
+    end,
 
     configSchema = {
         {

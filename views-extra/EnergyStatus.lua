@@ -17,8 +17,12 @@ local function isDegradedState(state)
     return state == "stale" or state == "unavailable" or state == "error"
 end
 
+local listenEvents, onEvent = AEViewSupport.buildListener({ "energy", "averageEnergyInput" })
+
 return BaseView.custom({
     sleepTime = 1,
+    listenEvents = listenEvents,
+    onEvent = onEvent,
 
     configSchema = {
         {
