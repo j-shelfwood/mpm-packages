@@ -14,7 +14,101 @@ local mountableCacheAt = 0
 local MOUNTABLE_CACHE_TTL_MS = 5000
 local selectableCache = nil
 local viewSources = {}
-local VIEW_PACKAGES = { "views", "views-extra" }
+
+-- Core packages always installed
+local CORE_PACKAGES = { "views" }
+
+-- Optional packages: stub table mapping package name -> { views, category, label }
+-- This allows the Select View screen to show all views even before packages are installed.
+local OPTIONAL_PACKAGES = {
+    {
+        name     = "views-ae2",
+        label    = "AE2 Storage",
+        category = "ae2",
+        views    = {
+            "StorageGraph", "StorageBreakdown", "CellHealth", "DriveStatus",
+            "ItemBrowser", "ItemList", "ItemGauge", "ItemChanges",
+            "FluidBrowser", "FluidList", "FluidGauge", "FluidChanges",
+            "ChemicalBrowser", "ChemicalList", "ChemicalGauge", "ChemicalChanges",
+            "CraftingQueue", "CraftingCPU", "CPUOverview",
+            "CraftableBrowser", "PatternBrowser",
+            "EnergyGraph", "EnergyStatus",
+        },
+    },
+    {
+        name     = "views-mek",
+        label    = "Mekanism",
+        category = "mek",
+        views    = {
+            "MekDashboard", "MachineGrid", "MachineList",
+            "MekMachineGauge", "MekGeneratorStatus", "MekMultiblockStatus",
+        },
+    },
+    {
+        name     = "views-energy",
+        label    = "Energy",
+        category = "energy",
+        views    = {
+            "EnergyOverview", "EnergySystem", "EnergyFlowGraph",
+        },
+    },
+}
+
+-- Human-friendly labels for individual views
+local VIEW_LABELS = {
+    -- AE2
+    StorageGraph     = "Storage Graph",
+    StorageBreakdown = "Storage Breakdown",
+    CellHealth       = "Cell Health",
+    DriveStatus      = "Drive Status",
+    ItemBrowser      = "Item Browser",
+    ItemList         = "Item List",
+    ItemGauge        = "Item Gauge",
+    ItemChanges      = "Item Changes",
+    FluidBrowser     = "Fluid Browser",
+    FluidList        = "Fluid List",
+    FluidGauge       = "Fluid Gauge",
+    FluidChanges     = "Fluid Changes",
+    ChemicalBrowser  = "Chemical Browser",
+    ChemicalList     = "Chemical List",
+    ChemicalGauge    = "Chemical Gauge",
+    ChemicalChanges  = "Chemical Changes",
+    CraftingQueue    = "Crafting Queue",
+    CraftingCPU      = "Crafting CPU",
+    CPUOverview      = "CPU Overview",
+    CraftableBrowser = "Craftable Browser",
+    PatternBrowser   = "Pattern Browser",
+    EnergyGraph      = "Energy Graph [AE2]",
+    EnergyStatus     = "Energy Status [AE2]",
+    -- Mekanism
+    MekDashboard       = "Mek Dashboard",
+    MachineGrid        = "Machine Grid",
+    MachineList        = "Machine List",
+    MekMachineGauge    = "Machine Gauge",
+    MekGeneratorStatus = "Generator Status",
+    MekMultiblockStatus = "Multiblock Status",
+    -- Energy
+    EnergyOverview  = "Energy Overview",
+    EnergySystem    = "Energy System",
+    EnergyFlowGraph = "Energy Flow Graph",
+    -- Core
+    NetworkDashboard = "Network Dashboard",
+    Clock            = "Clock",
+}
+
+-- Category metadata for grouping in the UI
+local CATEGORIES = {
+    { id = "core",   label = "General" },
+    { id = "ae2",    label = "AE2 Storage" },
+    { id = "mek",    label = "Mekanism" },
+    { id = "energy", label = "Energy" },
+}
+
+-- Which category does a core-package view belong to?
+local CORE_VIEW_CATEGORY = {
+    Clock            = "core",
+    NetworkDashboard = "core",
+}
 
 local function copyArray(arr)
     local copy = {}
@@ -30,11 +124,7 @@ end
 
 local function hasEnergyDetector()
     local detector = Peripherals.find("energy_detector")
-    if detector then
-        return detector
-    end
-
-    -- Fallback for detector type alias drift across remote hosts.
+    if detector then return detector end
     for _, name in ipairs(Peripherals.getNames()) do
         local p = Peripherals.wrap(name)
         if p and type(p.getTransferRate) == "function" and type(p.getTransferRateLimit) == "function" then
@@ -44,36 +134,39 @@ local function hasEnergyDetector()
     return nil
 end
 
--- Get list of all available views from manifest
-function Manager.getAvailableViews()
-    local views = {}
-    viewSources = {}
+-- Check whether an optional package is installed on disk
+local function isPackageInstalled(pkgName)
+    return fs.exists("/mpm/Packages/" .. pkgName)
+end
 
-    for _, packageName in ipairs(VIEW_PACKAGES) do
+-- Get list of all available views from installed core package manifests
+local function getCoreViews()
+    local views = {}
+    for _, packageName in ipairs(CORE_PACKAGES) do
         local manifestPath = "/mpm/Packages/" .. packageName .. "/manifest.json"
         if fs.exists(manifestPath) then
             local file = fs.open(manifestPath, "r")
             if file then
                 local content = file.readAll()
                 file.close()
-
                 local ok, manifest = pcall(textutils.unserializeJSON, content)
                 if ok and manifest then
                     for _, filename in ipairs(manifest.files or {}) do
-                        -- Skip non-view files:
-                        -- 1. Utility files: Manager.lua, BaseView.lua
-                        -- 2. Renderer helpers: *Renderers.lua (e.g., BaseViewRenderers.lua)
-                        -- 3. Factories: anything in subdirectories (contains '/')
-                        local isUtility = filename == "Manager.lua" or filename == "BaseView.lua" or filename == "AEViewSupport.lua"
+                        local isUtility = filename == "Manager.lua" or filename == "BaseView.lua"
+                            or filename == "AEViewSupport.lua" or filename == "Cleanup.lua"
+                            or filename == "PackageInstaller.lua"
                         local isRenderer = filename:match("Renderers%.lua$") ~= nil
                         local isSubdirectory = filename:find("/") ~= nil
-
                         if not isUtility and not isRenderer and not isSubdirectory then
-                            -- Remove .lua extension
                             local viewName = filename:gsub("%.lua$", "")
                             if not viewSources[viewName] then
                                 viewSources[viewName] = packageName
-                                table.insert(views, viewName)
+                                table.insert(views, {
+                                    name      = viewName,
+                                    package   = packageName,
+                                    installed = true,
+                                    category  = CORE_VIEW_CATEGORY[viewName] or "core",
+                                })
                             end
                         end
                     end
@@ -81,25 +174,103 @@ function Manager.getAvailableViews()
             end
         end
     end
+    return views
+end
+
+-- Build the full flat view list: core views + all optional views (installed or not)
+function Manager.getAvailableViews()
+    viewSources = {}
+    local views = getCoreViews()
+
+    for _, pkg in ipairs(OPTIONAL_PACKAGES) do
+        local installed = isPackageInstalled(pkg.name)
+        for _, viewName in ipairs(pkg.views) do
+            if not viewSources[viewName] then
+                viewSources[viewName] = pkg.name
+                table.insert(views, {
+                    name      = viewName,
+                    package   = pkg.name,
+                    installed = installed,
+                    category  = pkg.category,
+                })
+            end
+        end
+    end
 
     return views
 end
 
--- Get selectable views for interactive UI paths (boot/config/menu).
--- This intentionally avoids mount() execution to keep first render responsive.
+-- Returns grouped structure for the Select View UI.
+-- Each group: { label, category, views = { {name, package, installed, label} } }
+function Manager.getAvailableViewsGrouped()
+    local all = Manager.getAvailableViews()
+
+    -- Build category buckets
+    local buckets = {}
+    local bucketOrder = {}
+    for _, cat in ipairs(CATEGORIES) do
+        buckets[cat.id] = { label = cat.label, category = cat.id, views = {} }
+        table.insert(bucketOrder, cat.id)
+    end
+
+    for _, view in ipairs(all) do
+        local cat = view.category or "core"
+        if not buckets[cat] then
+            buckets[cat] = { label = cat, category = cat, views = {} }
+            table.insert(bucketOrder, cat)
+        end
+        table.insert(buckets[cat].views, {
+            name      = view.name,
+            package   = view.package,
+            installed = view.installed,
+            label     = VIEW_LABELS[view.name] or view.name,
+        })
+    end
+
+    local groups = {}
+    for _, catId in ipairs(bucketOrder) do
+        local bucket = buckets[catId]
+        if bucket and #bucket.views > 0 then
+            table.insert(groups, bucket)
+        end
+    end
+
+    return groups
+end
+
+-- Flat selectable list (name strings) - used by legacy paths
 function Manager.getSelectableViews()
     if selectableCache then
         return copyArray(selectableCache)
     end
-    selectableCache = Manager.getAvailableViews()
+    local all = Manager.getAvailableViews()
+    selectableCache = {}
+    for _, v in ipairs(all) do
+        table.insert(selectableCache, v.name)
+    end
     return copyArray(selectableCache)
+end
+
+-- Get the package name that owns a view
+function Manager.getViewPackage(viewName)
+    if not viewSources[viewName] then
+        Manager.getAvailableViews()
+    end
+    return viewSources[viewName]
+end
+
+-- Check if a view's package is installed
+function Manager.isViewInstalled(viewName)
+    local pkg = Manager.getViewPackage(viewName)
+    if not pkg then return false end
+    if pkg == "views" then return true end
+    return isPackageInstalled(pkg)
 end
 
 -- Load a view module by name
 -- @param viewName View name (without .lua)
 -- @return View module or nil
 function Manager.load(viewName)
-    -- Check cache
     if viewCache[viewName] then
         return viewCache[viewName]
     end
@@ -108,19 +279,23 @@ function Manager.load(viewName)
         Manager.getAvailableViews()
     end
 
-    local packageName = viewSources[viewName] or "views"
+    local packageName = viewSources[viewName]
+    if not packageName then return nil end
 
-    -- Try to load
+    -- Don't attempt load if package not installed
+    if packageName ~= "views" and not isPackageInstalled(packageName) then
+        return nil
+    end
+
     local ok, View = pcall(mpm, packageName .. '/' .. viewName)
     if not ok then
         print("[ViewManager] Error loading " .. viewName .. ": " .. tostring(View))
         return nil
     end
 
-    -- Validate that this is actually a view module (must have new function)
     if not View or type(View) ~= "table" or type(View.new) ~= "function" then
         if View == nil then
-            print("[ViewManager] Invalid view module: " .. viewName .. " (module returned nil; check /mpm/Packages install alignment)")
+            print("[ViewManager] Invalid view module: " .. viewName .. " (module returned nil)")
         else
             print("[ViewManager] Invalid view module: " .. viewName .. " (missing new function)")
         end
@@ -132,17 +307,11 @@ function Manager.load(viewName)
 end
 
 -- Check if a view can mount (has required peripherals)
--- @param viewName View name
--- @return boolean
 function Manager.canMount(viewName)
     local View = Manager.load(viewName)
-    if not View then
-        return false
-    end
+    if not View then return false end
 
-    if not View.mount then
-        return true  -- No mount check = always mountable
-    end
+    if not View.mount then return true end
 
     local ok, result = pcall(View.mount)
     if not ok then
@@ -157,7 +326,7 @@ function Manager.canMount(viewName)
     return result
 end
 
--- Get list of views that can mount (with yields for responsiveness)
+-- Get list of views that can mount (installed + peripheral check)
 function Manager.getMountableViews(forceRefresh)
     local now = os.epoch("utc")
     if not forceRefresh and mountableCache and (now - mountableCacheAt) < MOUNTABLE_CACHE_TTL_MS then
@@ -167,12 +336,11 @@ function Manager.getMountableViews(forceRefresh)
     local available = Manager.getAvailableViews()
     local mountable = {}
 
-    for idx, viewName in ipairs(available) do
-        if Manager.canMount(viewName) then
-            table.insert(mountable, viewName)
+    for idx, view in ipairs(available) do
+        if view.installed and Manager.canMount(view.name) then
+            table.insert(mountable, view.name)
         end
-        -- Yield between mount checks since they may call peripheral.find()
-        Yield.check(idx, 5)  -- Lower interval since each check can be slow
+        Yield.check(idx, 5)
     end
 
     mountableCache = mountable
@@ -181,8 +349,6 @@ function Manager.getMountableViews(forceRefresh)
     return copyArray(mountable)
 end
 
--- Get mountable views with stale-cache preference for UI responsiveness.
--- If stale cache exists, returns it immediately and avoids a refresh on touch paths.
 function Manager.getMountableViewsFast()
     if mountableCache and #mountableCache > 0 then
         return copyArray(mountableCache)
@@ -191,20 +357,21 @@ function Manager.getMountableViewsFast()
 end
 
 -- Get view info
--- @param viewName View name
--- @return info table or nil
 function Manager.getViewInfo(viewName)
     local View = Manager.load(viewName)
-    if not View then
-        return nil
-    end
+    if not View then return nil end
 
     return {
-        name = viewName,
-        sleepTime = View.sleepTime or 1,
-        hasConfig = View.configSchema ~= nil,
+        name       = viewName,
+        sleepTime  = View.sleepTime or 1,
+        hasConfig  = View.configSchema ~= nil,
         configSchema = View.configSchema or {}
     }
+end
+
+-- Get human-friendly label for a view
+function Manager.getViewLabel(viewName)
+    return VIEW_LABELS[viewName] or viewName
 end
 
 -- Clear view cache (for reloading)
@@ -233,10 +400,6 @@ function Manager.invalidateMountableCache()
 end
 
 -- Create a view instance
--- @param viewName View name
--- @param monitor Monitor peripheral
--- @param config View configuration
--- @return instance, error
 function Manager.createInstance(viewName, monitor, config)
     local View = Manager.load(viewName)
     if not View then
@@ -254,9 +417,7 @@ end
 -- Get default config for a view
 function Manager.getDefaultConfig(viewName)
     local View = Manager.load(viewName)
-    if not View or not View.configSchema then
-        return {}
-    end
+    if not View or not View.configSchema then return {} end
 
     local config = {}
     for _, field in ipairs(View.configSchema) do
@@ -264,36 +425,30 @@ function Manager.getDefaultConfig(viewName)
             config[field.key] = field.default
         end
     end
-
     return config
 end
 
 -- Suggest best view based on available peripherals
--- Used for auto-discovery when no config exists
--- @return viewName, reason
 function Manager.suggestView()
-    -- Priority order: most specific peripheral first
     local suggestions = {
-        { check = function() return Peripherals.find("me_bridge") end, view = "StorageGraph", reason = "AE2 ME Bridge detected" },
-        { check = function() return Peripherals.find("rsBridge") end, view = "StorageGraph", reason = "RS Bridge detected" },
-        { check = hasEnergyDetector, view = "EnergySystem", reason = "Energy detectors detected" },
-        { check = function() return Peripherals.find("enrichmentChamber") end, view = "MachineGrid", reason = "Mekanism machines detected" },
-        { check = hasEnergyStorage, view = "EnergyGraph", reason = "Energy storage detected" },
-        { check = function() return Peripherals.find("environment_detector") end, view = "Clock", reason = "Environment detector found" },
+        { check = function() return Peripherals.find("me_bridge") end,         view = "StorageGraph",     reason = "AE2 ME Bridge detected" },
+        { check = function() return Peripherals.find("rsBridge") end,          view = "StorageGraph",     reason = "RS Bridge detected" },
+        { check = hasEnergyDetector,                                            view = "EnergySystem",     reason = "Energy detectors detected" },
+        { check = function() return Peripherals.find("enrichmentChamber") end,  view = "MachineGrid",      reason = "Mekanism machines detected" },
+        { check = hasEnergyStorage,                                             view = "EnergyGraph",      reason = "Energy storage detected" },
+        { check = function() return Peripherals.find("environment_detector") end, view = "Clock",          reason = "Environment detector found" },
     }
 
     for idx, suggestion in ipairs(suggestions) do
         local ok, result = pcall(suggestion.check)
-        Yield.yield()  -- Yield after each peripheral.find()
+        Yield.yield()
         if ok and result then
-            -- Verify view is loadable
             if Manager.canMount(suggestion.view) then
                 return suggestion.view, suggestion.reason
             end
         end
     end
 
-    -- Fallback: first mountable view, or Clock if available
     local mountable = Manager.getMountableViews()
     for _, viewName in ipairs(mountable) do
         if viewName == "Clock" then
@@ -308,22 +463,15 @@ function Manager.suggestView()
     return nil, "No views available"
 end
 
--- Get all suggested views for multiple monitors
--- Tries to assign variety when possible
--- @param monitorCount Number of monitors to assign
--- @return Array of {view, reason} suggestions
+-- Suggest views for multiple monitors
 function Manager.suggestViewsForMonitors(monitorCount)
     local mountable = Manager.getMountableViews()
     local suggestions = {}
 
-    if #mountable == 0 then
-        return suggestions
-    end
+    if #mountable == 0 then return suggestions end
 
-    -- Build prioritized list based on peripherals (with yields)
     local prioritized = {}
 
-    -- Check for ME/RS bridge first (local or remote)
     local hasMeBridge = Peripherals.find("me_bridge")
     Yield.yield()
     local hasRsBridge = Peripherals.find("rsBridge")
@@ -340,59 +488,44 @@ function Manager.suggestViewsForMonitors(monitorCount)
         end
     end
 
-    -- Add energy if available (local or remote)
-    local hasEnergy = hasEnergyStorage()
     local hasDetector = hasEnergyDetector()
     Yield.yield()
+    local hasEnergy = hasEnergyStorage()
 
     if hasDetector then
         for _, m in ipairs(mountable) do
-            if m == "EnergySystem" then
-                table.insert(prioritized, m)
-                break
-            end
+            if m == "EnergySystem" then table.insert(prioritized, m) break end
         end
     end
 
     if hasEnergy then
         for _, m in ipairs(mountable) do
-            if m == "EnergyGraph" then
-                table.insert(prioritized, m)
-                break
-            end
+            if m == "EnergyGraph" then table.insert(prioritized, m) break end
         end
     end
 
-    -- Check for Mekanism machines (local or remote)
     local hasMekanism = Peripherals.find("enrichmentChamber") or Peripherals.find("crusher") or Peripherals.find("solarGenerator")
     Yield.yield()
 
     if hasMekanism then
         for _, m in ipairs(mountable) do
-            if m == "MachineGrid" then
-                table.insert(prioritized, m)
-                break
-            end
+            if m == "MachineGrid" then table.insert(prioritized, m) break end
         end
     end
 
-    -- Fill remaining with other mountable views
     for _, m in ipairs(mountable) do
         local found = false
         for _, p in ipairs(prioritized) do
             if p == m then found = true break end
         end
-        if not found then
-            table.insert(prioritized, m)
-        end
+        if not found then table.insert(prioritized, m) end
     end
 
-    -- Assign views to monitors
     for i = 1, monitorCount do
         local viewIndex = ((i - 1) % #prioritized) + 1
         local viewName = prioritized[viewIndex]
         table.insert(suggestions, {
-            view = viewName,
+            view   = viewName,
             reason = i <= #prioritized and "Auto-assigned" or "Cycled"
         })
     end

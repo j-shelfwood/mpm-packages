@@ -1,0 +1,13 @@
+{
+  "name": "views-mek",
+  "description": "Mekanism views for ShelfOS - machine grids, dashboards, multiblock and generator status",
+  "dependencies": ["views", "utils", "peripherals", "ui"],
+  "files": [
+    "MekDashboard.lua",
+    "MachineGrid.lua",
+    "MachineList.lua",
+    "MekMachineGauge.lua",
+    "MekGeneratorStatus.lua",
+    "MekMultiblockStatus.lua"
+  ]
+}

@@ -2,7 +2,7 @@ return function(h)
     local function collectViewEntries()
         local entries = {}
 
-        for _, packageName in ipairs({ "views", "views-extra" }) do
+        for _, packageName in ipairs({ "views", "views-ae2", "views-mek", "views-energy" }) do
             local manifestPath = h.workspace .. "/" .. packageName .. "/manifest.json"
             local content = h:read_file(manifestPath)
             if content then

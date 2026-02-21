@@ -6,6 +6,7 @@ local Monitor = mpm('shelfos/core/Monitor')
 local KernelMenu = mpm('shelfos/core/KernelMenu')
 local KernelNetwork = mpm('shelfos/core/KernelNetwork')
 local ViewManager = mpm('views/Manager')
+local ViewCleanup = mpm('views/Cleanup')
 
 local KernelBoot = {}
 
@@ -110,6 +111,13 @@ function KernelBoot.boot(kernel)
 
     kernel.identity = Identity.new(kernel.config.computer)
     kernel.dashboard:setIdentity(kernel.identity:getName(), kernel.identity:getId())
+
+    -- Prune optional view packages that are no longer used by any monitor
+    local pruned = ViewCleanup.pruneUnused(kernel.config)
+    if pruned > 0 then
+        kernel.dashboard:setMessage("Pruned " .. pruned .. " unused view package(s)", colors.yellow)
+    end
+
     kernel.dashboard:setMessage("Initializing network...", colors.lightGray)
 
     kernel:initializeNetwork()

@@ -1,6 +1,6 @@
 {
   "name": "views",
-  "description": "Display modules for ShelfOS monitors - single-purpose, configurable views",
+  "description": "Display modules for ShelfOS monitors - core views, framework, and on-demand package installer",
   "dependencies": ["utils", "peripherals", "ui"],
   "files": [
     "BaseView.lua",
@@ -9,6 +9,8 @@
     "BaseViewRenderers.lua",
     "AEViewSupport.lua",
     "Manager.lua",
+    "Cleanup.lua",
+    "PackageInstaller.lua",
     "factories/SchemaFragments.lua",
     "factories/DataOps.lua",
     "factories/ChangesFactory.lua",

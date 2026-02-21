@@ -19,8 +19,18 @@
     "dependencies": ["utils", "peripherals", "ui"]
   },
   {
-    "name": "views-extra",
-    "description": "Optional ShelfOS views (install to unlock additional dashboards and browsers)",
+    "name": "views-ae2",
+    "description": "AE2/RS storage views for ShelfOS - item/fluid/chemical browsers, crafting monitors, storage graphs",
+    "dependencies": ["views", "utils", "peripherals", "ui"]
+  },
+  {
+    "name": "views-mek",
+    "description": "Mekanism views for ShelfOS - machine grids, dashboards, multiblock and generator status",
+    "dependencies": ["views", "utils", "peripherals", "ui"]
+  },
+  {
+    "name": "views-energy",
+    "description": "General energy views for ShelfOS - storage overview, flow graphs, detector-mapped monitors",
     "dependencies": ["views", "utils", "peripherals", "ui"]
   },
   {
