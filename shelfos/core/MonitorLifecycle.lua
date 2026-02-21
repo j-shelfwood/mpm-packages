@@ -127,6 +127,20 @@ function MonitorLifecycle.adoptPeripheralName(monitor, newPeripheralName)
 end
 
 function MonitorLifecycle.runLoop(monitor, running)
+    local function isRunning()
+        if type(running) == "table" then
+            if running.value == nil then
+                return true
+            end
+            return running.value == true
+        end
+        if type(running) == "boolean" then
+            return running
+        end
+        -- Backward compatibility for legacy call sites that omitted runningRef.
+        return true
+    end
+
     if monitor.viewInstance and not monitor.pairingMode then
         monitor:render()
         monitor:scheduleRender()
@@ -134,7 +148,7 @@ function MonitorLifecycle.runLoop(monitor, running)
         monitor:scheduleLoadRetry(1)
     end
 
-    while running.value do
+    while isRunning() do
         local event, p1, p2, p3 = os.pullEvent()
 
         if event == "timer" then
