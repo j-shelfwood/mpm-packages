@@ -36,11 +36,15 @@ return function(h)
         local views = ViewManager.getAvailableViews()
         h:assert_true(type(views) == "table" and #views > 0, "Installed views list should be non-empty")
 
-        for _, viewName in ipairs(views) do
-            local View = ViewManager.load(viewName)
-            if View and type(View.mount) == "function" then
-                local ok = pcall(View.mount)
-                h:assert_true(ok, "Installed mount() should not throw: " .. viewName)
+        for _, entry in ipairs(views) do
+            -- getAvailableViews() returns {name, package, installed, category} tables
+            local viewName = type(entry) == "table" and entry.name or entry
+            if entry.installed ~= false then  -- skip uninstalled optional views
+                local View = ViewManager.load(viewName)
+                if View and type(View.mount) == "function" then
+                    local ok = pcall(View.mount)
+                    h:assert_true(ok, "Installed mount() should not throw: " .. tostring(viewName))
+                end
             end
         end
     end)

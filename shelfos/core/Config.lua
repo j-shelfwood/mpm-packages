@@ -446,10 +446,12 @@ function Config.reconcile(config)
 
     -- Phase 3: Validate and auto-migrate view names
     -- Handles renamed/deleted views so monitors don't show errors
+    -- getAvailableViews() returns {name, package, installed, category} tables
     local availableViews = ViewManager.getAvailableViews()
     local availableSet = {}
-    for _, name in ipairs(availableViews) do
-        availableSet[name] = true
+    for _, entry in ipairs(availableViews) do
+        local viewName = type(entry) == "table" and entry.name or entry
+        if viewName then availableSet[viewName] = true end
     end
 
     for _, entry in ipairs(config.monitors) do
