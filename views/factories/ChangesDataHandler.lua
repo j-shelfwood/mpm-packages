@@ -22,6 +22,12 @@ function ChangesDataHandler.takeSnapshot(interface, dataMethod, idField, amountF
     if not ok or not resources then
         return {}, 0, false
     end
+    if type(resources) == "table" and type(resources._readStatus) == "table" then
+        local state = resources._readStatus.state
+        if state == "unavailable" or state == "error" then
+            return {}, 0, false
+        end
+    end
 
     Yield.yield()
 

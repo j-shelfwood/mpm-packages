@@ -84,6 +84,7 @@ function ListFactory.create(config)
             self.sortBy = viewConfig.sortBy or sortField
             self.showCraftable = viewConfig.showCraftable or "all"
             self.totalAmount = 0
+            self.dataUnavailable = false
         end,
 
         getData = function(self)
@@ -103,6 +104,12 @@ function ListFactory.create(config)
             if not dataFn then return {} end
 
             local resources = dataFn(self.interface)
+            if type(resources) == "table" and type(resources._readStatus) == "table" then
+                local state = resources._readStatus.state
+                self.dataUnavailable = (state == "unavailable" or state == "error")
+            else
+                self.dataUnavailable = false
+            end
             if not resources then return {} end
 
             -- Filter based on showCraftable (for items)
@@ -138,7 +145,7 @@ function ListFactory.create(config)
             return {
                 text = config.name .. "s",
                 color = config.headerColor,
-                secondary = " (" .. #data .. " | " .. totalStr .. ")",
+                secondary = " (" .. #data .. " | " .. totalStr .. (self.dataUnavailable and " | stale/unavail" or "") .. ")",
                 secondaryColor = colors.gray
             }
         end,

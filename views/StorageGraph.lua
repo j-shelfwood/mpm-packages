@@ -8,6 +8,10 @@ local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Yield = mpm('utils/Yield')
 
+local function isDegradedState(state)
+    return state == "stale" or state == "unavailable" or state == "error"
+end
+
 return BaseView.custom({
     sleepTime = 1,
 
@@ -42,6 +46,7 @@ return BaseView.custom({
 
         -- Get storage data (with yields after peripheral calls)
         local used, total = 0, 0
+        local degraded = false
 
         if self.storageType == "items" or self.storageType == "both" then
             local status = self.interface:itemStorage()
@@ -49,7 +54,9 @@ return BaseView.custom({
             if status then
                 used = used + (status.used or 0)
                 total = total + (status.total or 0)
+                degraded = degraded or status._unavailable == true
             end
+            degraded = degraded or isDegradedState(AEViewSupport.readStatus(self, "itemStorage").state)
         end
 
         if self.storageType == "fluids" or self.storageType == "both" then
@@ -58,7 +65,9 @@ return BaseView.custom({
             if status then
                 used = used + (status.used or 0)
                 total = total + (status.total or 0)
+                degraded = degraded or status._unavailable == true
             end
+            degraded = degraded or isDegradedState(AEViewSupport.readStatus(self, "fluidStorage").state)
         end
 
         local percentage = total > 0 and (used / total * 100) or 0
@@ -70,7 +79,8 @@ return BaseView.custom({
             used = used,
             total = total,
             percentage = percentage,
-            history = self.history
+            history = self.history,
+            degraded = degraded
         }
     end,
 
@@ -138,7 +148,11 @@ return BaseView.custom({
         -- Bottom: 0 label
         self.monitor.setTextColor(colors.gray)
         self.monitor.setCursorPos(1, self.height)
-        self.monitor.write("0")
+        if data.degraded then
+            self.monitor.write("Data stale/unavailable")
+        else
+            self.monitor.write("0")
+        end
 
         self.monitor.setTextColor(colors.white)
     end,

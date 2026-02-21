@@ -128,9 +128,28 @@ function BaseView.create(definition)
             return self
         end,
 
-        handleTouch = viewType == BaseView.Type.INTERACTIVE and function(self, x, y)
-            return WithScroll.handleTouch(self, x, y, definition.onItemTouch)
-        end or nil,
+        handleTouch = (function()
+            if viewType == BaseView.Type.INTERACTIVE then
+                return function(self, x, y)
+                    local handled = WithScroll.handleTouch(self, x, y, definition.onItemTouch)
+                    if handled then
+                        return true
+                    end
+                    if definition.onTouch then
+                        return definition.onTouch(self, x, y) and true or false
+                    end
+                    return false
+                end
+            end
+
+            if definition.onTouch then
+                return function(self, x, y)
+                    return definition.onTouch(self, x, y) and true or false
+                end
+            end
+
+            return nil
+        end)(),
 
         getState = viewType == BaseView.Type.INTERACTIVE and function(self)
             return WithScroll.getState(self)

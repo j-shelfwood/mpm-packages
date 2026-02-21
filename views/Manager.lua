@@ -206,12 +206,20 @@ function Manager.clearCache()
     mountableCache = nil
     mountableCacheAt = 0
     selectableCache = nil
+    local ok, AEViewSupport = pcall(mpm, 'views/AEViewSupport')
+    if ok and AEViewSupport and type(AEViewSupport.invalidateCapabilities) == "function" then
+        AEViewSupport.invalidateCapabilities()
+    end
 end
 
 function Manager.invalidateMountableCache()
     mountableCache = nil
     mountableCacheAt = 0
     selectableCache = nil
+    local ok, AEViewSupport = pcall(mpm, 'views/AEViewSupport')
+    if ok and AEViewSupport and type(AEViewSupport.invalidateCapabilities) == "function" then
+        AEViewSupport.invalidateCapabilities()
+    end
 end
 
 -- Create a view instance

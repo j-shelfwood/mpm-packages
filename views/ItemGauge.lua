@@ -51,6 +51,7 @@ return BaseView.custom({
 
         local items = self.interface:items()
         if not items then return nil end
+        local readState = (type(items._readStatus) == "table" and items._readStatus.state) or "unknown"
 
         Yield.yield()
 
@@ -84,13 +85,18 @@ return BaseView.custom({
         local data = {
             count = count,
             isCraftable = isCraftable,
-            changeIndicator = self.changeIndicator
+            changeIndicator = self.changeIndicator,
+            unavailable = (readState == "unavailable" or readState == "error")
         }
         self.lastItemData = data
         return data
     end,
 
     render = function(self, data)
+        if data.unavailable then
+            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "Data stale/unavailable", colors.orange)
+            return
+        end
         local count = data.count
         local isWarning = count < self.warningBelow
 

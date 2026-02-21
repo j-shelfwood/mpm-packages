@@ -8,6 +8,8 @@ local AESnapshotBus = mpm('peripherals/AESnapshotBus')
 local hasRenderContext, RenderContext = pcall(mpm, 'net/RenderContext')
 local hasDepStatus, DependencyStatus = pcall(mpm, 'net/DependencyStatus')
 local REMOTE_HEAVY_FALLBACK_TTL_MS = 3000
+local LOCAL_QUERY_CACHE_TTL_MS = 250
+local REMOTE_QUERY_CACHE_TTL_MS = 700
 
 local function findBridgeLocalFirst()
     -- Prefer directly-attached peripherals to avoid remote proxy edge-cases
@@ -67,14 +69,83 @@ local function markDependency(self, snapshot, maxAgeMs)
     DependencyStatus.markSuccess(contextKey, depName, snapshot.latencyMs or ageMs)
 end
 
-local function snapshotData(self, key, maxAgeMs)
-    if not AESnapshotBus then return nil end
+local function snapshotRecord(self, key, maxAgeMs)
+    if not AESnapshotBus then return nil, { state = "disabled", error = "snapshot_bus_unavailable" } end
     local snapshot = AESnapshotBus.get(self.bridge, key)
     markDependency(self, snapshot, maxAgeMs)
-    if snapshot then
-        return snapshot.data
+    if not snapshot then
+        return nil, { state = "unavailable", error = "snapshot_missing" }
     end
-    return nil
+
+    local ageMs = snapshot.updatedAt and (nowMs() - snapshot.updatedAt) or 0
+    if snapshot.ok == false and snapshot.data == nil then
+        return nil, {
+            state = "error",
+            error = snapshot.error or "snapshot_error",
+            ageMs = ageMs,
+            updatedAt = snapshot.updatedAt
+        }
+    end
+
+    if maxAgeMs and ageMs > maxAgeMs then
+        return snapshot.data, {
+            state = "stale",
+            ageMs = ageMs,
+            updatedAt = snapshot.updatedAt
+        }
+    end
+
+    return snapshot.data, {
+        state = "fresh",
+        ageMs = ageMs,
+        updatedAt = snapshot.updatedAt
+    }
+end
+
+local function getQueryCacheTtl(self)
+    return self and self.isRemote and REMOTE_QUERY_CACHE_TTL_MS or LOCAL_QUERY_CACHE_TTL_MS
+end
+
+local function getCachedQuery(self, key)
+    local cache = self and self._queryCache
+    if not cache then return nil end
+    local entry = cache[key]
+    if not entry then return nil end
+    if (nowMs() - (entry.updatedAt or 0)) > getQueryCacheTtl(self) then
+        cache[key] = nil
+        return nil
+    end
+    return entry.data
+end
+
+local function setCachedQuery(self, key, data)
+    self._queryCache[key] = {
+        data = data,
+        updatedAt = nowMs()
+    }
+    return data
+end
+
+local function setReadStatus(self, key, state, detail)
+    self._readStatus[key] = {
+        key = key,
+        state = state,
+        detail = detail,
+        at = nowMs(),
+        isRemote = self.isRemote == true
+    }
+end
+
+local function statusFor(self, key)
+    return self._readStatus[key] or { key = key, state = "unknown", at = 0, isRemote = self.isRemote == true }
+end
+
+local function annotateListResult(list, status)
+    if type(list) ~= "table" then
+        return list
+    end
+    list._readStatus = status
+    return list
 end
 
 local function remoteHeavyFallback(self, key, fetchFn)
@@ -136,21 +207,45 @@ function AEInterface.new(p)
     self.isRemote = type(p) == "table" and p._isRemote == true
     self.bridgeName = Peripherals.getName(p)
     self._remoteHeavyFallback = {}
+    self._queryCache = {}
+    self._readStatus = {}
+    self._lastGood = {}
     AESnapshotBus.registerBridge(p)
     return self
+end
+
+function AEInterface:getReadStatus(key)
+    if not key then
+        return self._readStatus
+    end
+    return statusFor(self, key)
 end
 
 -- Fetch all items from the network
 -- @return array of {registryName, displayName, count, isCraftable}
 function AEInterface:items()
-    local raw = snapshotData(self, "items", 4000)
-    if raw == nil then
+    local cached = getCachedQuery(self, "items")
+    if cached then
+        return annotateListResult(cached, statusFor(self, "items"))
+    end
+
+    local raw, snapMeta = snapshotRecord(self, "items", 4000)
+    if raw ~= nil then
+        setReadStatus(self, "items", snapMeta.state, snapMeta)
+    else
         if self.isRemote then
             raw = remoteHeavyFallback(self, "items", function()
                 return self.bridge.getItems() or {}
             end)
+            if type(raw) == "table" then
+                setReadStatus(self, "items", "fallback", { source = "remote_heavy_fallback", snapshot = snapMeta })
+            else
+                raw = self._lastGood.items or {}
+                setReadStatus(self, "items", "unavailable", { source = "no_snapshot_no_fallback", snapshot = snapMeta })
+            end
         else
             raw = self.bridge.getItems() or {}
+            setReadStatus(self, "items", "live", { source = "direct_bridge", snapshot = snapMeta })
         end
     end
 
@@ -181,7 +276,9 @@ function AEInterface:items()
         table.insert(result, item)
     end
 
-    return result
+    self._lastGood.items = result
+    setCachedQuery(self, "items", result)
+    return annotateListResult(result, statusFor(self, "items"))
 end
 
 -- Get single item by filter (more efficient than items())
@@ -211,14 +308,28 @@ end
 -- Fetch all fluids from the network
 -- @return array of {registryName, displayName, amount}
 function AEInterface:fluids()
-    local raw = snapshotData(self, "fluids", 4000)
-    if raw == nil then
+    local cached = getCachedQuery(self, "fluids")
+    if cached then
+        return annotateListResult(cached, statusFor(self, "fluids"))
+    end
+
+    local raw, snapMeta = snapshotRecord(self, "fluids", 4000)
+    if raw ~= nil then
+        setReadStatus(self, "fluids", snapMeta.state, snapMeta)
+    else
         if self.isRemote then
             raw = remoteHeavyFallback(self, "fluids", function()
                 return self.bridge.getFluids() or {}
             end)
+            if type(raw) == "table" then
+                setReadStatus(self, "fluids", "fallback", { source = "remote_heavy_fallback", snapshot = snapMeta })
+            else
+                raw = self._lastGood.fluids or {}
+                setReadStatus(self, "fluids", "unavailable", { source = "no_snapshot_no_fallback", snapshot = snapMeta })
+            end
         else
             raw = self.bridge.getFluids() or {}
+            setReadStatus(self, "fluids", "live", { source = "direct_bridge", snapshot = snapMeta })
         end
     end
 
@@ -246,7 +357,9 @@ function AEInterface:fluids()
         table.insert(result, fluid)
     end
 
-    return result
+    self._lastGood.fluids = result
+    setCachedQuery(self, "fluids", result)
+    return annotateListResult(result, statusFor(self, "fluids"))
 end
 
 -- Get single fluid by filter (more efficient than fluids())
@@ -275,84 +388,144 @@ end
 -- Get item storage capacity
 -- @return {used, total, available}
 function AEInterface:itemStorage()
-    local snap = snapshotData(self, "itemStorage", 3000)
+    local snap, snapMeta = snapshotRecord(self, "itemStorage", 3000)
     if snap ~= nil then
+        setReadStatus(self, "itemStorage", snapMeta.state, snapMeta)
+        self._lastGood.itemStorage = snap
         return snap
     end
 
     if AESnapshotBus.isRunning() and self.isRemote then
-        return { used = 0, total = 0, available = 0 }
+        if self._lastGood.itemStorage then
+            setReadStatus(self, "itemStorage", "stale", { source = "last_good", snapshot = snapMeta })
+            return self._lastGood.itemStorage
+        end
+        setReadStatus(self, "itemStorage", "unavailable", { source = "snapshot_missing_remote", snapshot = snapMeta })
+        return { used = 0, total = 0, available = 0, _unavailable = true }
     end
 
-    return {
+    local data = {
         used = self.bridge.getUsedItemStorage() or 0,
         total = self.bridge.getTotalItemStorage() or 0,
         available = self.bridge.getAvailableItemStorage() or 0
     }
+    self._lastGood.itemStorage = data
+    setReadStatus(self, "itemStorage", "live", { source = "direct_bridge", snapshot = snapMeta })
+    return data
 end
 
 -- Get fluid storage capacity
 -- @return {used, total, available}
 function AEInterface:fluidStorage()
-    local snap = snapshotData(self, "fluidStorage", 3000)
+    local snap, snapMeta = snapshotRecord(self, "fluidStorage", 3000)
     if snap ~= nil then
+        setReadStatus(self, "fluidStorage", snapMeta.state, snapMeta)
+        self._lastGood.fluidStorage = snap
         return snap
     end
 
     if AESnapshotBus.isRunning() and self.isRemote then
-        return { used = 0, total = 0, available = 0 }
+        if self._lastGood.fluidStorage then
+            setReadStatus(self, "fluidStorage", "stale", { source = "last_good", snapshot = snapMeta })
+            return self._lastGood.fluidStorage
+        end
+        setReadStatus(self, "fluidStorage", "unavailable", { source = "snapshot_missing_remote", snapshot = snapMeta })
+        return { used = 0, total = 0, available = 0, _unavailable = true }
     end
 
-    return {
+    local data = {
         used = self.bridge.getUsedFluidStorage() or 0,
         total = self.bridge.getTotalFluidStorage() or 0,
         available = self.bridge.getAvailableFluidStorage() or 0
     }
+    self._lastGood.fluidStorage = data
+    setReadStatus(self, "fluidStorage", "live", { source = "direct_bridge", snapshot = snapMeta })
+    return data
 end
 
 -- Get energy status
 -- @return {stored, capacity, usage}
 function AEInterface:energy()
-    local snap = snapshotData(self, "energy", 2500)
+    local snap, snapMeta = snapshotRecord(self, "energy", 2500)
     if snap ~= nil then
+        setReadStatus(self, "energy", snapMeta.state, snapMeta)
+        self._lastGood.energy = snap
         return snap
     end
 
     if AESnapshotBus.isRunning() and self.isRemote then
-        return { stored = 0, capacity = 0, usage = 0 }
+        if self._lastGood.energy then
+            setReadStatus(self, "energy", "stale", { source = "last_good", snapshot = snapMeta })
+            return self._lastGood.energy
+        end
+        setReadStatus(self, "energy", "unavailable", { source = "snapshot_missing_remote", snapshot = snapMeta })
+        return { stored = 0, capacity = 0, usage = 0, _unavailable = true }
     end
 
-    return {
+    local data = {
         stored = self.bridge.getStoredEnergy() or 0,
         capacity = self.bridge.getEnergyCapacity() or 0,
         usage = self.bridge.getEnergyUsage() or 0
     }
+    self._lastGood.energy = data
+    setReadStatus(self, "energy", "live", { source = "direct_bridge", snapshot = snapMeta })
+    return data
 end
 
 -- Get all crafting CPUs
 -- @return array of {name, storage, coProcessors, isBusy}
 function AEInterface:getCraftingCPUs()
-    local snap = snapshotData(self, "craftingCPUs", 5000)
+    local cached = getCachedQuery(self, "craftingCPUs")
+    if cached then
+        return annotateListResult(cached, statusFor(self, "craftingCPUs"))
+    end
+
+    local snap, snapMeta = snapshotRecord(self, "craftingCPUs", 5000)
     if snap ~= nil then
-        return snap
+        setReadStatus(self, "craftingCPUs", snapMeta.state, snapMeta)
+        self._lastGood.craftingCPUs = snap
+        setCachedQuery(self, "craftingCPUs", snap)
+        return annotateListResult(snap, statusFor(self, "craftingCPUs"))
     end
     if AESnapshotBus.isRunning() and self.isRemote then
-        return {}
+        local stale = self._lastGood.craftingCPUs or {}
+        local state = self._lastGood.craftingCPUs and "stale" or "unavailable"
+        setReadStatus(self, "craftingCPUs", state, { source = "snapshot_missing_remote", snapshot = snapMeta })
+        return annotateListResult(stale, statusFor(self, "craftingCPUs"))
     end
-    return self.bridge.getCraftingCPUs() or {}
+    local data = self.bridge.getCraftingCPUs() or {}
+    self._lastGood.craftingCPUs = data
+    setReadStatus(self, "craftingCPUs", "live", { source = "direct_bridge", snapshot = snapMeta })
+    setCachedQuery(self, "craftingCPUs", data)
+    return annotateListResult(data, statusFor(self, "craftingCPUs"))
 end
 
 -- Get all active crafting tasks
 -- @return array of task tables
 function AEInterface:getCraftingTasks()
-    local snap = snapshotData(self, "craftingTasks", 3500)
+    local cached = getCachedQuery(self, "craftingTasks")
+    if cached then
+        return annotateListResult(cached, statusFor(self, "craftingTasks"))
+    end
+
+    local snap, snapMeta = snapshotRecord(self, "craftingTasks", 3500)
     if snap ~= nil then
-        return snap
+        setReadStatus(self, "craftingTasks", snapMeta.state, snapMeta)
+        self._lastGood.craftingTasks = snap
+        setCachedQuery(self, "craftingTasks", snap)
+        return annotateListResult(snap, statusFor(self, "craftingTasks"))
     end
     if AESnapshotBus.isRunning() and self.isRemote then
-        return {}
+        local stale = self._lastGood.craftingTasks or {}
+        local state = self._lastGood.craftingTasks and "stale" or "unavailable"
+        setReadStatus(self, "craftingTasks", state, { source = "snapshot_missing_remote", snapshot = snapMeta })
+        return annotateListResult(stale, statusFor(self, "craftingTasks"))
     end
-    return self.bridge.getCraftingTasks() or {}
+    local data = self.bridge.getCraftingTasks() or {}
+    self._lastGood.craftingTasks = data
+    setReadStatus(self, "craftingTasks", "live", { source = "direct_bridge", snapshot = snapMeta })
+    setCachedQuery(self, "craftingTasks", data)
+    return annotateListResult(data, statusFor(self, "craftingTasks"))
 end
 
 -- Check if item is craftable
@@ -389,83 +562,140 @@ end
 -- Get storage cells
 -- @return array of cell tables
 function AEInterface:getCells()
-    local snap = snapshotData(self, "cells", 9000)
+    local snap, snapMeta = snapshotRecord(self, "cells", 9000)
     if snap ~= nil then
-        return snap
+        setReadStatus(self, "cells", snapMeta.state, snapMeta)
+        self._lastGood.cells = snap
+        return annotateListResult(snap, statusFor(self, "cells"))
     end
     if AESnapshotBus.isRunning() and self.isRemote then
-        return {}
+        local stale = self._lastGood.cells or {}
+        local state = self._lastGood.cells and "stale" or "unavailable"
+        setReadStatus(self, "cells", state, { source = "snapshot_missing_remote", snapshot = snapMeta })
+        return annotateListResult(stale, statusFor(self, "cells"))
     end
-    return self.bridge.getCells() or {}
+    local data = self.bridge.getCells() or {}
+    self._lastGood.cells = data
+    setReadStatus(self, "cells", "live", { source = "direct_bridge", snapshot = snapMeta })
+    return annotateListResult(data, statusFor(self, "cells"))
 end
 
 -- Get ME drives
 -- @return array of drive tables
 function AEInterface:getDrives()
-    local snap = snapshotData(self, "drives", 9000)
+    local snap, snapMeta = snapshotRecord(self, "drives", 9000)
     if snap ~= nil then
-        return snap
+        setReadStatus(self, "drives", snapMeta.state, snapMeta)
+        self._lastGood.drives = snap
+        return annotateListResult(snap, statusFor(self, "drives"))
     end
     if AESnapshotBus.isRunning() and self.isRemote then
-        return {}
+        local stale = self._lastGood.drives or {}
+        local state = self._lastGood.drives and "stale" or "unavailable"
+        setReadStatus(self, "drives", state, { source = "snapshot_missing_remote", snapshot = snapMeta })
+        return annotateListResult(stale, statusFor(self, "drives"))
     end
-    return self.bridge.getDrives() or {}
+    local data = self.bridge.getDrives() or {}
+    self._lastGood.drives = data
+    setReadStatus(self, "drives", "live", { source = "direct_bridge", snapshot = snapMeta })
+    return annotateListResult(data, statusFor(self, "drives"))
 end
 
 -- Get crafting patterns
 -- @return array of pattern tables
 function AEInterface:getPatterns()
-    local snap = snapshotData(self, "patterns", 12000)
+    local snap, snapMeta = snapshotRecord(self, "patterns", 12000)
     if snap ~= nil then
-        return snap
+        setReadStatus(self, "patterns", snapMeta.state, snapMeta)
+        self._lastGood.patterns = snap
+        return annotateListResult(snap, statusFor(self, "patterns"))
     end
     if AESnapshotBus.isRunning() and self.isRemote then
-        return {}
+        local stale = self._lastGood.patterns or {}
+        local state = self._lastGood.patterns and "stale" or "unavailable"
+        setReadStatus(self, "patterns", state, { source = "snapshot_missing_remote", snapshot = snapMeta })
+        return annotateListResult(stale, statusFor(self, "patterns"))
     end
-    return self.bridge.getPatterns() or {}
+    local data = self.bridge.getPatterns() or {}
+    self._lastGood.patterns = data
+    setReadStatus(self, "patterns", "live", { source = "direct_bridge", snapshot = snapMeta })
+    return annotateListResult(data, statusFor(self, "patterns"))
 end
 
 -- Get craftable items
 -- @return array of craftable item tables
 function AEInterface:getCraftableItems()
-    local snap = snapshotData(self, "craftableItems", 12000)
+    local snap, snapMeta = snapshotRecord(self, "craftableItems", 12000)
     if snap ~= nil then
-        return snap
+        setReadStatus(self, "craftableItems", snapMeta.state, snapMeta)
+        self._lastGood.craftableItems = snap
+        return annotateListResult(snap, statusFor(self, "craftableItems"))
     end
     if AESnapshotBus.isRunning() and self.isRemote then
-        return {}
+        local stale = self._lastGood.craftableItems or {}
+        local state = self._lastGood.craftableItems and "stale" or "unavailable"
+        setReadStatus(self, "craftableItems", state, { source = "snapshot_missing_remote", snapshot = snapMeta })
+        return annotateListResult(stale, statusFor(self, "craftableItems"))
     end
-    return self.bridge.getCraftableItems() or {}
+    local data = self.bridge.getCraftableItems() or {}
+    self._lastGood.craftableItems = data
+    setReadStatus(self, "craftableItems", "live", { source = "direct_bridge", snapshot = snapMeta })
+    return annotateListResult(data, statusFor(self, "craftableItems"))
 end
 
 -- Get average energy input
 -- @return number AE/t input rate
 function AEInterface:getAverageEnergyInput()
-    local snap = snapshotData(self, "averageEnergyInput", 4000)
+    local snap, snapMeta = snapshotRecord(self, "averageEnergyInput", 4000)
     if snap ~= nil then
+        setReadStatus(self, "averageEnergyInput", snapMeta.state, snapMeta)
+        self._lastGood.averageEnergyInput = snap
         return snap
     end
     if AESnapshotBus.isRunning() and self.isRemote then
+        if self._lastGood.averageEnergyInput ~= nil then
+            setReadStatus(self, "averageEnergyInput", "stale", { source = "last_good", snapshot = snapMeta })
+            return self._lastGood.averageEnergyInput
+        end
+        setReadStatus(self, "averageEnergyInput", "unavailable", { source = "snapshot_missing_remote", snapshot = snapMeta })
         return 0
     end
-    return self.bridge.getAverageEnergyInput() or 0
+    local value = self.bridge.getAverageEnergyInput() or 0
+    self._lastGood.averageEnergyInput = value
+    setReadStatus(self, "averageEnergyInput", "live", { source = "direct_bridge", snapshot = snapMeta })
+    return value
 end
 
 -- Get chemicals (requires Applied Mekanistics)
 -- @return array of chemical tables, or empty if not supported
 function AEInterface:chemicals()
     if not self.bridge.getChemicals then
-        return {}
+        setReadStatus(self, "chemicals", "unsupported", { source = "bridge_missing_method" })
+        return annotateListResult({}, statusFor(self, "chemicals"))
     end
 
-    local raw = snapshotData(self, "chemicals", 5000)
-    if raw == nil then
+    local cached = getCachedQuery(self, "chemicals")
+    if cached then
+        return annotateListResult(cached, statusFor(self, "chemicals"))
+    end
+
+    local raw, snapMeta = snapshotRecord(self, "chemicals", 5000)
+    if raw ~= nil then
+        setReadStatus(self, "chemicals", snapMeta.state, snapMeta)
+    else
         if self.isRemote then
             raw = remoteHeavyFallback(self, "chemicals", function()
                 return self.bridge.getChemicals() or {}
             end)
+            if type(raw) == "table" then
+                setReadStatus(self, "chemicals", "fallback", { source = "remote_heavy_fallback", snapshot = snapMeta })
+            else
+                raw = self._lastGood.chemicals or {}
+                setReadStatus(self, "chemicals", "unavailable", { source = "no_snapshot_no_fallback", snapshot = snapMeta })
+            end
         else
             raw = self.bridge.getChemicals() or {}
+            setReadStatus(self, "chemicals", "live", { source = "direct_bridge", snapshot = snapMeta })
         end
     end
     local result = {}
@@ -478,7 +708,9 @@ function AEInterface:chemicals()
         })
     end
 
-    return result
+    self._lastGood.chemicals = result
+    setCachedQuery(self, "chemicals", result)
+    return annotateListResult(result, statusFor(self, "chemicals"))
 end
 
 -- Check if chemicals are supported (Applied Mekanistics loaded)

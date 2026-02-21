@@ -134,11 +134,15 @@ return BaseView.grid({
         -- Get all CPUs
         local cpus = self.interface:getCraftingCPUs()
         if not cpus then return {} end
+        local cpuState = AEViewSupport.readStatus(self, "craftingCPUs").state
+        self.dataUnavailable = (cpuState == "unavailable" or cpuState == "error")
 
         -- Get crafting tasks (for busy CPUs)
         local tasksOk, tasksData = pcall(function()
             return self.interface:getCraftingTasks()
         end)
+        local taskState = AEViewSupport.readStatus(self, "craftingTasks").state
+        self.dataUnavailable = self.dataUnavailable or (taskState == "unavailable" or taskState == "error")
         local tasks = (tasksOk and type(tasksData) == "table") and tasksData or {}
         if #tasks == 0 then
             tasks = buildTasksFromCPUJobs(cpus)
@@ -161,10 +165,11 @@ return BaseView.grid({
     end,
 
     header = function(self, data)
+        local statusNote = self.dataUnavailable and " | stale/unavail" or ""
         return {
             text = "Crafting CPUs",
             color = colors.white,
-            secondary = " (" .. #data .. " | " .. Text.formatBytesAsK(self.totalStorage) .. ")",
+            secondary = " (" .. #data .. " | " .. Text.formatBytesAsK(self.totalStorage) .. statusNote .. ")",
             secondaryColor = colors.gray
         }
     end,

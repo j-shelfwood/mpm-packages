@@ -9,6 +9,10 @@ local Text = mpm('utils/Text')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Core = mpm('ui/Core')
 
+local function isDegradedState(state)
+    return state == "stale" or state == "unavailable" or state == "error"
+end
+
 return BaseView.custom({
     sleepTime = 1,
 
@@ -66,6 +70,9 @@ return BaseView.custom({
         end)
         if not inputOk then input = 0 end
 
+        local energyState = AEViewSupport.readStatus(self, "energy").state
+        local inputState = AEViewSupport.readStatus(self, "averageEnergyInput").state
+
         -- Calculate net flow
         local netFlow = input - usage
 
@@ -79,7 +86,10 @@ return BaseView.custom({
             usage = usage,
             netFlow = netFlow,
             percentage = percentage,
-            history = self.history
+            history = self.history,
+            degraded = energy._unavailable == true
+                or isDegradedState(energyState)
+                or isDegradedState(inputState)
         }
     end,
 
@@ -177,7 +187,11 @@ return BaseView.custom({
         -- Bottom: warning threshold
         self.monitor.setTextColor(colors.gray)
         self.monitor.setCursorPos(1, self.height)
-        self.monitor.write("Warn <" .. self.warningBelow .. "%")
+        if data.degraded then
+            self.monitor.write("Data stale/unavailable")
+        else
+            self.monitor.write("Warn <" .. self.warningBelow .. "%")
+        end
 
         self.monitor.setTextColor(colors.white)
     end,

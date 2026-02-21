@@ -33,12 +33,9 @@ return BaseView.custom({
     },
 
     mount = function()
-        if not AEViewSupport.mount() then
-            return false
-        end
-        local probe = {}
-        local interface = AEViewSupport.init(probe)
-        return interface ~= nil and interface:hasChemicalSupport() == true
+        return AEViewSupport.mount(function(caps)
+            return caps and caps.hasChemical == true
+        end)
     end,
 
     init = function(self, config)
@@ -61,6 +58,7 @@ return BaseView.custom({
 
         local chemicals = self.interface:chemicals()
         if not chemicals then return nil end
+        local readState = (type(chemicals._readStatus) == "table" and chemicals._readStatus.state) or "unknown"
 
         local amount = 0
         local isCraftable = false
@@ -84,13 +82,18 @@ return BaseView.custom({
         local data = {
             buckets = buckets,
             isCraftable = isCraftable,
-            history = self.history
+            history = self.history,
+            unavailable = (readState == "unavailable" or readState == "error")
         }
         self.lastChemicalData = data
         return data
     end,
 
     render = function(self, data)
+        if data.unavailable then
+            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "Data stale/unavailable", colors.orange)
+            return
+        end
         if data.error == "addon" then
             MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) - 1, "Applied Mekanistics", colors.white)
             MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2) + 1, "addon not loaded", colors.gray)

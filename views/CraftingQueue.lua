@@ -316,6 +316,7 @@ return BaseView.interactive({
         self.busyCount = 0
         self.totalCPUs = 0
         self.totalStorage = 0
+        self.dataUnavailable = false
     end,
 
     getData = function(self)
@@ -327,13 +328,17 @@ return BaseView.interactive({
         local tasksOk, tasks = pcall(function()
             return self.interface:getCraftingTasks()
         end)
+        local taskState = AEViewSupport.readStatus(self, "craftingTasks").state
         tasks = (tasksOk and type(tasks) == "table") and tasks or {}
+        self.dataUnavailable = (taskState == "unavailable" or taskState == "error")
 
         Yield.yield()
 
         -- Get CPU status for summary
         local cpusOk, cpus = pcall(function() return self.interface:getCraftingCPUs() end)
+        local cpuState = AEViewSupport.readStatus(self, "craftingCPUs").state
         Yield.yield()
+        self.dataUnavailable = self.dataUnavailable or (cpuState == "unavailable" or cpuState == "error")
 
         self.busyCount = 0
         self.totalCPUs = 0
@@ -408,6 +413,9 @@ return BaseView.interactive({
 
     footer = function(self, data)
         local footerText = self.busyCount .. "/" .. self.totalCPUs .. " busy | " .. Text.formatBytesAsK(self.totalStorage) .. " cap"
+        if self.dataUnavailable then
+            footerText = "Data stale/unavailable"
+        end
         return {
             text = footerText,
             color = colors.gray

@@ -51,6 +51,7 @@ return BaseView.custom({
 
         local fluids = self.interface:fluids()
         if not fluids then return nil end
+        local readState = (type(fluids._readStatus) == "table" and fluids._readStatus.state) or "unknown"
 
         Yield.yield()
 
@@ -76,13 +77,18 @@ return BaseView.custom({
         local data = {
             buckets = buckets,
             isCraftable = isCraftable,
-            history = self.history
+            history = self.history,
+            unavailable = (readState == "unavailable" or readState == "error")
         }
         self.lastFluidData = data
         return data
     end,
 
     render = function(self, data)
+        if data.unavailable then
+            MonitorHelpers.writeCentered(self.monitor, math.floor(self.height / 2), "Data stale/unavailable", colors.orange)
+            return
+        end
         local buckets = data.buckets
         local isWarning = buckets < self.warningBelow
 

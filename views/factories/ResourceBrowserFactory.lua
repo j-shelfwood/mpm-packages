@@ -131,6 +131,7 @@ function ResourceBrowserFactory.create(config)
             self.minFilter = viewConfig[minKey] or 0
             self.totalCount = 0
             self.totalAmount = 0
+            self.dataUnavailable = false
 
             -- Store any additional config
             for key, value in pairs(viewConfig) do
@@ -146,10 +147,15 @@ function ResourceBrowserFactory.create(config)
             if not AEViewSupport.ensureInterface(self) then return nil end
 
             local resources
+            self.dataUnavailable = false
 
             -- Craftable source mode: fetch craftable list and merge with stock
             if config.craftableSource then
                 local craftableItems = self.interface:getCraftableItems()
+                if type(craftableItems) == "table" and type(craftableItems._readStatus) == "table" then
+                    local state = craftableItems._readStatus.state
+                    self.dataUnavailable = (state == "unavailable" or state == "error")
+                end
                 if not craftableItems then return {} end
 
                 Yield.yield()
@@ -158,6 +164,10 @@ function ResourceBrowserFactory.create(config)
 
                 -- Get all items for stock lookup
                 local allItems = self.interface:items()
+                if type(allItems) == "table" and type(allItems._readStatus) == "table" then
+                    local state = allItems._readStatus.state
+                    self.dataUnavailable = self.dataUnavailable or (state == "unavailable" or state == "error")
+                end
                 if not allItems then return {} end
 
                 Yield.yield()
@@ -190,6 +200,10 @@ function ResourceBrowserFactory.create(config)
                 if not dataFn then return {} end
 
                 resources = dataFn(self.interface)
+                if type(resources) == "table" and type(resources._readStatus) == "table" then
+                    local state = resources._readStatus.state
+                    self.dataUnavailable = (state == "unavailable" or state == "error")
+                end
                 if not resources then return {} end
 
                 self.totalCount = #resources
@@ -259,7 +273,7 @@ function ResourceBrowserFactory.create(config)
             return {
                 text = headerText,
                 color = config.headerColor,
-                secondary = " (" .. #data .. "/" .. self.totalCount .. ")",
+                secondary = " (" .. #data .. "/" .. self.totalCount .. (self.dataUnavailable and " | stale/unavail" or "") .. ")",
                 secondaryColor = colors.gray
             }
         end,
@@ -303,6 +317,12 @@ function ResourceBrowserFactory.create(config)
         end,
 
         footer = function(self, data)
+            if self.dataUnavailable then
+                return {
+                    text = "Data stale/unavailable",
+                    color = colors.orange
+                }
+            end
             local footerText = config.footerText
             -- Show total if using units
             if config.unitLabel ~= "" then

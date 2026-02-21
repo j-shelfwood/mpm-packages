@@ -5,6 +5,7 @@
 
 local ChangesFactory = mpm('views/factories/ChangesFactory')
 local AEInterface = mpm('peripherals/AEInterface')
+local _ = AEInterface
 
 return ChangesFactory.create({
     name = "Chemical",
@@ -17,14 +18,7 @@ return ChangesFactory.create({
     barColor = colors.lightBlue,
     accentColor = colors.lightBlue,
     defaultMinChange = 1000,
-    mountCheck = function()
-        if not AEInterface or type(AEInterface.exists) ~= "function" then
-            return false
-        end
-        local ok, exists, bridge = pcall(AEInterface.exists)
-        if not ok or not exists or not bridge then
-            return false
-        end
-        return type(bridge.getChemicals) == "function"
+    mountCheck = function(caps)
+        return caps and caps.hasChemical == true
     end
 })

@@ -16,6 +16,8 @@
     "core/ConfigUIInputs.lua",
     "core/Monitor.lua",
     "core/MonitorBuffer.lua",
+    "core/MonitorConfigFlow.lua",
+    "core/MonitorLifecycle.lua",
     "core/MonitorRenderer.lua",
     "core/MonitorTouch.lua",
     "core/MonitorConfigMenu.lua",

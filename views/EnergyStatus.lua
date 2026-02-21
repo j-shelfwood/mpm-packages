@@ -13,6 +13,10 @@ local AEViewSupport = mpm('views/AEViewSupport')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Renderers = mpm('views/EnergyStatusRenderers')
 
+local function isDegradedState(state)
+    return state == "stale" or state == "unavailable" or state == "error"
+end
+
 return BaseView.custom({
     sleepTime = 1,
 
@@ -70,6 +74,9 @@ return BaseView.custom({
         end)
         if not inputOk then input = 0 end
 
+        local energyState = AEViewSupport.readStatus(self, "energy").state
+        local inputState = AEViewSupport.readStatus(self, "averageEnergyInput").state
+
         local stored = energy.stored or 0
         local capacity = energy.capacity or 1
         local usage = energy.usage or 0
@@ -115,7 +122,10 @@ return BaseView.custom({
             avgFlow = avgFlow,
             timeToFull = timeToFull,
             timeToEmpty = timeToEmpty,
-            history = self.history
+            history = self.history,
+            degraded = energy._unavailable == true
+                or isDegradedState(energyState)
+                or isDegradedState(inputState)
         }
     end,
 
@@ -129,6 +139,13 @@ return BaseView.custom({
             Renderers.renderWithGraph(self, data, flowColor, storageColor)
         else
             Renderers.renderDetailed(self, data, flowColor, storageColor)
+        end
+
+        if data.degraded then
+            self.monitor.setTextColor(colors.orange)
+            self.monitor.setCursorPos(1, self.height)
+            self.monitor.write("Data stale/unavailable")
+            self.monitor.setTextColor(colors.white)
         end
     end,
 

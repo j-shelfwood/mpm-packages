@@ -27,6 +27,12 @@ local function getAE2Items()
 
     local itemsOk, items = pcall(function() return interface:items() end)
     if not itemsOk or not items then return {} end
+    if type(items._readStatus) == "table" then
+        local state = items._readStatus.state
+        if state == "unavailable" or state == "error" then
+            return {}
+        end
+    end
 
     -- Sort by count descending
     table.sort(items, function(a, b)
@@ -46,6 +52,12 @@ local function getAE2Fluids()
 
     local fluidsOk, fluids = pcall(function() return interface:fluids() end)
     if not fluidsOk or not fluids then return {} end
+    if type(fluids._readStatus) == "table" then
+        local state = fluids._readStatus.state
+        if state == "unavailable" or state == "error" then
+            return {}
+        end
+    end
 
     -- Sort by amount descending
     table.sort(fluids, function(a, b)

@@ -6,6 +6,7 @@
 
 local ListFactory = mpm('views/factories/ListFactory')
 local AEInterface = mpm('peripherals/AEInterface')
+local _ = AEInterface
 
 return ListFactory.create({
     name = "Chemical",
@@ -20,14 +21,7 @@ return ListFactory.create({
     maxItems = 50,
     emptyMessage = "No chemicals in network",
     requireChemicalSupport = true,
-    mountCheck = function()
-        if not AEInterface or type(AEInterface.exists) ~= "function" then
-            return false
-        end
-        local ok, exists, bridge = pcall(AEInterface.exists)
-        if not ok or not exists or not bridge then
-            return false
-        end
-        return type(bridge.getChemicals) == "function"
+    mountCheck = function(caps)
+        return caps and caps.hasChemical == true
     end
 })

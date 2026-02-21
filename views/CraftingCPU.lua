@@ -141,6 +141,7 @@ return BaseView.custom({
         -- Get all CPUs and find ours
         local cpus = self.interface:getCraftingCPUs()
         if not cpus then return nil end
+        local cpuState = AEViewSupport.readStatus(self, "craftingCPUs").state
 
         Yield.yield()
 
@@ -152,8 +153,10 @@ return BaseView.custom({
 
         -- Get crafting task info if busy
         local currentTask = nil
+        local taskState = "unknown"
         if cpu.isBusy then
             local tasksOk, tasks = pcall(function() return self.interface:getCraftingTasks() end)
+            taskState = AEViewSupport.readStatus(self, "craftingTasks").state
             Yield.yield()
             tasks = (tasksOk and type(tasks) == "table") and tasks or {}
 
@@ -201,7 +204,9 @@ return BaseView.custom({
             cpu = cpu,
             cpuIndex = cpuIndex,
             totalCPUs = #cpus,
-            currentTask = currentTask
+            currentTask = currentTask,
+            degraded = (cpuState == "stale" or cpuState == "unavailable" or cpuState == "error")
+                or (cpu.isBusy and (taskState == "stale" or taskState == "unavailable" or taskState == "error"))
         }
     end,
 
@@ -271,7 +276,11 @@ return BaseView.custom({
         end
         storageStr = Text.truncateMiddle(storageStr, self.width)
         self.monitor.setCursorPos(1, self.height)
-        self.monitor.write(storageStr)
+        if data.degraded then
+            self.monitor.write("Data stale/unavailable")
+        else
+            self.monitor.write(storageStr)
+        end
 
         self.monitor.setTextColor(colors.white)
     end,
