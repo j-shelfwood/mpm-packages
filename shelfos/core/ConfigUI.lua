@@ -101,7 +101,8 @@ function ConfigUI.drawPicker(monitor, title, options, currentValue, formatFn)
         formatFn = formatFn,
         valueFn = getValue,
         cancelText = "Cancel",
-        showPageIndicator = false
+        showPageIndicator = false,
+        twoStep = false,  -- config pickers are direct-select (no two-step)
     }):show()
 
     if selectedItem == nil then

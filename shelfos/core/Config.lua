@@ -380,8 +380,16 @@ end
 -- When views are renamed/replaced, add mappings here so existing configs auto-migrate
 local VIEW_RENAMES = {
     MachineActivity = "MachineGrid",
-    MachineStatus = "MachineGrid",
-    EnergyFlow = "EnergyFlowGraph",
+    MachineStatus   = "MachineGrid",
+    EnergyFlow      = "EnergyFlowGraph",
+    -- Gauge views consolidated into browsers
+    ItemGauge       = "ItemBrowser",
+    FluidGauge      = "FluidBrowser",
+    ChemicalGauge   = "ChemicalBrowser",
+    -- Redundant list views consolidated into browsers
+    ItemList        = "ItemBrowser",
+    FluidList       = "FluidBrowser",
+    ChemicalList    = "ChemicalBrowser",
 }
 
 -- Reconcile existing config against actual hardware and view availability.

@@ -27,9 +27,9 @@ local OPTIONAL_PACKAGES = {
         category = "ae2",
         views    = {
             "StorageGraph", "StorageBreakdown", "CellHealth", "DriveStatus",
-            "ItemBrowser", "ItemList", "ItemGauge", "ItemChanges",
-            "FluidBrowser", "FluidList", "FluidGauge", "FluidChanges",
-            "ChemicalBrowser", "ChemicalList", "ChemicalGauge", "ChemicalChanges",
+            "ItemBrowser", "ItemChanges",
+            "FluidBrowser", "FluidChanges",
+            "ChemicalBrowser", "ChemicalChanges",
             "CraftingQueue", "CraftingCPU", "CPUOverview",
             "CraftableBrowser", "PatternBrowser",
             "EnergyGraph", "EnergyStatus",
@@ -62,16 +62,10 @@ local VIEW_LABELS = {
     CellHealth       = "Cell Health",
     DriveStatus      = "Drive Status",
     ItemBrowser      = "Item Browser",
-    ItemList         = "Item List",
-    ItemGauge        = "Item Gauge",
     ItemChanges      = "Item Changes",
     FluidBrowser     = "Fluid Browser",
-    FluidList        = "Fluid List",
-    FluidGauge       = "Fluid Gauge",
     FluidChanges     = "Fluid Changes",
     ChemicalBrowser  = "Chemical Browser",
-    ChemicalList     = "Chemical List",
-    ChemicalGauge    = "Chemical Gauge",
     ChemicalChanges  = "Chemical Changes",
     CraftingQueue    = "Crafting Queue",
     CraftingCPU      = "Crafting CPU",
@@ -478,7 +472,7 @@ function Manager.suggestViewsForMonitors(monitorCount)
     Yield.yield()
 
     if hasMeBridge or hasRsBridge then
-        for _, v in ipairs({"NetworkDashboard", "StorageGraph", "EnergyGraph", "EnergyStatus", "CraftingQueue", "CPUOverview", "CellHealth", "ItemGauge", "ItemBrowser", "FluidGauge", "FluidBrowser", "FluidList", "ChemicalGauge", "ChemicalBrowser", "ChemicalList", "ItemChanges", "CraftingCPU", "StorageBreakdown", "CraftableBrowser", "PatternBrowser", "DriveStatus"}) do
+        for _, v in ipairs({"NetworkDashboard", "StorageGraph", "EnergyGraph", "EnergyStatus", "CraftingQueue", "CPUOverview", "CellHealth", "ItemBrowser", "FluidBrowser", "ChemicalBrowser", "ItemChanges", "CraftingCPU", "StorageBreakdown", "CraftableBrowser", "PatternBrowser", "DriveStatus"}) do
             for _, m in ipairs(mountable) do
                 if m == v then
                     table.insert(prioritized, v)

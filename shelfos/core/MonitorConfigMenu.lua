@@ -178,17 +178,19 @@ local function doInstall(mon, monName, pkgName)
 end
 
 -- Draw the view selection menu using ScrollableList with grouped items.
--- @param peripheral Raw monitor peripheral
+-- @param mon            Raw monitor peripheral (wrapped)
 -- @param currentViewName Currently selected view name
--- @return selected item table or nil if cancelled
-function MonitorConfigMenu.showViewSelector(peripheral, currentViewName)
+-- @return selectedItem table, action string ("select"|"configure")  OR  nil, nil
+function MonitorConfigMenu.showViewSelector(mon, currentViewName)
     local items = buildGroupedItems()
 
-    local selected = ScrollableList.new(peripheral, items, {
-        title      = "Select View",
-        selected   = currentViewName,
-        cancelText = "Cancel",
+    local list = ScrollableList.new(mon, items, {
+        title             = "Select View",
+        selected          = currentViewName,
+        cancelText        = "Cancel",
         showPageIndicator = false,
+        twoStep           = true,
+        showConfigure     = true,
         valueFn = function(item)
             if type(item) == "table" and item.name then return item.name end
             return item
@@ -204,13 +206,14 @@ function MonitorConfigMenu.showViewSelector(peripheral, currentViewName)
             end
             return tostring(item)
         end,
-    }):show()
+    })
 
-    -- show() returns the raw item table or nil
+    local selected, action = list:show()
+
     if type(selected) == "table" and selected.name then
-        return selected
+        return selected, action
     end
-    return nil
+    return nil, nil
 end
 
 -- Show view configuration if the view has a configSchema.
@@ -239,7 +242,8 @@ function MonitorConfigMenu.openConfigFlow(monitor)
     local monName = monitor.peripheralName
 
     -- Step 1: Select view (grouped, shows installed + uninstalled)
-    local selectedItem = MonitorConfigMenu.showViewSelector(mon, monitor.viewName)
+    -- showViewSelector returns (item, action) where action is "select" or "configure"
+    local selectedItem, selAction = MonitorConfigMenu.showViewSelector(mon, monitor.viewName)
 
     if not selectedItem then
         return nil, nil
@@ -262,7 +266,8 @@ function MonitorConfigMenu.openConfigFlow(monitor)
         end
     end
 
-    -- Step 3: Configure view (if it has configSchema)
+    -- Step 3: Configure view
+    -- "configure" action forces config screen; "select" shows it only if schema exists
     local newConfig, hadSchema = MonitorConfigMenu.showViewConfig(
         mon,
         selectedViewName,
@@ -273,8 +278,12 @@ function MonitorConfigMenu.openConfigFlow(monitor)
         if newConfig then
             return selectedViewName, newConfig
         else
+            -- Config was shown but user cancelled
             return nil, nil
         end
+    elseif selAction == ScrollableList.ACTION_CONFIGURE then
+        -- User explicitly requested configure but view has no schema — just load it
+        return selectedViewName, {}
     else
         return selectedViewName, {}
     end
