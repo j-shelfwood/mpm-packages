@@ -1,6 +1,6 @@
 -- ItemDetail.lua
 -- Modal overlay showing full item details with action buttons
--- For use in interactive views (CraftableBrowser, ItemBrowser, etc.)
+-- For use in interactive views (CraftableBrowser, ResourceBrowser, etc.)
 -- Uses EventLoop helpers for monitor-specific touch filtering.
 
 local Core = mpm('ui/Core')

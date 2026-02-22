@@ -1,6 +1,6 @@
 -- DependencyStatus.lua
 -- Tracks remote peripheral dependency health per render context.
--- Context format is caller-defined (e.g., "monitor_0|ItemChanges").
+-- Context format is caller-defined (e.g., "monitor_0|ResourceChanges").
 
 local DependencyStatus = {}
 

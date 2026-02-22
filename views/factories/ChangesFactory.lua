@@ -1,6 +1,6 @@
 -- ChangesFactory.lua
 -- Factory for generating resource change tracking views
--- Creates Item/Fluid/ChemicalChanges with configurable data source
+-- Creates ResourceChanges with configurable data source
 -- Split: ChangesOverlay.lua, ChangesDataHandler.lua, ChangesRenderer.lua
 
 local BaseView = mpm('views/BaseView')

@@ -42,6 +42,8 @@ function ScrollableList.new(monitor, items, opts)
     local self = setmetatable({}, ScrollableList)
 
     self.monitor  = monitor
+    local okName, name = pcall(peripheral.getName, monitor)
+    self.monitorName = okName and name or nil
     opts = opts or {}
 
     self.title            = opts.title or "Select"
@@ -371,6 +373,10 @@ function ScrollableList:handleTouch(x, y, visible)
                 -- If collapsing and pending item was in this group, clear pending
                 if self.pendingValue ~= nil and self.collapsed[item._group] then
                     self.pendingValue = nil
+                end
+                if self.monitorName then
+                    EventLoop.armTouchGuard(self.monitorName, 200)
+                    EventLoop.drainMonitorTouches(self.monitorName, 3)
                 end
                 return nil  -- re-render only
             end

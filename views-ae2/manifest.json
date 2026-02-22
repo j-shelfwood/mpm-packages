@@ -7,18 +7,13 @@
     "StorageBreakdown.lua",
     "CellHealth.lua",
     "DriveStatus.lua",
-    "ItemBrowser.lua",
-    "ItemChanges.lua",
-    "FluidBrowser.lua",
-    "FluidChanges.lua",
-    "ChemicalBrowser.lua",
-    "ChemicalChanges.lua",
+    "ResourceBrowser.lua",
+    "ResourceChanges.lua",
     "CraftingQueue.lua",
     "CraftingCPU.lua",
     "CPUOverview.lua",
     "CraftableBrowser.lua",
     "PatternBrowser.lua",
-    "EnergyGraph.lua",
     "EnergyStatus.lua"
   ]
 }

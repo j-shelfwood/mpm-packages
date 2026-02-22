@@ -382,14 +382,46 @@ local VIEW_RENAMES = {
     MachineActivity = "MachineGrid",
     MachineStatus   = "MachineGrid",
     EnergyFlow      = "EnergyFlowGraph",
-    -- Gauge views consolidated into browsers
-    ItemGauge       = "ItemBrowser",
-    FluidGauge      = "FluidBrowser",
-    ChemicalGauge   = "ChemicalBrowser",
-    -- Redundant list views consolidated into browsers
-    ItemList        = "ItemBrowser",
-    FluidList       = "FluidBrowser",
-    ChemicalList    = "ChemicalBrowser",
+    -- Gauge/list/browser views consolidated into ResourceBrowser
+    ItemGauge       = "ResourceBrowser",
+    FluidGauge      = "ResourceBrowser",
+    ChemicalGauge   = "ResourceBrowser",
+    ItemList        = "ResourceBrowser",
+    FluidList       = "ResourceBrowser",
+    ChemicalList    = "ResourceBrowser",
+    ItemBrowser     = "ResourceBrowser",
+    FluidBrowser    = "ResourceBrowser",
+    ChemicalBrowser = "ResourceBrowser",
+    -- Changes views consolidated into ResourceChanges
+    ItemChanges     = "ResourceChanges",
+    FluidChanges    = "ResourceChanges",
+    ChemicalChanges = "ResourceChanges",
+    -- EnergyGraph folded into EnergyStatus graph mode
+    EnergyGraph     = "EnergyStatus",
+}
+
+local function applyResourceType(entry, resourceType)
+    entry.viewConfig = entry.viewConfig or {}
+    entry.viewConfig.resourceType = resourceType
+end
+
+local VIEW_CONFIG_MIGRATIONS = {
+    ItemGauge = function(entry) applyResourceType(entry, "item") end,
+    FluidGauge = function(entry) applyResourceType(entry, "fluid") end,
+    ChemicalGauge = function(entry) applyResourceType(entry, "chemical") end,
+    ItemList = function(entry) applyResourceType(entry, "item") end,
+    FluidList = function(entry) applyResourceType(entry, "fluid") end,
+    ChemicalList = function(entry) applyResourceType(entry, "chemical") end,
+    ItemBrowser = function(entry) applyResourceType(entry, "item") end,
+    FluidBrowser = function(entry) applyResourceType(entry, "fluid") end,
+    ChemicalBrowser = function(entry) applyResourceType(entry, "chemical") end,
+    ItemChanges = function(entry) applyResourceType(entry, "item") end,
+    FluidChanges = function(entry) applyResourceType(entry, "fluid") end,
+    ChemicalChanges = function(entry) applyResourceType(entry, "chemical") end,
+    EnergyGraph = function(entry)
+        entry.viewConfig = entry.viewConfig or {}
+        entry.viewConfig.displayMode = "graph"
+    end
 }
 
 -- Reconcile existing config against actual hardware and view availability.
@@ -464,12 +496,17 @@ function Config.reconcile(config)
 
     for _, entry in ipairs(config.monitors) do
         if entry.view and not availableSet[entry.view] then
+            local originalView = entry.view
             -- Check known renames first
-            local renamed = VIEW_RENAMES[entry.view]
+            local renamed = VIEW_RENAMES[originalView]
             if renamed and availableSet[renamed] then
-                table.insert(actions, "Migrated view " .. entry.view .. " -> " .. renamed .. " on " .. entry.peripheral)
+                table.insert(actions, "Migrated view " .. originalView .. " -> " .. renamed .. " on " .. entry.peripheral)
                 entry.view = renamed
                 entry.viewConfig = ViewManager.getDefaultConfig(renamed)
+                local migrate = VIEW_CONFIG_MIGRATIONS[originalView]
+                if migrate then
+                    migrate(entry)
+                end
                 changed = true
             else
                 -- View is gone with no known replacement - suggest best alternative

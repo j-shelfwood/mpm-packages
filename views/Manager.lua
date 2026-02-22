@@ -27,12 +27,10 @@ local OPTIONAL_PACKAGES = {
         category = "ae2",
         views    = {
             "StorageGraph", "StorageBreakdown", "CellHealth", "DriveStatus",
-            "ItemBrowser", "ItemChanges",
-            "FluidBrowser", "FluidChanges",
-            "ChemicalBrowser", "ChemicalChanges",
+            "ResourceBrowser", "ResourceChanges",
             "CraftingQueue", "CraftingCPU", "CPUOverview",
             "CraftableBrowser", "PatternBrowser",
-            "EnergyGraph", "EnergyStatus",
+            "EnergyStatus",
         },
     },
     {
@@ -61,18 +59,13 @@ local VIEW_LABELS = {
     StorageBreakdown = "Storage Breakdown",
     CellHealth       = "Cell Health",
     DriveStatus      = "Drive Status",
-    ItemBrowser      = "Item Browser",
-    ItemChanges      = "Item Changes",
-    FluidBrowser     = "Fluid Browser",
-    FluidChanges     = "Fluid Changes",
-    ChemicalBrowser  = "Chemical Browser",
-    ChemicalChanges  = "Chemical Changes",
+    ResourceBrowser  = "Resource Browser",
+    ResourceChanges  = "Resource Changes",
     CraftingQueue    = "Crafting Queue",
     CraftingCPU      = "Crafting CPU",
     CPUOverview      = "CPU Overview",
     CraftableBrowser = "Craftable Browser",
     PatternBrowser   = "Pattern Browser",
-    EnergyGraph      = "Energy Graph [AE2]",
     EnergyStatus     = "Energy Status [AE2]",
     -- Mekanism
     MekDashboard       = "Mek Dashboard",
@@ -429,7 +422,7 @@ function Manager.suggestView()
         { check = function() return Peripherals.find("rsBridge") end,          view = "StorageGraph",     reason = "RS Bridge detected" },
         { check = hasEnergyDetector,                                            view = "EnergySystem",     reason = "Energy detectors detected" },
         { check = function() return Peripherals.find("enrichmentChamber") end,  view = "MachineGrid",      reason = "Mekanism machines detected" },
-        { check = hasEnergyStorage,                                             view = "EnergyGraph",      reason = "Energy storage detected" },
+        { check = hasEnergyStorage,                                             view = "EnergyStatus",     reason = "Energy storage detected" },
         { check = function() return Peripherals.find("environment_detector") end, view = "Clock",          reason = "Environment detector found" },
     }
 
@@ -472,7 +465,7 @@ function Manager.suggestViewsForMonitors(monitorCount)
     Yield.yield()
 
     if hasMeBridge or hasRsBridge then
-        for _, v in ipairs({"NetworkDashboard", "StorageGraph", "EnergyGraph", "EnergyStatus", "CraftingQueue", "CPUOverview", "CellHealth", "ItemBrowser", "FluidBrowser", "ChemicalBrowser", "ItemChanges", "CraftingCPU", "StorageBreakdown", "CraftableBrowser", "PatternBrowser", "DriveStatus"}) do
+        for _, v in ipairs({"NetworkDashboard", "StorageGraph", "EnergyStatus", "CraftingQueue", "CPUOverview", "CellHealth", "ResourceBrowser", "ResourceChanges", "CraftingCPU", "StorageBreakdown", "CraftableBrowser", "PatternBrowser", "DriveStatus"}) do
             for _, m in ipairs(mountable) do
                 if m == v then
                     table.insert(prioritized, v)
@@ -494,7 +487,7 @@ function Manager.suggestViewsForMonitors(monitorCount)
 
     if hasEnergy then
         for _, m in ipairs(mountable) do
-            if m == "EnergyGraph" then table.insert(prioritized, m) break end
+            if m == "EnergyStatus" then table.insert(prioritized, m) break end
         end
     end
 
