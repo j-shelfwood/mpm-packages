@@ -1,4 +1,5 @@
 local Core = mpm('ui/Core')
+local MonitorBuffer = mpm('shelfos/core/MonitorBuffer')
 
 local MonitorLifecycle = {}
 
@@ -74,6 +75,57 @@ function MonitorLifecycle.scheduleRender(monitor, offset)
     monitor.renderTimer = os.startTimer(sleepTime + phase)
 end
 
+local function ensureHealth(monitor)
+    if not monitor or monitor.inConfigMenu then
+        return false
+    end
+
+    local now = os.epoch("utc")
+    local interval = monitor.healthCheckIntervalMs or 5000
+    if now - (monitor.lastHealthCheckAt or 0) < interval then
+        return false
+    end
+    monitor.lastHealthCheckAt = now
+
+    if type(peripheral.isPresent) == "function" then
+        local okPresent, present = pcall(peripheral.isPresent, monitor.peripheralName)
+        if okPresent and not present then
+            if monitor.connected then
+                monitor:disconnect()
+            end
+            monitor:scheduleLoadRetry(2)
+            return true
+        end
+    end
+
+    if not monitor.connected then
+        local ok = monitor:reconnect()
+        if not ok then
+            monitor:scheduleLoadRetry(2)
+        end
+        return true
+    end
+
+    local okSize, width, height = pcall(monitor.peripheral.getSize, monitor.peripheral)
+    if not okSize or not width or not height then
+        local okWrap, wrapped = pcall(peripheral.wrap, monitor.peripheralName)
+        if okWrap and wrapped then
+            monitor.peripheral = wrapped
+            MonitorBuffer.refresh(monitor)
+            return true
+        end
+        monitor:scheduleLoadRetry(2)
+        return true
+    end
+
+    if not monitor.buffer or monitor.bufferWidth ~= width or monitor.bufferHeight ~= height then
+        MonitorBuffer.refresh(monitor)
+        return true
+    end
+
+    return false
+end
+
 function MonitorLifecycle.markDirty(monitor)
     if not monitor or not monitor.connected or monitor.inConfigMenu then
         return
@@ -121,6 +173,9 @@ function MonitorLifecycle.handleTimer(monitor, timerId)
         end
         return true
     elseif timerId == monitor.renderTimer then
+        if ensureHealth(monitor) then
+            return true
+        end
         local ok, err = pcall(function()
             if not dispatchViewEvent(monitor, "timer", timerId) then
                 monitor:render()

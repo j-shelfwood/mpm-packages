@@ -45,6 +45,8 @@ function Monitor.new(config, onViewChange, settings, index, availableViews)
     self.pairingMode = false
     self.touchDebounceUntil = 0
     self.lastLoadError = nil
+    self.lastHealthCheckAt = 0
+    self.healthCheckIntervalMs = 5000
 
     self.buffer = nil
     self.bufferWidth = 0

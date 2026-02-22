@@ -27,6 +27,10 @@ function MonitorBuffer.initialize(monitor)
 end
 
 function MonitorBuffer.handleResize(monitor)
+    return MonitorBuffer.refresh(monitor)
+end
+
+function MonitorBuffer.refresh(monitor)
     if not monitor.connected then
         return
     end
