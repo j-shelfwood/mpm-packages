@@ -7,9 +7,11 @@ local ViewManager      = mpm('views/Manager')
 local ConfigUI         = mpm('shelfos/core/ConfigUI')
 local ScrollableList   = mpm('ui/ScrollableList')
 local PackageInstaller = mpm('views/PackageInstaller')
+local EventLoop        = mpm('ui/EventLoop')
 local Core             = mpm('ui/Core')
 
 local MonitorConfigMenu = {}
+local TOUCH_GUARD_MS = 350
 
 -- Build a flat items array with group header sentinels interspersed.
 -- Returns { items, nameByIndex } where nameByIndex[rawIndex] = viewName
@@ -119,15 +121,19 @@ local function showInstallConfirm(mon, monName, pkgName)
     mon.setBackgroundColor(colors.black)
     mon.setTextColor(colors.white)
 
+    EventLoop.armTouchGuard(monName, TOUCH_GUARD_MS)
+    EventLoop.drainMonitorTouches(monName, 6)
+
     while true do
-        local evt, pName, tx, ty = os.pullEvent("monitor_touch")
-        if pName == monName then
-            if ty == btnY then
-                if tx >= installX1 and tx <= installX2 then
-                    return true
-                elseif tx >= cancelX1 and tx <= cancelX2 then
-                    return false
-                end
+        local _, tx, ty, eventKind = EventLoop.waitForMonitorTouch(monName)
+        if eventKind == "detach" then
+            return false
+        end
+        if ty == btnY then
+            if tx >= installX1 and tx <= installX2 then
+                return true
+            elseif tx >= cancelX1 and tx <= cancelX2 then
+                return false
             end
         end
     end
@@ -169,9 +175,16 @@ local function doInstall(mon, monName, pkgName)
             "",
             "Touch to continue"
         })
+        EventLoop.armTouchGuard(monName, TOUCH_GUARD_MS)
+        EventLoop.drainMonitorTouches(monName, 6)
         while true do
-            local evt, pName = os.pullEvent("monitor_touch")
-            if pName == monName then break end
+            local _, _, _, eventKind = EventLoop.waitForMonitorTouch(monName)
+            if eventKind == "detach" then
+                return false
+            end
+            if eventKind == nil then
+                break
+            end
         end
         return false
     end
