@@ -33,8 +33,10 @@ function saveToFile(filename, data)
     end
 end
 
+local Peripherals = mpm('utils/Peripherals')
+
 function inspectPeripheral()
-    local peripherals = peripheral.getNames()
+    local peripherals = Peripherals.getNames()
     if #peripherals == 0 then
         print("No peripherals connected.")
         return
@@ -51,14 +53,14 @@ function inspectPeripheral()
     end
 
     local peripheralName = peripherals[selection]
-    local methods = peripheral.getMethods(peripheralName)
-    local target = peripheral.wrap(peripheralName)
+    local methods = Peripherals.getMethods(peripheralName)
+    local target = Peripherals.wrap(peripheralName)
     if methods == nil or #methods == 0 then
         print("No methods available for the selected peripheral.")
         return
     end
 
-    print("Methods for the " .. peripheral.getType(target) .. " peripheral:")
+    print("Methods for the " .. tostring(Peripherals.getType(target)) .. " peripheral:")
     local currentPage = 1
     while true do
         for i = (currentPage - 1) * ITEMS_PER_PAGE + 1, math.min(#methods, currentPage * ITEMS_PER_PAGE) do

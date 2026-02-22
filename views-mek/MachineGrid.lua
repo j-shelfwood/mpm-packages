@@ -137,18 +137,11 @@ local function getCraftingTarget(peripheral, entry, isActive)
 end
 
 local function getEnergyPercent(peripheral)
-    local pct = clamp01(safeCall(peripheral, "getEnergyFilledPercentage"))
-    if pct ~= nil then
-        return pct
+    local pct = Activity.getEnergyPercent(peripheral)
+    if pct == nil then
+        return nil
     end
-
-    local energy = safeCall(peripheral, "getEnergy")
-    local maxEnergy = safeCall(peripheral, "getMaxEnergy")
-    if type(energy) == "number" and type(maxEnergy) == "number" and maxEnergy > 0 then
-        return clamp01(energy / maxEnergy)
-    end
-
-    return nil
+    return clamp01(pct)
 end
 
 local function readActivityState(peripheral)

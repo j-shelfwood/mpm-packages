@@ -228,6 +228,29 @@ function MachineActivity.getActivity(p)
     return false, {}
 end
 
+function MachineActivity.getEnergyPercent(p)
+    if not p then return nil end
+    local pct = readValue(p, "getEnergyFilledPercentage")
+    if type(pct) == "number" then
+        return pct
+    end
+    local energy = readValue(p, "getEnergy")
+    local maxEnergy = readValue(p, "getMaxEnergy")
+    if type(energy) == "number" and type(maxEnergy) == "number" and maxEnergy > 0 then
+        return energy / maxEnergy
+    end
+    return nil
+end
+
+function MachineActivity.getFormedState(p)
+    if not p then return nil end
+    local formed = readValue(p, "isFormed")
+    if type(formed) == "boolean" then
+        return formed
+    end
+    return nil
+end
+
 -- Classify a peripheral type
 -- Returns: { mod = "mekanism"|"mi"|"unknown", category = string, label = string, color = color }
 function MachineActivity.classify(peripheralType)

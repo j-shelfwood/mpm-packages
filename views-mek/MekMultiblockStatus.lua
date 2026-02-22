@@ -26,7 +26,7 @@ local function safeCall(p, method)
 end
 
 local function getMultiblockStatus(p, pType)
-    local formed = safeCall(p, "isFormed")
+    local formed = Activity.getFormedState(p)
     if not formed then
         return { active = false, primary = "NOT FORMED", bars = {} }
     end
@@ -76,7 +76,7 @@ local function getMultiblockStatus(p, pType)
             secondary = string.format("Plasma: %.0fK", plasmaTemp),
             bars = {{ label = "D-T", pct = dtFuelPct, color = colors.purple }} }
     elseif pType == "inductionPort" then
-        local energyPct = safeCall(p, "getEnergyFilledPercentage") or 0
+        local energyPct = Activity.getEnergyPercent(p) or 0
         local lastInput = safeCall(p, "getLastInput") or 0
         local lastOutput = safeCall(p, "getLastOutput") or 0
         return { active = lastInput > 0 or lastOutput > 0,
@@ -168,7 +168,7 @@ return BaseView.custom({
                     local p = Peripherals.wrap(name)
                     if p then
                         local status = getMultiblockStatus(p, pType)
-                        local formed = safeCall(p, "isFormed") == true
+                        local formed = Activity.getFormedState(p) == true
                         table.insert(data.multiblocks, {
                             name = name:match("_(%d+)$") or tostring(idx),
                             type = pType,

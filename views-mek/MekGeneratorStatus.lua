@@ -109,7 +109,7 @@ return BaseView.custom({
             local _, activity = Activity.getActivity(p)
             local production = (activity and activity.rate) or 0
             local maxOutput = safeCall(p, "getMaxOutput") or 0
-            local energyPct = safeCall(p, "getEnergyFilledPercentage") or 0
+            local energyPct = Activity.getEnergyPercent(p) or 0
             local extra = {}
 
             if gen.type == "solarGenerator" or gen.type == "advancedSolarGenerator" then

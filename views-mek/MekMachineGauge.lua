@@ -102,7 +102,7 @@ return BaseView.custom({
 
         local energy = safeCall(p, "getEnergy")
         local maxEnergy = safeCall(p, "getMaxEnergy")
-        local energyPct = safeCall(p, "getEnergyFilledPercentage")
+        local energyPct = Activity.getEnergyPercent(p)
         if type(energy) == "number" and type(maxEnergy) == "number" then
             data.energy = {
                 current = energy,

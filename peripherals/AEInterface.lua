@@ -11,17 +11,6 @@ local REMOTE_QUERY_CACHE_TTL_MS = 700
 local function findBridgeLocalFirst()
     -- Prefer directly-attached peripherals to avoid remote proxy edge-cases
     -- on the host computer that physically owns the ME bridge.
-    local okLocal, localBridge = pcall(function()
-        if peripheral and type(peripheral.find) == "function" then
-            return peripheral.find("me_bridge")
-        end
-        return nil
-    end)
-    if okLocal and localBridge then
-        return localBridge
-    end
-
-    -- Fallback to unified peripheral layer (local + remote)
     if not Peripherals or type(Peripherals.find) ~= "function" then
         return nil
     end

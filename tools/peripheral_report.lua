@@ -34,10 +34,12 @@ function saveToFile(filename, data)
     end
 end
 
+local Peripherals = mpm('utils/Peripherals')
+
 -- ... [Other functions stay the same]
 
 function peripheralReport()
-    local peripherals = peripheral.getNames()
+    local peripherals = Peripherals.getNames()
     if #peripherals == 0 then
         print("No peripherals connected.")
         return
@@ -55,15 +57,15 @@ function peripheralReport()
     end
 
     local peripheralName = peripherals[selection]
-    local target = peripheral.wrap(peripheralName)
+    local target = Peripherals.wrap(peripheralName)
 
     -- Begin gathering report details
     local report = {}
     table.insert(report, "Peripheral Report for: " .. peripheralName)
-    table.insert(report, "Type: " .. peripheral.getType(target))
+    table.insert(report, "Type: " .. tostring(Peripherals.getType(target)))
     table.insert(report, "Available Methods:")
 
-    local methods = peripheral.getMethods(peripheralName)
+    local methods = Peripherals.getMethods(peripheralName)
     local MAX_ITEMS = 10
     local itemSampleLimit = 2
 

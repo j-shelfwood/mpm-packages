@@ -80,7 +80,7 @@ local function buildDetailLines(machine)
     local p = machine.peripheral
     local energy = safeCall(p, "getEnergy")
     local maxEnergy = safeCall(p, "getMaxEnergy")
-    local energyPct = safeCall(p, "getEnergyFilledPercentage")
+    local energyPct = Activity.getEnergyPercent(p)
     if energy and maxEnergy then
         local pct = energyPct or (maxEnergy > 0 and (energy / maxEnergy) or 0)
         addLine("Energy", Text.formatEnergy(energy, "J") .. " / " .. Text.formatEnergy(maxEnergy, "J"), colors.yellow)
