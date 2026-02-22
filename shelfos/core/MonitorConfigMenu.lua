@@ -69,57 +69,64 @@ end
 -- @param monName Peripheral name string (for event matching)
 -- @param pkgName Package name to install
 local function showInstallConfirm(mon, monName, pkgName)
-    local w, h = mon.getSize()
-
-    mon.setBackgroundColor(colors.black)
-    mon.setTextColor(colors.white)
-    mon.clear()
-
-    -- Title
-    mon.setBackgroundColor(colors.blue)
-    mon.setCursorPos(1, 1)
-    mon.write(string.rep(" ", w))
-    mon.setCursorPos(2, 1)
-    mon.write("Install Package?")
-    mon.setBackgroundColor(colors.black)
-
-    -- Package name
-    mon.setTextColor(colors.yellow)
-    mon.setCursorPos(2, 3)
-    mon.write(pkgName)
-
-    -- Description
-    mon.setTextColor(colors.lightGray)
-    mon.setCursorPos(2, 4)
-    mon.write("This view requires a package")
-    mon.setCursorPos(2, 5)
-    mon.write("that is not yet installed.")
-    mon.setCursorPos(2, 6)
-    mon.write("Download and install it now?")
-
-    -- Buttons
-    local btnY = h - 1
+    local w, h
+    local btnY, installX1, installX2, cancelX1, cancelX2
     local installLabel = " Install "
     local cancelLabel  = " Cancel "
-    local totalW = #installLabel + #cancelLabel + 2
-    local startX = math.floor((w - totalW) / 2) + 1
 
-    local installX1 = startX
-    local installX2 = startX + #installLabel - 1
-    mon.setBackgroundColor(colors.green)
-    mon.setTextColor(colors.white)
-    mon.setCursorPos(installX1, btnY)
-    mon.write(installLabel)
+    local function renderConfirm()
+        w, h = mon.getSize()
 
-    local cancelX1 = installX2 + 2
-    local cancelX2 = cancelX1 + #cancelLabel - 1
-    mon.setBackgroundColor(colors.gray)
-    mon.setTextColor(colors.white)
-    mon.setCursorPos(cancelX1, btnY)
-    mon.write(cancelLabel)
+        mon.setBackgroundColor(colors.black)
+        mon.setTextColor(colors.white)
+        mon.clear()
 
-    mon.setBackgroundColor(colors.black)
-    mon.setTextColor(colors.white)
+        -- Title
+        mon.setBackgroundColor(colors.blue)
+        mon.setCursorPos(1, 1)
+        mon.write(string.rep(" ", w))
+        mon.setCursorPos(2, 1)
+        mon.write("Install Package?")
+        mon.setBackgroundColor(colors.black)
+
+        -- Package name
+        mon.setTextColor(colors.yellow)
+        mon.setCursorPos(2, 3)
+        mon.write(pkgName)
+
+        -- Description
+        mon.setTextColor(colors.lightGray)
+        mon.setCursorPos(2, 4)
+        mon.write("This view requires a package")
+        mon.setCursorPos(2, 5)
+        mon.write("that is not yet installed.")
+        mon.setCursorPos(2, 6)
+        mon.write("Download and install it now?")
+
+        -- Buttons
+        btnY = h - 1
+        local totalW = #installLabel + #cancelLabel + 2
+        local startX = math.floor((w - totalW) / 2) + 1
+
+        installX1 = startX
+        installX2 = startX + #installLabel - 1
+        mon.setBackgroundColor(colors.green)
+        mon.setTextColor(colors.white)
+        mon.setCursorPos(installX1, btnY)
+        mon.write(installLabel)
+
+        cancelX1 = installX2 + 2
+        cancelX2 = cancelX1 + #cancelLabel - 1
+        mon.setBackgroundColor(colors.gray)
+        mon.setTextColor(colors.white)
+        mon.setCursorPos(cancelX1, btnY)
+        mon.write(cancelLabel)
+
+        mon.setBackgroundColor(colors.black)
+        mon.setTextColor(colors.white)
+    end
+
+    renderConfirm()
 
     EventLoop.armTouchGuard(monName, TOUCH_GUARD_MS)
     EventLoop.drainMonitorTouches(monName, 6)
@@ -129,6 +136,10 @@ local function showInstallConfirm(mon, monName, pkgName)
         if eventKind == "detach" then
             return false
         end
+        if eventKind == "resize" then
+            renderConfirm()
+            goto continue
+        end
         if ty == btnY then
             if tx >= installX1 and tx <= installX2 then
                 return true
@@ -136,6 +147,7 @@ local function showInstallConfirm(mon, monName, pkgName)
                 return false
             end
         end
+        ::continue::
     end
 end
 

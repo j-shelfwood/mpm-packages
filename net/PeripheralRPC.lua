@@ -143,10 +143,12 @@ function PeripheralRPC._performCall(client, hostId, peripheralName, methodName, 
     local pending = requestId and client.pendingRequests[requestId] or nil
     local deadline = os.epoch("utc") + (timeout * 1000)
 
+    local created = false
     if pending then
         addPendingCallback(pending, callback)
         pending.timeout = math.max(pending.timeout or deadline, deadline)
     else
+        created = true
         local msg = Protocol.createPeriphCall(peripheralName, methodName, args)
         client.inflightByCallKey[callKey] = msg.requestId
         client.pendingRequests[msg.requestId] = {
@@ -165,6 +167,20 @@ function PeripheralRPC._performCall(client, hostId, peripheralName, methodName, 
     end
 
     if not state.done then
+        local req = requestId and client.pendingRequests[requestId] or nil
+        if created and requestId then
+            PeripheralRPC.resolvePending(client, requestId, nil, "timeout")
+        elseif req and req.callbacks then
+            for i = #req.callbacks, 1, -1 do
+                if req.callbacks[i] == callback then
+                    table.remove(req.callbacks, i)
+                    break
+                end
+            end
+            if #req.callbacks == 0 and requestId then
+                PeripheralRPC.resolvePending(client, requestId, nil, "timeout")
+            end
+        end
         return nil, "timeout"
     end
 

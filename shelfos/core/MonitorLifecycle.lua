@@ -1,5 +1,6 @@
 local Core = mpm('ui/Core')
 local MonitorBuffer = mpm('shelfos/core/MonitorBuffer')
+local Yield = mpm('utils/Yield')
 
 local MonitorLifecycle = {}
 
@@ -272,6 +273,11 @@ function MonitorLifecycle.runLoop(monitor, running)
     end
 
     while isRunning() do
+        if monitor.inConfigMenu or monitor.pairingMode then
+            Yield.sleep(0.05)
+            goto continue
+        end
+
         local event, p1, p2, p3 = os.pullEvent()
 
         if event == "timer" then
@@ -296,6 +302,7 @@ function MonitorLifecycle.runLoop(monitor, running)
         else
             dispatchViewEvent(monitor, event, p1, p2, p3)
         end
+        ::continue::
     end
 end
 
