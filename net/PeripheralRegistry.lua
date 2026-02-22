@@ -95,13 +95,13 @@ function PeripheralRegistry.removeHostRemotes(client, hostId)
     PeripheralRegistry.rebuildNameIndexes(client)
 end
 
-function PeripheralRegistry.registerRemote(client, hostId, name, pType, methods, _, deferIndexRebuild)
+function PeripheralRegistry.registerRemote(client, hostId, name, pType, methods, activity, _, deferIndexRebuild)
     local key = makeRemoteKey(hostId, name)
     local hostComputer = client.hostComputers[hostId]
     local hostComputerName = hostComputer and hostComputer.computerName or nil
     local displayName = hostComputerName and (name .. " @ " .. hostComputerName) or (name .. " @ #" .. tostring(hostId))
 
-    local proxy = RemoteProxy.create(client, hostId, name, pType, methods, key, displayName)
+    local proxy = RemoteProxy.create(client, hostId, name, pType, methods, key, displayName, activity)
 
     client.remotePeripherals[key] = {
         key = key,
@@ -119,6 +119,22 @@ function PeripheralRegistry.registerRemote(client, hostId, name, pType, methods,
     if not deferIndexRebuild then
         PeripheralRegistry.rebuildNameIndexes(client)
     end
+end
+
+function PeripheralRegistry.updateActivity(client, hostId, name, activity)
+    if not activity then
+        return false
+    end
+    local key = makeRemoteKey(hostId, name)
+    local info = client.remotePeripherals[key]
+    if not info then
+        return false
+    end
+    if info.proxy and type(info.proxy.updateActivity) == "function" then
+        info.proxy:updateActivity(activity)
+        return true
+    end
+    return false
 end
 
 function PeripheralRegistry.resolveInfo(client, nameOrKey)

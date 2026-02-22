@@ -87,19 +87,16 @@ local function buildDetailLines(machine)
         addLine("Energy %", formatPercent(pct), colors.yellow)
     end
 
-    local progress = safeCall(p, "getRecipeProgress")
-    local ticks = safeCall(p, "getTicksRequired")
-    if progress and ticks and ticks > 0 then
-        addLine("Recipe", string.format("%d/%d (%s)", progress, ticks, formatPercent(progress / ticks)), colors.lime)
+    if activity.progress and activity.total and activity.total > 0 then
+        addLine("Recipe", string.format("%d/%d (%s)", activity.progress, activity.total, formatPercent(activity.progress / activity.total)), colors.lime)
     end
 
-    local rate = safeCall(p, "getProductionRate")
-    local maxRate = safeCall(p, "getMaxOutput")
-    if rate then
+    if activity.rate then
+        local maxRate = safeCall(p, "getMaxOutput")
         if maxRate and maxRate > 0 then
-            addLine("Output", Text.formatEnergy(rate, "J") .. "/t (" .. formatPercent(rate / maxRate) .. ")", colors.orange)
+            addLine("Output", Text.formatEnergy(activity.rate, "J") .. "/t (" .. formatPercent(activity.rate / maxRate) .. ")", colors.orange)
         else
-            addLine("Output", Text.formatEnergy(rate, "J") .. "/t", colors.orange)
+            addLine("Output", Text.formatEnergy(activity.rate, "J") .. "/t", colors.orange)
         end
     end
 

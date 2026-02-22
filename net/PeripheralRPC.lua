@@ -70,6 +70,60 @@ function PeripheralRPC.handleError(client, senderId, msg)
 end
 
 function PeripheralRPC.call(client, hostId, peripheralName, methodName, args, timeout, options)
+    local results, err, meta = PeripheralRPC._performCall(client, hostId, peripheralName, methodName, args, timeout, options)
+    if err or not meta or not meta.chunked or meta.unchanged then
+        return results, err, meta
+    end
+
+    local combined = {}
+    local firstChunk = results and results[1] or {}
+    for i = 1, #firstChunk do
+        combined[#combined + 1] = firstChunk[i]
+    end
+
+    local total = meta.total or #combined
+    local limit = meta.limit or #firstChunk
+    local nextOffset = (meta.offset or 0) + limit
+    local queryId = meta.queryId
+    if not queryId and nextOffset < total then
+        return nil, "snapshot_missing", meta
+    end
+
+    while nextOffset < total do
+        local pageResults, pageErr, pageMeta = PeripheralRPC._performCall(
+            client,
+            hostId,
+            peripheralName,
+            methodName,
+            args,
+            timeout,
+            {
+                offset = nextOffset,
+                limit = limit,
+                resultHash = meta.resultHash,
+                queryId = queryId,
+                page = true
+            }
+        )
+        if pageErr then
+            return nil, pageErr, pageMeta
+        end
+        local pageChunk = pageResults and pageResults[1] or {}
+        for i = 1, #pageChunk do
+            combined[#combined + 1] = pageChunk[i]
+        end
+        if pageMeta and pageMeta.done then
+            break
+        end
+        nextOffset = (pageMeta and pageMeta.offset or nextOffset) + (pageMeta and pageMeta.limit or #pageChunk)
+    end
+
+    results = results or {}
+    results[1] = combined
+    return results, err, meta
+end
+
+function PeripheralRPC._performCall(client, hostId, peripheralName, methodName, args, timeout, options)
     timeout = timeout or 2
 
     if not client.channel then
@@ -129,10 +183,65 @@ function PeripheralRPC.callAsync(client, hostId, peripheralName, methodName, arg
     local requestId = client.inflightByCallKey[callKey]
     local pending = requestId and client.pendingRequests[requestId] or nil
     local cb = callback or function() end
+    local wrapper = function(results, err, meta)
+        if err or not meta or not meta.chunked or meta.unchanged then
+            cb(results, err, meta)
+            return
+        end
+
+        local combined = {}
+        local firstChunk = results and results[1] or {}
+        for i = 1, #firstChunk do
+            combined[#combined + 1] = firstChunk[i]
+        end
+
+        local total = meta.total or #combined
+        local limit = meta.limit or #firstChunk
+        local nextOffset = (meta.offset or 0) + limit
+        local queryId = meta.queryId
+        if not queryId and nextOffset < total then
+            cb(nil, "snapshot_missing", meta)
+            return
+        end
+
+        while nextOffset < total do
+            local pageResults, pageErr, pageMeta = PeripheralRPC._performCall(
+                client,
+                hostId,
+                peripheralName,
+                methodName,
+                args,
+                timeout,
+                {
+                    offset = nextOffset,
+                    limit = limit,
+                    resultHash = meta.resultHash,
+                    queryId = queryId,
+                    page = true
+                }
+            )
+            if pageErr then
+                cb(nil, pageErr, pageMeta)
+                return
+            end
+            local pageChunk = pageResults and pageResults[1] or {}
+            for i = 1, #pageChunk do
+                combined[#combined + 1] = pageChunk[i]
+            end
+            if pageMeta and pageMeta.done then
+                break
+            end
+            nextOffset = (pageMeta and pageMeta.offset or nextOffset) + (pageMeta and pageMeta.limit or #pageChunk)
+        end
+
+        results = results or {}
+        results[1] = combined
+        cb(results, nil, meta)
+    end
     local deadline = os.epoch("utc") + (timeout * 1000)
 
     if pending then
-        addPendingCallback(pending, cb)
+        addPendingCallback(pending, wrapper)
         pending.timeout = math.max(pending.timeout or deadline, deadline)
         return
     end
@@ -140,7 +249,7 @@ function PeripheralRPC.callAsync(client, hostId, peripheralName, methodName, arg
     local msg = Protocol.createPeriphCall(peripheralName, methodName, args)
     client.inflightByCallKey[callKey] = msg.requestId
     client.pendingRequests[msg.requestId] = {
-        callbacks = { cb },
+        callbacks = { wrapper },
         timeout = deadline,
         coalesceKey = callKey
     }

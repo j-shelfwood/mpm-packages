@@ -76,14 +76,14 @@ function PeripheralClient:handleStatePush(senderId, msg)
     local key = tostring(hostId) .. "::" .. tostring(data.peripheral or "")
     local info = self.remotePeripherals and self.remotePeripherals[key] or nil
     if info and info.proxy and type(info.proxy._applyStatePush) == "function" then
-        info.proxy:_applyStatePush(data.method, data.results, data.meta)
+        info.proxy:_applyStatePush(data.method, data.results, data.meta, data.args)
     end
     local eventName = data.event or "remote_periph_update"
     pcall(os.queueEvent, eventName, data.peripheral, data.method, data.results, data.meta, hostId)
 end
 
-function PeripheralClient:registerRemote(hostId, name, pType, methods, computerName, deferIndexRebuild)
-    PeripheralRegistry.registerRemote(self, hostId, name, pType, methods, computerName, deferIndexRebuild)
+function PeripheralClient:registerRemote(hostId, name, pType, methods, activity, computerName, deferIndexRebuild)
+    PeripheralRegistry.registerRemote(self, hostId, name, pType, methods, activity, computerName, deferIndexRebuild)
 end
 
 function PeripheralClient:discover(timeout)

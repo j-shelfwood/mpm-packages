@@ -185,6 +185,7 @@ function KernelNetwork.loop(kernel, runningRef)
             -- Peripheral host subscription polling
             if kernel.peripheralHost then
                 kernel.peripheralHost:pollSubscriptions()
+                kernel.peripheralHost:pollActivitySnapshots()
             end
 
             -- Periodic re-discovery of remote peripherals

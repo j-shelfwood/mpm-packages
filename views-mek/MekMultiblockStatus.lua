@@ -5,6 +5,7 @@ local BaseView = mpm('views/BaseView')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Text = mpm('utils/Text')
 local Peripherals = mpm('utils/Peripherals')
+local Activity = mpm('peripherals/MachineActivity')
 local Yield = mpm('utils/Yield')
 
 local MULTIBLOCK_TYPES = {
@@ -42,7 +43,8 @@ local function getMultiblockStatus(p, pType)
             bars = {{ label = "Steam", pct = steamPct, color = colors.lightGray },
                     { label = "Water", pct = waterPct, color = colors.blue }} }
     elseif pType == "turbineValve" then
-        local production = safeCall(p, "getProductionRate") or 0
+        local _, activity = Activity.getActivity(p)
+        local production = (activity and activity.rate) or 0
         local flowRate = safeCall(p, "getFlowRate") or 0
         local steamPct = safeCall(p, "getSteamFilledPercentage") or 0
         return { active = production > 0,
@@ -66,7 +68,8 @@ local function getMultiblockStatus(p, pType)
     elseif pType == "fusionReactorPort" then
         local ignited = safeCall(p, "isIgnited") or false
         local plasmaTemp = safeCall(p, "getPlasmaTemperature") or 0
-        local production = safeCall(p, "getProductionRate") or 0
+        local _, activity = Activity.getActivity(p)
+        local production = (activity and activity.rate) or 0
         local dtFuelPct = safeCall(p, "getDTFuelFilledPercentage") or 0
         return { active = ignited,
             primary = ignited and string.format("%.0fJ/t", production) or "COLD",

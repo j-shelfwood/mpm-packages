@@ -10,26 +10,55 @@ local discoveryCacheAt = 0
 local DISCOVERY_CACHE_TTL_MS = 5000
 local WATCH_INTERVAL_MS = 1200
 
+local function readValue(p, methodName, args)
+    if not p or type(p[methodName]) ~= "function" then
+        return nil
+    end
+
+    if p._isRemote and type(p.getCached) == "function" then
+        if type(p.ensureSubscription) == "function" then
+            p.ensureSubscription(methodName, args or {})
+        end
+        local cached = p.getCached(methodName, args or {})
+        if type(cached) == "table" then
+            return cached[1]
+        end
+        return nil
+    end
+
+    local ok, result = pcall(p[methodName], table.unpack(args or {}))
+    if ok then
+        return result
+    end
+    return nil
+end
+
 -- Activity detection strategies by method availability
 local ACTIVITY_STRATEGIES = {
     -- Modern Industrialization / Generic
-    { method = "isBusy", detect = function(p) return p.isBusy() end },
+    { method = "isBusy", detect = function(p)
+        local busy = readValue(p, "isBusy")
+        if type(busy) == "boolean" then
+            return busy, {}
+        end
+        return false, {}
+    end },
 
     -- Mekanism Processing (recipe progress)
     {
         method = "getRecipeProgress",
         detect = function(p)
-            local ok, progress = pcall(p.getRecipeProgress, 0)
-            if not ok then
-                ok, progress = pcall(p.getRecipeProgress)
+            local progress = readValue(p, "getRecipeProgress", {0})
+            if type(progress) ~= "number" then
+                progress = readValue(p, "getRecipeProgress")
             end
-            if not ok then
+            if type(progress) ~= "number" then
                 return false, {}
             end
             local total = 0
             if type(p.getTicksRequired) == "function" then
-                local totalOk, totalVal = pcall(p.getTicksRequired)
-                if totalOk then total = totalVal or 0 end
+                local totalVal = readValue(p, "getTicksRequired")
+                if type(totalVal) == "number" then total = totalVal end
             end
             local progressValue = progress or 0
             local active = progressValue > 0
@@ -45,8 +74,8 @@ local ACTIVITY_STRATEGIES = {
     {
         method = "getEnergyUsage",
         detect = function(p)
-            local ok, usage = pcall(p.getEnergyUsage)
-            if not ok then return false, {} end
+            local usage = readValue(p, "getEnergyUsage")
+            if type(usage) ~= "number" then return false, {} end
             return (usage or 0) > 0, { usage = usage }
         end
     },
@@ -55,8 +84,8 @@ local ACTIVITY_STRATEGIES = {
     {
         method = "getProductionRate",
         detect = function(p)
-            local ok, rate = pcall(p.getProductionRate)
-            if not ok then return false, {} end
+            local rate = readValue(p, "getProductionRate")
+            if type(rate) ~= "number" then return false, {} end
             return (rate or 0) > 0, { rate = rate }
         end
     },
@@ -71,16 +100,16 @@ local ACTIVITY_STRATEGIES = {
 
             -- Check type-specific activity
             if p.getBoilRate then
-                local rateOk, rate = pcall(p.getBoilRate)
-                if not rateOk then return false, { formed = true } end
+                local rate = readValue(p, "getBoilRate")
+                if type(rate) ~= "number" then return false, { formed = true } end
                 return (rate or 0) > 0, { formed = true, rate = rate }
             elseif p.getStatus then
-                local statusOk, status = pcall(p.getStatus)
-                if not statusOk then return false, { formed = true } end
+                local status = readValue(p, "getStatus")
+                if type(status) ~= "boolean" then return false, { formed = true } end
                 return status == true, { formed = true, status = status }
             elseif p.isIgnited then
-                local ignitedOk, ignited = pcall(p.isIgnited)
-                if not ignitedOk then return false, { formed = true } end
+                local ignited = readValue(p, "isIgnited")
+                if type(ignited) ~= "boolean" then return false, { formed = true } end
                 return ignited and true or false, { formed = true, ignited = ignited }
             end
 
@@ -179,6 +208,13 @@ end
 -- Returns: isActive, activityData
 function MachineActivity.getActivity(p)
     if not p then return false, {} end
+
+    if p._isRemote and type(p.getActivitySnapshot) == "function" then
+        local snapshot = p.getActivitySnapshot()
+        if snapshot then
+            return snapshot.active and true or false, snapshot.data or {}
+        end
+    end
 
     for _, strategy in ipairs(ACTIVITY_STRATEGIES) do
         if type(p[strategy.method]) == "function" then

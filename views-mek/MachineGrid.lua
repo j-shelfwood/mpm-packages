@@ -81,24 +81,6 @@ local function extractStackName(stack)
     return Text.prettifyName(name)
 end
 
-local function detectProgressState(peripheral)
-    if not peripheral or type(peripheral.getRecipeProgress) ~= "function" then
-        return false, nil, false
-    end
-
-    local progress = safeCall(peripheral, "getRecipeProgress")
-    if type(progress) == "number" then
-        return progress > 0, nil, false
-    end
-
-    local indexedProgress = safeCall(peripheral, "getRecipeProgress", 0)
-    if type(indexedProgress) == "number" then
-        return indexedProgress > 0, 0, true
-    end
-
-    return false, nil, false
-end
-
 local function readCraftName(peripheral, methodName, process)
     if process ~= nil then
         return extractStackName(safeCall(peripheral, methodName, process))
@@ -106,22 +88,21 @@ local function readCraftName(peripheral, methodName, process)
     return extractStackName(safeCall(peripheral, methodName))
 end
 
-local function getCraftingTarget(peripheral, entry)
+local function getCraftingTarget(peripheral, entry, isActive)
     if not peripheral then return nil end
 
-    local isProgressActive, bestProcess, usesIndexedProgress = detectProgressState(peripheral)
     if entry and entry.craftMethod then
-        local process = entry.craftUsesIndexed and bestProcess or nil
+        local process = entry.craftUsesIndexed and 0 or nil
         local knownName = readCraftName(peripheral, entry.craftMethod, process)
         if knownName then
-            return knownName, isProgressActive
+            return knownName
         end
         entry.craftMethod = nil
         entry.craftUsesIndexed = false
     end
 
-    if entry and entry.noCraftSignals and not isProgressActive then
-        return nil, isProgressActive
+    if entry and entry.noCraftSignals and not isActive then
+        return nil
     end
 
     local candidates = {
@@ -136,17 +117,15 @@ local function getCraftingTarget(peripheral, entry)
     }
 
     for _, candidate in ipairs(candidates) do
-        if not candidate.indexed or (usesIndexedProgress and bestProcess ~= nil) then
-            local process = candidate.indexed and bestProcess or nil
-            local outputName = readCraftName(peripheral, candidate.method, process)
-            if outputName then
-                if entry then
-                    entry.craftMethod = candidate.method
-                    entry.craftUsesIndexed = candidate.indexed
-                    entry.noCraftSignals = false
-                end
-                return outputName, isProgressActive
+        local process = candidate.indexed and 0 or nil
+        local outputName = readCraftName(peripheral, candidate.method, process)
+        if outputName then
+            if entry then
+                entry.craftMethod = candidate.method
+                entry.craftUsesIndexed = candidate.indexed
+                entry.noCraftSignals = false
             end
+            return outputName
         end
     end
 
@@ -154,7 +133,7 @@ local function getCraftingTarget(peripheral, entry)
         entry.noCraftSignals = true
     end
 
-    return nil, isProgressActive
+    return nil
 end
 
 local function getEnergyPercent(peripheral)
@@ -177,69 +156,9 @@ local function readActivityState(peripheral)
         return nil, false
     end
 
-    if type(peripheral.isBusy) == "function" then
-        local busy = safeCall(peripheral, "isBusy")
-        if type(busy) == "boolean" then
-            return busy, true
-        end
-    end
-
-    if type(peripheral.getRecipeProgress) == "function" then
-        local progress = safeCall(peripheral, "getRecipeProgress")
-        if type(progress) == "number" then
-            return progress > 0, true
-        end
-
-        local indexed = safeCall(peripheral, "getRecipeProgress", 0)
-        if type(indexed) == "number" then
-            return indexed > 0, true
-        end
-    end
-
-    if type(peripheral.getEnergyUsage) == "function" then
-        local usage = safeCall(peripheral, "getEnergyUsage")
-        if type(usage) == "number" then
-            return usage > 0, true
-        end
-    end
-
-    if type(peripheral.getProductionRate) == "function" then
-        local rate = safeCall(peripheral, "getProductionRate")
-        if type(rate) == "number" then
-            return rate > 0, true
-        end
-    end
-
-    if type(peripheral.isFormed) == "function" then
-        local formed = safeCall(peripheral, "isFormed")
-        if type(formed) == "boolean" then
-            if not formed then
-                return false, true
-            end
-
-            if type(peripheral.getBoilRate) == "function" then
-                local boil = safeCall(peripheral, "getBoilRate")
-                if type(boil) == "number" then
-                    return boil > 0, true
-                end
-            end
-
-            if type(peripheral.getStatus) == "function" then
-                local status = safeCall(peripheral, "getStatus")
-                if type(status) == "boolean" then
-                    return status, true
-                end
-            end
-
-            if type(peripheral.isIgnited) == "function" then
-                local ignited = safeCall(peripheral, "isIgnited")
-                if type(ignited) == "boolean" then
-                    return ignited, true
-                end
-            end
-
-            return true, true
-        end
+    if Activity.supportsActivity(peripheral) then
+        local active = select(1, Activity.getActivity(peripheral))
+        return active, true
     end
 
     return nil, false
@@ -280,12 +199,12 @@ local function shouldPollMachine(entry, nowMs)
 end
 
 local function pollMachineEntry(entry, nowMs)
-    local isActive = entry.isActive and true or false
-    local isActivityKnown = false
-    local p = entry.peripheral
-    if p then
-        local activeState, known = readActivityState(p)
-        if known then
+        local isActive = entry.isActive and true or false
+        local isActivityKnown = false
+        local p = entry.peripheral
+        if p then
+            local activeState, known = readActivityState(p)
+            if known then
             isActivityKnown = true
             isActive = activeState and true or false
         end
@@ -303,24 +222,21 @@ local function pollMachineEntry(entry, nowMs)
         end
     end
 
-    if entry.isActive then
-        local detectedCraft, progressActive = getCraftingTarget(p, entry)
-        if progressActive then
-            entry.isActive = true
-        end
-        if detectedCraft then
-            entry.crafting = detectedCraft
-        end
-        entry.craftPolledAt = nowMs
-    else
-        local craftAge = nowMs - (entry.craftPolledAt or 0)
-        if entry.crafting == nil or craftAge >= MACHINE_IDLE_CRAFT_POLL_MS then
-            local detectedCraft = getCraftingTarget(p, entry)
+        if entry.isActive then
+            local detectedCraft = getCraftingTarget(p, entry, true)
             if detectedCraft then
                 entry.crafting = detectedCraft
             end
             entry.craftPolledAt = nowMs
-        end
+        else
+            local craftAge = nowMs - (entry.craftPolledAt or 0)
+            if entry.crafting == nil or craftAge >= MACHINE_IDLE_CRAFT_POLL_MS then
+                local detectedCraft = getCraftingTarget(p, entry, false)
+                if detectedCraft then
+                    entry.crafting = detectedCraft
+                end
+                entry.craftPolledAt = nowMs
+            end
     end
 
     entry.polledAt = nowMs

@@ -287,22 +287,22 @@ craftable variants:
 1. **Field stripping**: Only `name`, `displayName`, `count`, `amount`, `isCraftable` are forwarded.
    Tags, components, fingerprint, maxStackSize etc. are dropped server-side.
 
-2. **Unsigned transport**: Responses bypass `Crypto.wrap()` HMAC signing. The request
-   (`PERIPH_CALL`) is still HMAC-verified for authorization. Skipping payload hashing on the
-   response prevents CPU Watchdog crashes when serializing + hashing 50k-item arrays.
+2. **Signed chunking with snapshots**: Responses are returned in signed pages to preserve HMAC
+   integrity while avoiding watchdog crashes from massive payloads. The host returns `meta.queryId`
+   for a short-lived snapshot; clients include it with `options.offset`/`options.limit` to avoid
+   list tearing during pagination until `meta.done=true`.
 
 ```lua
--- PeripheralHost.lua - large payloads skip HMAC on the response only
-if STRIP_METHODS[methodName] then
-    self.channel:sendUnsigned(senderId, response)   -- no HMAC on response
-else
-    self.channel:send(senderId, response)            -- HMAC signed
-end
+local chunk, total, offset, limit, done = sliceList(stripped, options.offset, options.limit)
+response.data.meta = {
+  chunked = true,
+  total = total,
+  offset = offset,
+  limit = limit,
+  done = done
+}
+self.channel:send(senderId, response)
 ```
-
-The unsigned envelope is detected by `Channel:receive()` via `envelope._unsigned == true` and
-accepted without signature verification. **This is safe** because the data is read-only inventory
-state — no capability is granted by receiving it.
 
 ## Caching Strategy
 

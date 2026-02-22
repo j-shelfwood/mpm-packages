@@ -111,16 +111,16 @@ return BaseView.custom({
             }
         end
 
-        local progress = safeCall(p, "getRecipeProgress")
-        local ticks = safeCall(p, "getTicksRequired")
-        if type(progress) == "number" and type(ticks) == "number" and ticks > 0 then
-            data.recipe = { progress = progress, total = ticks, pct = progress / ticks }
+        if type(activityData.progress) == "number"
+            and type(activityData.total) == "number"
+            and activityData.total > 0 then
+            local pct = activityData.percent or (activityData.progress / activityData.total)
+            data.recipe = { progress = activityData.progress, total = activityData.total, pct = pct }
         end
 
-        local production = safeCall(p, "getProductionRate")
-        local maxOutput = safeCall(p, "getMaxOutput")
-        if type(production) == "number" then
-            data.production = { rate = production, max = type(maxOutput) == "number" and maxOutput or 0 }
+        if type(activityData.rate) == "number" then
+            local maxOutput = safeCall(p, "getMaxOutput")
+            data.production = { rate = activityData.rate, max = type(maxOutput) == "number" and maxOutput or 0 }
         end
 
         data.upgrades = safeCall(p, "getInstalledUpgrades")

@@ -57,6 +57,16 @@ local HEAVY_METHODS = {
     getCraftableChemicals = true,
 }
 
+local SUBSCRIBE_METHODS = {
+    getEnergy = true,
+    getEnergyFilledPercentage = true,
+    getEnergyUsage = true,
+    getRecipeProgress = true,
+    getProductionRate = true,
+}
+
+local SUBSCRIBE_INTERVAL_MS = 1000
+
 -- Methods that should never be cached (they perform actions, not reads)
 local NO_CACHE_METHODS = {
     craftItem = true,
@@ -77,7 +87,7 @@ local NO_CACHE_METHODS = {
 -- @param key Stable key (<hostId>::<name>)
 -- @param displayName User-friendly label for status/UI
 -- @return Proxy table that mimics the peripheral
-function RemoteProxy.create(client, hostId, name, pType, methods, key, displayName)
+function RemoteProxy.create(client, hostId, name, pType, methods, key, displayName, activity)
     local proxy = {}
     local remoteName = name
     local remoteKey = key or (tostring(hostId) .. "::" .. tostring(name))
@@ -93,6 +103,8 @@ function RemoteProxy.create(client, hostId, name, pType, methods, key, displayNa
     proxy._type = pType
     proxy._client = client
     proxy._connected = true
+    proxy._activity = activity
+    proxy._activityAt = activity and os.epoch("utc") or nil
 
     -- Reconnection state
     proxy._failureCount = 0
@@ -105,6 +117,7 @@ function RemoteProxy.create(client, hostId, name, pType, methods, key, displayNa
     proxy._pending = {}
     proxy._nextRefreshAt = {}
     proxy._lastCacheSweepAt = 0
+    proxy._subscriptions = {}
 
     -- Auto-reconnect if disconnected and cooldown has elapsed
     local function ensureConnected()
@@ -149,15 +162,38 @@ function RemoteProxy.create(client, hostId, name, pType, methods, key, displayNa
         return table.concat(parts, "_")
     end
 
-    function proxy:_applyStatePush(methodName, results, meta)
-        local key = cacheKey(methodName, nil)
+    function proxy:_applyStatePush(methodName, results, meta, args)
+        if methodName == "activity" then
+            proxy._activity = {
+                active = results and results[1] or false,
+                data = results and results[2] or {}
+            }
+            proxy._activityAt = os.epoch("utc")
+            return
+        end
+        local key = cacheKey(methodName, args)
         proxy._cache[key] = {
             results = results or {},
             timestamp = os.epoch("utc"),
-            meta = meta
+            meta = meta,
+            resultHash = meta and meta.resultHash or nil
         }
         proxy._pending[key] = nil
         proxy._nextRefreshAt[key] = nil
+    end
+
+    local function ensureSubscription(methodName, args)
+        if not SUBSCRIBE_METHODS[methodName] then
+            return
+        end
+        local key = cacheKey(methodName, args)
+        if proxy._subscriptions[key] then
+            return
+        end
+        local ok = proxy.subscribe(methodName, args or {}, SUBSCRIBE_INTERVAL_MS)
+        if ok then
+            proxy._subscriptions[key] = true
+        end
     end
 
     function proxy.subscribe(methodName, args, intervalMs, eventName)
@@ -166,6 +202,28 @@ function RemoteProxy.create(client, hostId, name, pType, methods, key, displayNa
 
     function proxy.unsubscribe(methodName, args)
         return client:unsubscribe(proxy._hostId, remoteName, methodName, args or {})
+    end
+
+    function proxy.ensureSubscription(methodName, args)
+        ensureSubscription(methodName, args)
+    end
+
+    function proxy.getCached(methodName, args)
+        local key = cacheKey(methodName, args)
+        local cached = proxy._cache[key]
+        if cached and cached.results then
+            return cached.results
+        end
+        return nil
+    end
+
+    function proxy.getActivitySnapshot()
+        return proxy._activity
+    end
+
+    function proxy.updateActivity(activity)
+        proxy._activity = activity
+        proxy._activityAt = os.epoch("utc")
     end
 
     local function pruneCache(now)
@@ -257,6 +315,8 @@ function RemoteProxy.create(client, hostId, name, pType, methods, key, displayNa
             local cached = proxy._cache[key]
             local age = cached and (now - cached.timestamp) or nil
 
+            ensureSubscription(methodName, args)
+
             -- Return cached value if fresh enough
             if cached and age < CACHE_TTL_MS then
                 if contextKey then
@@ -275,6 +335,9 @@ function RemoteProxy.create(client, hostId, name, pType, methods, key, displayNa
                 end
                 -- Fire async refresh if not already in-flight
                 local shouldRefresh = age >= CACHE_STALE_MS and now >= (proxy._nextRefreshAt[key] or 0)
+                if SUBSCRIBE_METHODS[methodName] and proxy._subscriptions[key] then
+                    shouldRefresh = false
+                end
                 if shouldRefresh and not proxy._pending[key] then
                     proxy._pending[key] = true
                     proxy._nextRefreshAt[key] = now + ASYNC_RETRY_MS

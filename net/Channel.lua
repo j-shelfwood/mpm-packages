@@ -98,22 +98,6 @@ function Channel:send(targetId, message)
     return rednet.send(targetId, envelope, self.protocol)
 end
 
--- Send a large read-only response WITHOUT HMAC signing.
--- Use ONLY for PERIPH_RESULT responses carrying massive payloads (e.g. ME item lists).
--- Request authentication (PERIPH_CALL) still uses Crypto.wrap - this only bypasses
--- the expensive payload hash on responses that contain no capability grants.
--- @param targetId Target computer ID
--- @param message Message table
--- @return success
-function Channel:sendUnsigned(targetId, message)
-    if not self.opened then
-        return false
-    end
-    -- Wrap in a plain envelope that receivers can detect as unsigned
-    local envelope = { _unsigned = true, d = message }
-    return rednet.send(targetId, envelope, self.protocol)
-end
-
 -- Broadcast a message
 -- @param message Message table (MUST have crypto secret set)
 function Channel:broadcast(message)
@@ -183,11 +167,6 @@ function Channel:receive(timeout)
         return nil, nil
     end
 
-    -- Accept unsigned PERIPH_RESULT envelopes (bypass heavy HMAC for read-only payloads)
-    if type(envelope) == "table" and envelope._unsigned == true then
-        return senderId, envelope.d
-    end
-
     -- Unwrap and verify crypto signature
     local data, err = Crypto.unwrap(envelope)
     if not data then
@@ -215,13 +194,7 @@ function Channel:handleEnvelope(senderId, envelope)
     end
 
     local message = nil
-    local data = nil
-    -- Accept unsigned PERIPH_RESULT envelopes (bypass HMAC for read-only payloads)
-    if type(envelope) == "table" and envelope._unsigned == true then
-        data = envelope.d
-    else
-        data = Crypto.unwrap(envelope)
-    end
+    local data = Crypto.unwrap(envelope)
     if type(data) == "table" and data.type then
         message = data
     end

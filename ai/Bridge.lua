@@ -64,31 +64,11 @@ print("[mpm-bridge] Ready. Press Ctrl+T to disconnect.")
 
 -- ── Command handlers ──────────────────────────────────────────────────────
 
-local function handleExecute(payload)
-    local code = payload.code
-    if type(code) ~= "string" then
-        return false, "payload.code must be a string"
-    end
-
-    local fn, loadErr = load(code, "mcp_exec", "t", _ENV)
-    if not fn then
-        return false, "Compile error: " .. tostring(loadErr)
-    end
-
-    local results = table.pack(pcall(fn))
-    local ok = table.remove(results, 1)
-    results.n = results.n - 1
-
-    if not ok then
-        return false, tostring(results[1])
-    end
-
-    -- Collect output values
-    local out = {}
-    for i = 1, results.n do
-        out[i] = results[i]
-    end
-    return true, (#out == 0 and textutils.empty_json_array or out)
+local Peripherals = mpm('utils/Peripherals')
+local okRemote, RemotePeripheral = pcall(mpm, 'net/RemotePeripheral')
+if okRemote and RemotePeripheral then
+    _G._native_peripheral = _G._native_peripheral or peripheral
+    _G.peripheral = RemotePeripheral
 end
 
 local function handleListFiles(payload)
@@ -136,12 +116,12 @@ local function handleWriteFile(payload)
 end
 
 local function handleListPeripherals(_payload)
-    local names = peripheral.getNames()
+    local names = Peripherals.getNames()
     local result = {}
     for _, name in ipairs(names) do
         table.insert(result, {
             name = name,
-            type = peripheral.getType(name),
+            type = Peripherals.getType(name),
         })
     end
     return true, result
@@ -154,12 +134,12 @@ local function handleCallPeripheral(payload)
 
     if not pname then return false, "payload.peripheral required" end
     if not method then return false, "payload.method required" end
-    if not peripheral.isPresent(pname) then
+    if not Peripherals.isPresent(pname) then
         return false, "Peripheral not present: " .. pname
     end
 
     local ok, results = pcall(function()
-        return table.pack(peripheral.call(pname, method, table.unpack(pargs)))
+        return table.pack(Peripherals.call(pname, method, table.unpack(pargs)))
     end)
 
     if not ok then
@@ -172,7 +152,6 @@ local function handleCallPeripheral(payload)
 end
 
 local handlers = {
-    execute         = handleExecute,
     list_files      = handleListFiles,
     read_file       = handleReadFile,
     write_file      = handleWriteFile,

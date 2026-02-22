@@ -6,6 +6,12 @@ local RemoteProxy = mpm('net/RemoteProxy')
 
 local RemotePeripheral = {}
 
+_G._native_peripheral = _G._native_peripheral or peripheral
+
+local function nativePeripheral()
+    return _G._native_peripheral or peripheral
+end
+
 local function normalizeTypeToken(typeName)
     if type(typeName) ~= "string" or typeName == "" then
         return nil
@@ -58,7 +64,7 @@ end
 -- @return peripheral or nil (can return multiple if no filter)
 function RemotePeripheral.find(pType, filter)
     -- Try local first
-    local locals = {peripheral.find(pType, filter)}
+    local locals = {nativePeripheral().find(pType, filter)}
     if #locals > 0 then
         return table.unpack(locals)
     end
@@ -89,7 +95,7 @@ function RemotePeripheral.findAll(pType)
     local results = {}
 
     -- Get locals
-    local locals = {peripheral.find(pType)}
+    local locals = {nativePeripheral().find(pType)}
     for _, p in ipairs(locals) do
         table.insert(results, p)
     end
@@ -111,7 +117,7 @@ end
 -- @return peripheral or nil
 function RemotePeripheral.wrap(name)
     -- Try local first
-    local p = peripheral.wrap(name)
+    local p = nativePeripheral().wrap(name)
     if p then
         return p
     end
@@ -131,7 +137,7 @@ function RemotePeripheral.getNames()
     local names = {}
     local seen = {}
 
-    for _, name in ipairs(peripheral.getNames()) do
+    for _, name in ipairs(nativePeripheral().getNames()) do
         if not seen[name] then
             table.insert(names, name)
             seen[name] = true
@@ -156,7 +162,7 @@ end
 -- @param name Peripheral name
 -- @return boolean
 function RemotePeripheral.isPresent(name)
-    if peripheral.isPresent(name) then
+    if nativePeripheral().isPresent(name) then
         return true
     end
 
@@ -177,11 +183,11 @@ function RemotePeripheral.getType(name)
         if RemoteProxy.isProxy(name) then
             return name._type
         end
-        return peripheral.getType(name)
+        return nativePeripheral().getType(name)
     end
 
     -- Try local
-    local pType = peripheral.getType(name)
+    local pType = nativePeripheral().getType(name)
     if pType then
         return pType
     end
@@ -205,14 +211,14 @@ function RemotePeripheral.hasType(name, pType)
         if RemoteProxy.isProxy(name) then
             return typeMatches(name._type, pType)
         end
-        return peripheral.hasType(name, pType)
+        return nativePeripheral().hasType(name, pType)
     end
 
     local client = _G._shelfos_peripheralClient
-    local localPresent = peripheral.isPresent(name)
+    local localPresent = nativePeripheral().isPresent(name)
 
     -- Local-first when matching, but do not let local false mask valid remote type.
-    if localPresent and peripheral.hasType(name, pType) then
+    if localPresent and nativePeripheral().hasType(name, pType) then
         return true
     end
 
@@ -235,7 +241,7 @@ end
 -- @return Array of method names or nil
 function RemotePeripheral.getMethods(name)
     -- Try local
-    local methods = peripheral.getMethods(name)
+    local methods = nativePeripheral().getMethods(name)
     if methods then
         return methods
     end
@@ -256,8 +262,8 @@ end
 -- @return Method results
 function RemotePeripheral.call(name, method, ...)
     -- Check if local
-    if peripheral.isPresent(name) then
-        return peripheral.call(name, method, ...)
+    if nativePeripheral().isPresent(name) then
+        return nativePeripheral().call(name, method, ...)
     end
 
     -- Try remote

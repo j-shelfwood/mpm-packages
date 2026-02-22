@@ -3,6 +3,7 @@
 -- Replicates wired modem's peripheral sharing behavior
 
 local Protocol = mpm('net/Protocol')
+local MachineActivity = mpm('peripherals/MachineActivity')
 
 local PeripheralHost = {}
 PeripheralHost.__index = PeripheralHost
@@ -28,6 +29,11 @@ local STRIP_METHODS = {
     getCraftableFluids = true,
     getCraftableChemicals = true,
 }
+
+local DEFAULT_CHUNK_LIMIT = 200
+local MAX_CHUNK_LIMIT = 1000
+local SNAPSHOT_TTL_MS = 5000
+local ACTIVITY_POLL_INTERVAL_MS = 1500
 
 -- Fields to keep from ME Bridge resource lists
 -- Everything else (tags, components, fingerprint, maxStackSize, fluidType) is stripped
@@ -138,6 +144,33 @@ local function stripResourceList(items)
     return stripped
 end
 
+local function sliceList(items, offset, limit)
+    if type(items) ~= "table" then
+        return items
+    end
+    local total = #items
+    local safeOffset = math.max(0, math.floor(tonumber(offset) or 0))
+    local safeLimit = math.max(1, math.floor(tonumber(limit) or DEFAULT_CHUNK_LIMIT))
+    safeLimit = math.min(safeLimit, MAX_CHUNK_LIMIT)
+    local endIndex = math.min(total, safeOffset + safeLimit)
+    local chunk = {}
+    for i = safeOffset + 1, endIndex do
+        chunk[#chunk + 1] = items[i]
+    end
+    return chunk, total, safeOffset, safeLimit, endIndex >= total
+end
+
+local function cleanupSnapshots(self, now)
+    if not self.snapshots then
+        return
+    end
+    for queryId, snapshot in pairs(self.snapshots) do
+        if not snapshot or (snapshot.expiresAt or 0) <= now then
+            self.snapshots[queryId] = nil
+        end
+    end
+end
+
 -- Create a new peripheral host
 -- @param channel Channel instance for network communication
 -- @param computerId Computer identifier
@@ -152,6 +185,9 @@ function PeripheralHost.new(channel, computerId, computerName)
     self.stateHash = ""
     self.activityListener = nil
     self.subscriptions = {} -- { clientId -> { [key] = sub } }
+    self.clients = {}
+    self.snapshots = {}
+    self.lastActivityPollAt = 0
 
     return self
 end
@@ -183,6 +219,28 @@ local function isShareable(peripheralType)
     return true
 end
 
+local function snapshotKey(peripheralName, methodName, args)
+    return subscriptionKey(peripheralName, methodName, args)
+end
+
+local function makeSnapshotId()
+    return string.format("snap_%d_%d", os.epoch("utc"), math.random(1000, 9999))
+end
+
+local function buildActivitySummary(info)
+    if not info or not info.peripheral or not MachineActivity then
+        return nil
+    end
+    if not MachineActivity.supportsActivity(info.peripheral) then
+        return nil
+    end
+    local active, data = MachineActivity.getActivity(info.peripheral)
+    return {
+        active = active and true or false,
+        data = data or {}
+    }
+end
+
 -- Scan for local peripherals to share
 function PeripheralHost:scan()
     self.peripherals = {}
@@ -195,12 +253,17 @@ function PeripheralHost:scan()
             local methods = peripheral.getMethods(name)
             local p = peripheral.wrap(name)
 
-            self.peripherals[name] = {
+            local info = {
                 name = name,
                 type = pType,
                 methods = methods,
                 peripheral = p
             }
+            info.activity = buildActivitySummary(info)
+            if info.activity then
+                info.activityHash = hashResults({ info.activity.active, info.activity.data })
+            end
+            self.peripherals[name] = info
         end
     end
 
@@ -229,7 +292,8 @@ function PeripheralHost:getPeripheralList()
         table.insert(list, {
             name = name,
             type = info.type,
-            methods = info.methods
+            methods = info.methods,
+            activity = info.activity
         })
     end
     return list
@@ -239,9 +303,17 @@ end
 function PeripheralHost:announce()
     if not self.channel then return false end
 
+    local activity = {}
+    for name, info in pairs(self.peripherals) do
+        if info.activity then
+            activity[name] = info.activity
+        end
+    end
+
     local msg = Protocol.createPeriphAnnounce(self.computerId, self.computerName, {
         stateHash = self.stateHash,
-        peripheralCount = self:getPeripheralCount()
+        peripheralCount = self:getPeripheralCount(),
+        activity = next(activity) and activity or nil
     })
 
     self.channel:broadcast(msg)
@@ -256,6 +328,7 @@ end
 -- @param senderId Requesting computer ID
 -- @param msg The discover message
 function PeripheralHost:handleDiscover(senderId, msg)
+    self.clients[senderId] = true
     local peripherals = self:getPeripheralList()
     local response = Protocol.createPeriphList(msg, peripherals, self.computerId, self.computerName)
     self.channel:send(senderId, response)
@@ -290,6 +363,7 @@ local function methodExists(info, methodName)
 end
 
 function PeripheralHost:handleSubscribe(senderId, msg)
+    self.clients[senderId] = true
     local peripheralName = msg.data.peripheral
     local methodName = msg.data.method
     local args = msg.data.args or {}
@@ -385,6 +459,40 @@ function PeripheralHost:pollSubscriptions()
     end
 end
 
+function PeripheralHost:pollActivitySnapshots()
+    if not self.channel then return end
+    local now = os.epoch("utc")
+    if now - (self.lastActivityPollAt or 0) < ACTIVITY_POLL_INTERVAL_MS then
+        return
+    end
+    self.lastActivityPollAt = now
+
+    if not next(self.clients or {}) then
+        return
+    end
+
+    for name, info in pairs(self.peripherals) do
+        local activity = buildActivitySummary(info)
+        if activity then
+            local hash = hashResults({ activity.active, activity.data })
+            if hash ~= info.activityHash then
+                info.activityHash = hash
+                info.activity = activity
+                local payload = {
+                    peripheral = name,
+                    method = "activity",
+                    results = { activity.active, activity.data },
+                    meta = { activity = true },
+                    hostId = self.computerId
+                }
+                for clientId in pairs(self.clients) do
+                    self.channel:send(clientId, Protocol.createPeriphStatePush(payload))
+                end
+            end
+        end
+    end
+end
+
 -- Handle peripheral method call
 -- @param senderId Requesting computer ID
 -- @param msg The call message
@@ -394,6 +502,8 @@ function PeripheralHost:handleCall(senderId, msg)
     local methodName = msg.data.method
     local args = msg.data.args or {}
     local options = msg.data.options or {}
+    local now = os.epoch("utc")
+    cleanupSnapshots(self, now)
 
     -- Find the peripheral
     local info = self.peripherals[peripheralName]
@@ -417,38 +527,103 @@ function PeripheralHost:handleCall(senderId, msg)
         return
     end
 
-    -- Execute with pcall for safety
-    local results = {pcall(method, table.unpack(args))}
-    local success = table.remove(results, 1)
+    local results = nil
+    local success = false
+    local usingSnapshot = false
+    local snapshotId = type(options.queryId) == "string" and options.queryId or nil
+    local argsKey = snapshotKey(peripheralName, methodName, args)
+    local snapshot = nil
+
+    if STRIP_METHODS[methodName] and snapshotId then
+        local cached = self.snapshots[snapshotId]
+        if cached
+            and cached.peripheral == peripheralName
+            and cached.method == methodName
+            and cached.argsKey == argsKey
+            and (cached.expiresAt or 0) > now then
+            snapshot = cached
+            snapshot.expiresAt = now + SNAPSHOT_TTL_MS
+            results = { snapshot.items }
+            success = true
+            usingSnapshot = true
+        elseif (options.offset or 0) > 0 then
+            sendCallError(self, senderId, msg, peripheralName, methodName, "snapshot_expired", "snapshot_expired")
+            return
+        end
+    elseif STRIP_METHODS[methodName] and (options.offset or 0) > 0 then
+        sendCallError(self, senderId, msg, peripheralName, methodName, "snapshot_required", "snapshot_required")
+        return
+    end
+
+    if not usingSnapshot then
+        -- Execute with pcall for safety
+        results = {pcall(method, table.unpack(args))}
+        success = table.remove(results, 1)
+    end
 
     if success then
         local resultHash = nil
         -- Strip bulky fields from large resource lists to prevent RPC timeouts
         -- ME Bridge getItems/getFluids/etc return tags, components, fingerprint per item
         -- which inflates serialization size 10-100x beyond what consumers need
-        if STRIP_METHODS[methodName] and results[1] and type(results[1]) == "table" then
-            results[1] = stripResourceList(results[1])
-            resultHash = hashResourceRows(results[1])
-        end
-
         local responseResults = results
-        if resultHash and type(options.resultHash) == "string" and options.resultHash == resultHash then
-            responseResults = nil
-        end
+        if STRIP_METHODS[methodName] and results[1] and type(results[1]) == "table" then
+            local stripped = results[1]
+            if not usingSnapshot then
+                stripped = stripResourceList(results[1])
+                results[1] = stripped
+            end
+            resultHash = snapshot and snapshot.resultHash or hashResourceRows(stripped)
 
-        local response = Protocol.createPeriphResult(msg, responseResults)
-        if resultHash then
+            local offset = options.offset or 0
+            local limit = options.limit or DEFAULT_CHUNK_LIMIT
+            local chunk, total, safeOffset, safeLimit, done = sliceList(stripped, offset, limit)
+            responseResults = results
+            responseResults[1] = chunk
+
+            if type(options.resultHash) == "string"
+                and options.resultHash == resultHash
+                and not options.page
+                and (not options.offset or options.offset == 0) then
+                responseResults = nil
+            end
+
+            local queryId = snapshotId
+            if not queryId and not done then
+                queryId = makeSnapshotId()
+                self.snapshots[queryId] = {
+                    items = stripped,
+                    resultHash = resultHash,
+                    peripheral = peripheralName,
+                    method = methodName,
+                    argsKey = argsKey,
+                    expiresAt = now + SNAPSHOT_TTL_MS
+                }
+            end
+
+            local response = Protocol.createPeriphResult(msg, responseResults)
             response.data.meta = {
                 resultHash = resultHash,
-                unchanged = responseResults == nil
+                unchanged = responseResults == nil,
+                chunked = true,
+                total = total,
+                offset = safeOffset,
+                limit = safeLimit,
+                done = done,
+                queryId = queryId
             }
-        end
-        -- Large read-only payloads (getItems, getFluids, etc.) bypass HMAC signing
-        -- to avoid CPU Watchdog crashes from serializing + hashing 50k-item arrays.
-        -- Request authentication (PERIPH_CALL) is still HMAC-verified.
-        if STRIP_METHODS[methodName] then
-            self.channel:sendUnsigned(senderId, response)
+            self.channel:send(senderId, response)
         else
+            if resultHash and type(options.resultHash) == "string" and options.resultHash == resultHash then
+                responseResults = nil
+            end
+            local response = Protocol.createPeriphResult(msg, responseResults)
+            if resultHash then
+                response.data.meta = {
+                    resultHash = resultHash,
+                    unchanged = responseResults == nil
+                }
+            end
             self.channel:send(senderId, response)
         end
         self:emitActivity("call", {

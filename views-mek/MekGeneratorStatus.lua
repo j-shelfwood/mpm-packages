@@ -4,6 +4,7 @@
 local BaseView = mpm('views/BaseView')
 local MonitorHelpers = mpm('utils/MonitorHelpers')
 local Peripherals = mpm('utils/Peripherals')
+local Activity = mpm('peripherals/MachineActivity')
 local Yield = mpm('utils/Yield')
 
 local GENERATOR_TYPES = {
@@ -105,7 +106,8 @@ return BaseView.custom({
 
         for idx, gen in ipairs(generators) do
             local p = gen.peripheral
-            local production = safeCall(p, "getProductionRate") or 0
+            local _, activity = Activity.getActivity(p)
+            local production = (activity and activity.rate) or 0
             local maxOutput = safeCall(p, "getMaxOutput") or 0
             local energyPct = safeCall(p, "getEnergyFilledPercentage") or 0
             local extra = {}

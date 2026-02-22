@@ -153,13 +153,12 @@ Most messages wrapped with `Crypto.wrap()` (HMAC-signed):
 | `DISCOVER` | Yes | Request zone metadata |
 | `PERIPH_ANNOUNCE` | Yes | Peripheral availability |
 | `PERIPH_CALL` | Yes | Remote peripheral method call (authorization) |
-| `PERIPH_RESULT` (normal) | Yes | Method call response |
-| `PERIPH_RESULT` (large list) | **No** | Inventory response — unsigned to avoid CPU crash |
+| `PERIPH_RESULT` | Yes | Method call response (chunked for large lists) |
 
-**Large payload exception:** `PERIPH_RESULT` responses for `getItems`, `getFluids`, `getChemicals`
-and their craftable variants bypass `Crypto.wrap()` to prevent CPU Watchdog crashes from
-serializing + hashing 50,000-item ME arrays. The request (`PERIPH_CALL`) is still HMAC-verified.
-Unsigned responses are detected by `Channel:receive()` via `envelope._unsigned == true`.
+**Large payload handling:** `PERIPH_RESULT` responses for `getItems`, `getFluids`, `getChemicals`
+and their craftable variants are returned in signed chunks with `meta.chunked=true`. Clients
+page through results using `options.offset`/`options.limit` to avoid watchdog crashes while
+preserving HMAC integrity.
 
 ## Secret Storage
 
@@ -258,6 +257,13 @@ ZONE                                    POCKET
 
 ### HMAC Signing
 
+### MCP/AI Bridge Trust Downgrade
+
+The MCP bridge (`mpm-mcp-server` + `ai/Bridge.lua`) exposes remote file and peripheral access,
+and can optionally enable raw Lua execution. A node connected to the MCP bridge is effectively
+outside the display-only pairing trust model. Treat MCP-connected nodes as untrusted and avoid
+using them as secure swarm authorities.
+
 Most swarm messages are HMAC-signed:
 
 ```lua
@@ -270,11 +276,10 @@ envelope = {
 }
 ```
 
-**Exception — large read-only payloads:** `PERIPH_RESULT` responses carrying massive inventory
-lists (ME Bridge `getItems`, `getFluids`, `getChemicals`, etc.) are sent unsigned to avoid CPU
-Watchdog crashes. These envelopes use `{ _unsigned = true, d = message }` and are accepted without
-HMAC verification. This is safe because the data is read-only inventory state — no capability is
-granted by receiving it. The originating `PERIPH_CALL` request was already HMAC-verified.
+**Large payload handling:** `PERIPH_RESULT` responses carrying massive inventory lists (ME Bridge
+`getItems`, `getFluids`, `getChemicals`, etc.) are sent as signed chunks with pagination metadata.
+The host returns a short-lived `queryId` snapshot so clients can page without list tearing while
+preserving HMAC verification.
 
 ### Nonce Tracking
 

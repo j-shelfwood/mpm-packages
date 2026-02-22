@@ -1,4 +1,5 @@
 local Protocol = mpm('net/Protocol')
+local PeripheralRegistry = mpm('net/PeripheralRegistry')
 local Yield = mpm('utils/Yield')
 
 local PeripheralDiscovery = {}
@@ -68,13 +69,19 @@ function PeripheralDiscovery.handleAnnounce(client, senderId, msg)
     if data.peripherals then
         client:removeHostRemotes(senderId)
         for _, pInfo in ipairs(data.peripherals) do
-            client:registerRemote(senderId, pInfo.name, pInfo.type, pInfo.methods, data.computerName, true)
+            client:registerRemote(senderId, pInfo.name, pInfo.type, pInfo.methods, pInfo.activity, data.computerName, true)
         end
         client:rebuildNameIndexes()
         if data.stateHash then
             client.hostStateHashes[senderId] = data.stateHash
         end
         return
+    end
+
+    if data.activity then
+        for name, activity in pairs(data.activity) do
+            PeripheralRegistry.updateActivity(client, senderId, name, activity)
+        end
     end
 
     local stateHash = data.stateHash
@@ -107,7 +114,7 @@ function PeripheralDiscovery.handlePeriphList(client, senderId, msg)
     client:removeHostRemotes(senderId)
 
     for _, pInfo in ipairs(data.peripherals) do
-        client:registerRemote(senderId, pInfo.name, pInfo.type, pInfo.methods, nil, true)
+        client:registerRemote(senderId, pInfo.name, pInfo.type, pInfo.methods, pInfo.activity, nil, true)
     end
     client:rebuildNameIndexes()
 
