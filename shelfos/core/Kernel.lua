@@ -9,6 +9,7 @@ local KernelNetwork = mpm('shelfos/core/KernelNetwork')
 local KernelMenu = mpm('shelfos/core/KernelMenu')
 local ViewManager = mpm('views/Manager')
 local MachineActivity = mpm('peripherals/MachineActivity')
+local Yield = mpm('utils/Yield')
 
 local Kernel = {}
 Kernel.__index = Kernel
@@ -107,7 +108,10 @@ end
 function Kernel:keyboardLoop(runningRef)
     while runningRef.value do
         local waitStart = os.epoch("utc")
-        local event, p1 = os.pullEvent()
+        local event, p1 = Yield.waitForEvent(function(ev)
+            local name = ev[1]
+            return name == "key" or name == "peripheral" or name == "peripheral_detach"
+        end)
         local waitDuration = os.epoch("utc") - waitStart
         local handlerStart = os.epoch("utc")
 
@@ -149,7 +153,10 @@ end
 
 function Kernel:dashboardLoop(runningRef)
     while runningRef.value do
-        local event, p1 = os.pullEvent()
+        local event, p1 = Yield.waitForEvent(function(ev)
+            local name = ev[1]
+            return name == "dashboard_dirty" or name == "term_resize"
+        end)
 
         if event == "dashboard_dirty" then
             if self.dashboard and not Terminal.isDialogOpen() and not self.pairingActive then

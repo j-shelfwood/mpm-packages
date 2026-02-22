@@ -5,6 +5,7 @@
 
 local Core = mpm('ui/Core')
 local Keys = mpm('utils/Keys')
+local Yield = mpm('utils/Yield')
 
 local TermUI = {}
 
@@ -354,7 +355,9 @@ end
 -- @return The mapped value for the pressed key
 function TermUI.waitForKey(validKeys)
     while true do
-        local _, keyCode = os.pullEvent("key")
+        local _, keyCode = Yield.waitForEvent(function(ev)
+            return ev[1] == "key"
+        end)
         local keyName = keys.getName(keyCode)
 
         if keyName then
@@ -377,7 +380,9 @@ end
 -- Wait for any key press
 -- @return key name
 function TermUI.waitForAnyKey()
-    local _, keyCode = os.pullEvent("key")
+    local _, keyCode = Yield.waitForEvent(function(ev)
+        return ev[1] == "key"
+    end)
     return keys.getName(keyCode)
 end
 

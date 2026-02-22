@@ -119,6 +119,10 @@ function RemoteProxy.create(client, hostId, name, pType, methods, key, displayNa
     proxy._lastCacheSweepAt = 0
     proxy._subscriptions = {}
 
+    proxy._pruneCache = function(now)
+        pruneCache(now or os.epoch("utc"))
+    end
+
     -- Auto-reconnect if disconnected and cooldown has elapsed
     local function ensureConnected()
         if proxy._connected then

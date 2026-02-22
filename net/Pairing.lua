@@ -11,6 +11,7 @@
 local Protocol = mpm('net/Protocol')
 local Crypto = mpm('net/Crypto')
 local ModemUtils = mpm('utils/ModemUtils')
+local Yield = mpm('utils/Yield')
 
 local Pairing = {}
 
@@ -150,7 +151,10 @@ function Pairing.acceptFromPocket(callbacks)
         if not tickTimer then
             tickTimer = os.startTimer(0.5)
         end
-        local event, p1, p2, p3 = os.pullEvent()
+        local event, p1, p2, p3 = Yield.waitForEvent(function(ev)
+            local name = ev[1]
+            return name == "timer" or name == "rednet_message" or name == "key"
+        end)
 
         if event == "timer" and p1 == tickTimer then
             tickTimer = nil
@@ -271,7 +275,10 @@ function Pairing.deliverToPending(secret, computerId, callbacks, timeout)
         if not scanTimer then
             scanTimer = os.startTimer(0.3)
         end
-        local event, p1, p2, p3 = os.pullEvent()
+        local event, p1, p2, p3 = Yield.waitForEvent(function(ev)
+            local name = ev[1]
+            return name == "timer" or name == "rednet_message" or name == "key"
+        end)
 
         if event == "timer" and p1 == scanTimer then
             scanTimer = nil
@@ -379,7 +386,10 @@ function Pairing.deliverToPending(secret, computerId, callbacks, timeout)
                             if not confirmTimer then
                                 confirmTimer = os.startTimer(0.5)
                             end
-                            local cEvent, cp1, cp2, cp3 = os.pullEvent()
+                            local cEvent, cp1, cp2, cp3 = Yield.waitForEvent(function(ev)
+                                local name = ev[1]
+                                return name == "timer" or name == "rednet_message"
+                            end)
 
                             if cEvent == "timer" and cp1 == confirmTimer then
                                 confirmTimer = nil

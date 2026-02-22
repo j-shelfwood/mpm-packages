@@ -201,9 +201,9 @@ function KernelNetwork.loop(kernel, runningRef)
                     end
                 end
 
-                -- Clean up expired async requests (prevents memory leaks)
+                -- Clean up expired async requests and caches (prevents memory leaks)
                 if now - lastCleanup > cleanupInterval then
-                    kernel.peripheralClient:cleanupExpired()
+                    kernel.peripheralClient:tick(now)
                     lastCleanup = now
                 end
             end

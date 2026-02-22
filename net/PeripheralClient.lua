@@ -5,6 +5,7 @@ local PeripheralDiscovery = mpm('net/PeripheralDiscovery')
 local PeripheralRPC = mpm('net/PeripheralRPC')
 local PeripheralRegistry = mpm('net/PeripheralRegistry')
 local Protocol = mpm('net/Protocol')
+local Yield = mpm('utils/Yield')
 
 local PeripheralClient = {}
 PeripheralClient.__index = PeripheralClient
@@ -158,6 +159,22 @@ end
 
 function PeripheralClient:cleanupExpired()
     PeripheralRPC.cleanupExpired(self)
+end
+
+function PeripheralClient:tick(now)
+    PeripheralRPC.cleanupExpired(self)
+    local ts = now or os.epoch("utc")
+    local count = 0
+    for _, info in pairs(self.remotePeripherals or {}) do
+        local proxy = info and info.proxy or nil
+        if proxy and type(proxy._pruneCache) == "function" then
+            proxy._pruneCache(ts)
+        end
+        count = count + 1
+        if count % 50 == 0 then
+            Yield.yield()
+        end
+    end
 end
 
 function PeripheralClient:isPresent(name)

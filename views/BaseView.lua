@@ -43,6 +43,24 @@ function BaseView.create(definition)
 
     local viewType = definition.type or BaseView.Type.CUSTOM
 
+    local function sliceData(self, data)
+        if viewType == BaseView.Type.CUSTOM then
+            return data
+        end
+        if type(data) ~= "table" then
+            return data
+        end
+        local maxVisible = math.max(1, (self.width or 1) * (self.height or 1))
+        if #data <= maxVisible then
+            return data
+        end
+        local sliced = {}
+        for i = 1, maxVisible do
+            sliced[i] = data[i]
+        end
+        return sliced
+    end
+
     local function doRender(self, data)
         self.monitor.setBackgroundColor(colors.black)
         self.monitor.setTextColor(colors.white)
@@ -173,7 +191,7 @@ function BaseView.create(definition)
         end,
 
         renderWithData = function(self, data)
-            doRender(self, data)
+            doRender(self, sliceData(self, data))
         end,
 
         renderError = function(self, errorMsg)
@@ -202,7 +220,7 @@ function BaseView.create(definition)
                 return
             end
 
-            doRender(self, data)
+            doRender(self, sliceData(self, data))
         end
     }
 end

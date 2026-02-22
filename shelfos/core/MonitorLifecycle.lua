@@ -272,13 +272,28 @@ function MonitorLifecycle.runLoop(monitor, running)
         monitor:scheduleLoadRetry(1)
     end
 
+    local function shouldHandleEvent(event, p1)
+        if event == "timer" then
+            return true
+        end
+        if event == "monitor_touch" or event == "monitor_resize" then
+            return p1 == monitor.peripheralName
+        end
+        if event == "peripheral" or event == "peripheral_detach" then
+            return p1 == monitor.peripheralName
+        end
+        return listensFor(monitor, event)
+    end
+
     while isRunning() do
         if monitor.inConfigMenu or monitor.pairingMode then
             Yield.sleep(0.05)
             goto continue
         end
 
-        local event, p1, p2, p3 = os.pullEvent()
+        local event, p1, p2, p3 = Yield.waitForEvent(function(ev)
+            return shouldHandleEvent(ev[1], ev[2])
+        end)
 
         if event == "timer" then
             monitor:handleTimer(p1)

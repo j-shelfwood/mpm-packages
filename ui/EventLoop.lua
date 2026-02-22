@@ -2,6 +2,8 @@
 -- Shared event loop helpers for mixed key + monitor touch input flows
 
 
+local Yield = mpm('utils/Yield')
+
 local EventLoop = {}
 local TOUCH_GUARD_UNTIL = {}
 local DRAIN_EVENT_PREFIX = "mpm_touch_drain_" .. tostring(os.epoch("utc")) .. "_"
@@ -104,7 +106,15 @@ function EventLoop.waitForMonitorEvent(monitorName, opts)
     local acceptTermResize = opts.acceptTermResize == true
 
     while true do
-        local event, p1, p2, p3 = os.pullEvent()
+        local event, p1, p2, p3 = Yield.waitForEvent(function(ev)
+            local name = ev[1]
+            if name == "monitor_touch" then return true end
+            if name == "monitor_resize" then return true end
+            if name == "peripheral_detach" then return true end
+            if name == "key" and acceptKey then return true end
+            if name == "term_resize" and acceptTermResize then return true end
+            return false
+        end)
 
         if event == "monitor_touch" then
             if isTouchGuarded(p1) then
@@ -185,7 +195,9 @@ end
 -- @return keyCode
 function EventLoop.waitForKey()
     while true do
-        local event, keyCode = os.pullEvent()
+        local event, keyCode = Yield.waitForEvent(function(ev)
+            return ev[1] == "key"
+        end)
         if event == "key" then
             return keyCode
         end

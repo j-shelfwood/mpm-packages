@@ -68,6 +68,28 @@ function Yield.sleep(seconds)
     end
 end
 
+-- Wait for an event that matches the predicate while preserving others.
+-- @param matcher Function(eventTable) -> boolean
+-- @return unpacked event values
+function Yield.waitForEvent(matcher)
+    if type(matcher) ~= "function" then
+        error("Yield.waitForEvent requires a matcher function")
+    end
+
+    local events = {}
+
+    while true do
+        local event = { os.pullEvent() }
+        if matcher(event) then
+            for _, queued in ipairs(events) do
+                os.queueEvent(table.unpack(queued))
+            end
+            return table.unpack(event)
+        end
+        table.insert(events, event)
+    end
+end
+
 -- Yield if counter reaches interval
 -- @param counter Current iteration count
 -- @param interval Yield every N iterations (default: 100)
