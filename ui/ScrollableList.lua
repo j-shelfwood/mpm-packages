@@ -17,6 +17,8 @@ local EventLoop = mpm('ui/EventLoop')
 local ScrollableList = {}
 ScrollableList.__index = ScrollableList
 
+local TOUCH_DEBOUNCE_MS = 200
+
 -- Action constants returned from show()
 ScrollableList.ACTION_SELECT    = "select"
 ScrollableList.ACTION_CONFIGURE = "configure"
@@ -77,6 +79,10 @@ function ScrollableList.new(monitor, items, opts)
 
     -- Currently highlighted item value (two-step pending state)
     self.pendingValue = nil
+
+    self.lastTouchAt = 0
+    self.lastTouchX = nil
+    self.lastTouchY = nil
 
     self.scrollOffset = 0
     self.width, self.height = monitor.getSize()
@@ -433,7 +439,23 @@ function ScrollableList:show()
         elseif kind == "resize" then
             -- redraw on next iteration
         elseif kind == "touch" then
+            if monitorName then
+                EventLoop.armTouchGuard(monitorName, 150)
+            end
+            local now = os.epoch("utc")
+            if x == self.lastTouchX and y == self.lastTouchY and (now - (self.lastTouchAt or 0)) < TOUCH_DEBOUNCE_MS then
+                if monitorName then
+                    EventLoop.drainMonitorTouches(monitorName, 3)
+                end
+                goto continue
+            end
+            self.lastTouchAt = now
+            self.lastTouchX = x
+            self.lastTouchY = y
             local result = self:handleTouch(x, y, visible)
+            if monitorName then
+                EventLoop.drainMonitorTouches(monitorName, 3)
+            end
 
             if result == nil then
                 -- no-op or group toggle (re-render)
@@ -467,6 +489,7 @@ function ScrollableList:show()
                 return result, nil
             end
         end
+        ::continue::
     end
 end
 
