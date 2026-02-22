@@ -298,9 +298,11 @@ function MonitorLifecycle.runLoop(monitor, running)
         if event == "timer" then
             monitor:handleTimer(p1)
         elseif event == "monitor_touch" then
+            pcall(os.queueEvent, "dashboard_event", { event = "monitor_touch", detail = monitor.peripheralName })
             monitor:handleTouch(p1, p2, p3)
         elseif event == "monitor_resize" then
             if p1 == monitor.peripheralName then
+                pcall(os.queueEvent, "dashboard_event", { event = "monitor_resize", detail = monitor.peripheralName })
                 monitor:handleResize()
             end
         elseif event == "peripheral" then

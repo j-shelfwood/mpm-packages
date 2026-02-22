@@ -106,6 +106,13 @@ function Kernel:run()
 end
 
 function Kernel:keyboardLoop(runningRef)
+    local function emitDashboardEvent(eventName, detail)
+        pcall(os.queueEvent, "dashboard_event", {
+            event = eventName,
+            detail = detail
+        })
+    end
+
     while runningRef.value do
         local waitStart = os.epoch("utc")
         local event, p1 = Yield.waitForEvent(function(ev)
@@ -119,12 +126,14 @@ function Kernel:keyboardLoop(runningRef)
             if self.pairingActive then
                 goto continue
             end
+            emitDashboardEvent("key", keys.getName(p1))
             KernelMenu.handleKey(self, p1, runningRef)
             if self.dashboard then
                 self.dashboard:requestRedraw()
             end
 
         elseif event == "peripheral" or event == "peripheral_detach" then
+            emitDashboardEvent(event, p1)
             ViewManager.invalidateMountableCache()
             MachineActivity.invalidateCache()
 
@@ -155,7 +164,7 @@ function Kernel:dashboardLoop(runningRef)
     while runningRef.value do
         local event, p1 = Yield.waitForEvent(function(ev)
             local name = ev[1]
-            return name == "dashboard_dirty" or name == "term_resize"
+            return name == "dashboard_dirty" or name == "term_resize" or name == "dashboard_event"
         end)
 
         if event == "dashboard_dirty" then
@@ -177,6 +186,11 @@ function Kernel:dashboardLoop(runningRef)
                 if self.dashboard then
                     self.dashboard:requestRedraw()
                 end
+            end
+        elseif event == "dashboard_event" then
+            if self.dashboard then
+                local detail = p1 or {}
+                self.dashboard:recordLocalEvent(detail.event, detail.detail)
             end
         end
     end

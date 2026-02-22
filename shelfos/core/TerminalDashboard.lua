@@ -24,7 +24,12 @@ function TerminalDashboard.new()
         call = 0,
         call_error = 0,
         rescan = 0,
-        rx = 0
+        rx = 0,
+        key = 0,
+        touch = 0,
+        resize = 0,
+        attach = 0,
+        detach = 0
     }
     self.rate = { msgPerSec = 0 }
     self.prevRxCount = 0
@@ -35,6 +40,9 @@ function TerminalDashboard.new()
     self.message = "Booting..."
     self.messageColor = colors.lightGray
     self.messageAt = os.epoch("utc")
+    self.currentEvent = nil
+    self.currentEventAt = 0
+    self.currentEventColor = colors.white
     self.redrawPending = true
     self.lastRenderAt = 0
     self.lastWaitAvg = 0
@@ -77,6 +85,35 @@ function TerminalDashboard:markActivity(key, message, color)
         self.stats[key] = self.stats[key] + 1
     end
     self:setMessage(message, color)
+end
+
+function TerminalDashboard:setCurrentEvent(label, color)
+    self.currentEvent = label
+    self.currentEventAt = os.epoch("utc")
+    self.currentEventColor = color or colors.white
+    self:requestRedraw()
+end
+
+function TerminalDashboard:recordLocalEvent(eventName, detail)
+    local keyMap = {
+        key = "key",
+        monitor_touch = "touch",
+        monitor_resize = "resize",
+        peripheral = "attach",
+        peripheral_detach = "detach"
+    }
+    local activityKey = keyMap[eventName]
+    if activityKey then
+        self.lastActivity[activityKey] = os.epoch("utc")
+        if self.stats[activityKey] ~= nil then
+            self.stats[activityKey] = self.stats[activityKey] + 1
+        end
+    end
+    local label = eventName or "event"
+    if detail and detail ~= "" then
+        label = label .. " " .. tostring(detail)
+    end
+    self:setCurrentEvent(label, colors.lightGray)
 end
 
 function TerminalDashboard:recordNetworkDrain(drained)
@@ -298,6 +335,12 @@ function TerminalDashboard:render(kernel)
         y = drawMetricRow(y, "Network", self.networkLabel, self.networkColor, nil, nil, nil)
     end
 
+    if self.currentEvent then
+        local ageMs = now - (self.currentEventAt or now)
+        TermUI.drawText(contentX, y, DashboardUtils.truncateText("Now: " .. self.currentEvent .. " (" .. tostring(ageMs) .. "ms)", contentWidth), self.currentEventColor)
+        y = y + 1
+    end
+
     if not swarmOnline then
         TermUI.drawText(contentX, y, DashboardUtils.truncateText("Swarm inactive (press L to pair)", contentWidth), colors.orange)
         y = y + 1
@@ -306,18 +349,44 @@ function TerminalDashboard:render(kernel)
     local monitorCount = kernel and #kernel.monitors or 0
     local sharedCount = 0
     local remoteCount = 0
+    local pendingCount = 0
+    local inflightCount = 0
+    local cacheCount = 0
     if kernel and kernel.peripheralHost then
         sharedCount = kernel.peripheralHost:getPeripheralCount()
     end
     if kernel and kernel.peripheralClient then
         remoteCount = kernel.peripheralClient:getCount()
+        if kernel.peripheralClient.pendingRequests then
+            for _ in pairs(kernel.peripheralClient.pendingRequests) do
+                pendingCount = pendingCount + 1
+            end
+        end
+        if kernel.peripheralClient.inflightByCallKey then
+            for _ in pairs(kernel.peripheralClient.inflightByCallKey) do
+                inflightCount = inflightCount + 1
+            end
+        end
+        if kernel.peripheralClient.remotePeripherals then
+            for _, info in pairs(kernel.peripheralClient.remotePeripherals) do
+                local proxy = info and info.proxy or nil
+                local cache = proxy and proxy._cache or nil
+                if cache then
+                    for _ in pairs(cache) do
+                        cacheCount = cacheCount + 1
+                    end
+                end
+            end
+        end
     end
     if swarmOnline then
         y = drawMetricRow(y, "Monitors", monitorCount, colors.white, "Remote", remoteCount, colors.white)
     else
         y = drawMetricRow(y, "Monitors", monitorCount, colors.white, nil, nil, nil)
     end
-    y = y + 2
+    y = drawMetricRow(y, "RPC pending", pendingCount, colors.lightGray, "RPC inflight", inflightCount, colors.lightGray)
+    y = drawMetricRow(y, "Cache entries", cacheCount, colors.lightGray, nil, nil, nil)
+    y = y + 1
 
     if swarmOnline then
         TermUI.drawSeparator(y, colors.gray)
@@ -345,8 +414,25 @@ function TerminalDashboard:render(kernel)
     else
         TermUI.drawSeparator(y, colors.gray)
         y = y + 1
-        TermUI.drawText(contentX, y, DashboardUtils.truncateText("Swarm metrics hidden while offline", contentWidth), colors.lightGray)
-        y = y + 2
+        local activityCols = DashboardUtils.layoutColumns(contentX, contentWidth, 3, 14, 2)
+        local activityItems = {
+            { label = "KEY", ts = self.lastActivity.key, count = self.stats.key },
+            { label = "TOUCH", ts = self.lastActivity.touch, count = self.stats.touch },
+            { label = "RESIZE", ts = self.lastActivity.resize, count = self.stats.resize },
+            { label = "ATTACH", ts = self.lastActivity.attach, count = self.stats.attach },
+            { label = "DETACH", ts = self.lastActivity.detach, count = self.stats.detach },
+            { label = "RX", ts = self.lastActivity.rx, count = self.stats.rx }
+        }
+
+        local perRow = #activityCols
+        for idx, item in ipairs(activityItems) do
+            local colIdx = ((idx - 1) % perRow) + 1
+            local rowIdx = math.floor((idx - 1) / perRow)
+            local box = activityCols[colIdx]
+            drawActivityBounded(box.x, y + rowIdx, box.width, item.label, item.ts, item.count)
+        end
+
+        y = y + math.ceil(#activityItems / perRow) + 1
     end
 
     local avgWaitMs = DashboardUtils.average(self.waitMsSamples)
