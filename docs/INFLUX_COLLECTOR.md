@@ -8,6 +8,11 @@ mpm install influx-collector
 mpm run influx-collector
 ```
 
+## Terminal Dashboard
+The collector runs an event-driven terminal dashboard showing collection cadence, flush status, and peripheral counts.
+- Triggered by `collector_event` or `collector_dirty` events
+- Redraws at most once per second on a timer
+
 ## Configuration
 The collector reads config from three locations (lowest to highest priority):
 1. `/influx-collector.config`

@@ -46,6 +46,10 @@ function Influx.new(config)
     self.nextFlushAt = 0
     self.backoffSeconds = 0
     self.lastError = nil
+    self.lastFlushAt = 0
+    self.lastFlushStatus = "idle"
+    self.lastFlushDurationMs = 0
+    self.lastBatchLines = 0
     return self
 end
 
@@ -120,16 +124,23 @@ function Influx:flush(force)
 
     local url = self:buildWriteUrl()
     local body = table.concat(self.buffer, "\n")
+    local batchLines = #self.buffer
     local headers = {
         ["Authorization"] = "Token " .. tostring(self.config.token),
         ["Content-Type"] = "text/plain; charset=utf-8"
     }
 
+    local startMs = nowMs()
     local ok, response = pcall(http.post, url, body, headers)
     if not ok or not response then
         self.lastError = "http.post failed"
+        self.lastFlushStatus = "error"
+        self.lastFlushAt = now
+        self.lastFlushDurationMs = nowMs() - startMs
+        self.lastBatchLines = batchLines
         self.backoffSeconds = math.min((self.backoffSeconds == 0 and 5) or (self.backoffSeconds * 2), 60)
         self.nextFlushAt = now + (self.backoffSeconds * 1000)
+        pcall(os.queueEvent, "collector_event", { kind = "flush", status = "error", error = self.lastError })
         return false
     end
 
@@ -139,20 +150,43 @@ function Influx:flush(force)
 
     if status < 200 or status >= 300 then
         self.lastError = string.format("Influx write failed (%d): %s", status, respBody)
+        self.lastFlushStatus = "error"
+        self.lastFlushAt = now
+        self.lastFlushDurationMs = nowMs() - startMs
+        self.lastBatchLines = batchLines
         self.backoffSeconds = math.min((self.backoffSeconds == 0 and 5) or (self.backoffSeconds * 2), 60)
         self.nextFlushAt = now + (self.backoffSeconds * 1000)
+        pcall(os.queueEvent, "collector_event", { kind = "flush", status = "error", error = self.lastError })
         return false
     end
 
     self.buffer = {}
     self.lastError = nil
+    self.lastFlushStatus = "ok"
+    self.lastFlushAt = now
+    self.lastFlushDurationMs = nowMs() - startMs
+    self.lastBatchLines = batchLines
     self.backoffSeconds = 0
     self.nextFlushAt = now + flushIntervalMs
+    pcall(os.queueEvent, "collector_event", { kind = "flush", status = "ok" })
     return true
 end
 
 function Influx:flushIfDue()
     return self:flush(false)
+end
+
+function Influx:getStatus()
+    return {
+        bufferLines = #self.buffer,
+        nextFlushAt = self.nextFlushAt,
+        backoffSeconds = self.backoffSeconds,
+        lastError = self.lastError,
+        lastFlushAt = self.lastFlushAt,
+        lastFlushStatus = self.lastFlushStatus,
+        lastFlushDurationMs = self.lastFlushDurationMs,
+        lastBatchLines = self.lastBatchLines
+    }
 end
 
 return Influx

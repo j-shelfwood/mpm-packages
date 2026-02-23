@@ -5,8 +5,9 @@
     "start.lua",
     "Config.lua",
     "Discovery.lua",
+    "Dashboard.lua",
     "Influx.lua",
     "Poller.lua"
   ],
-  "dependencies": ["peripherals", "utils"]
+  "dependencies": ["peripherals", "ui", "utils"]
 }

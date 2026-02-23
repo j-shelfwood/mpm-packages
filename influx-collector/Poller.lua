@@ -30,6 +30,13 @@ function Poller.new(config, influx, discovery)
     self.config = config
     self.influx = influx
     self.discovery = discovery
+    self.onEvent = nil
+    self.stats = {
+        machines = { count = 0, duration_ms = 0, last_at = 0 },
+        energy = { count = 0, duration_ms = 0, last_at = 0 },
+        detectors = { count = 0, duration_ms = 0, last_at = 0 },
+        ae = { items = 0, fluids = 0, duration_ms = 0, last_at = 0 }
+    }
     self.nextMachineAt = 0
     self.nextEnergyAt = 0
     self.nextDetectorAt = 0
@@ -37,11 +44,35 @@ function Poller.new(config, influx, discovery)
     return self
 end
 
+function Poller:setEventSink(fn)
+    self.onEvent = fn
+end
+
+function Poller:emit(kind, data)
+    if self.onEvent then
+        pcall(self.onEvent, kind, data)
+    else
+        pcall(os.queueEvent, "collector_event", { kind = kind, data = data })
+    end
+end
+
+function Poller:getSchedule()
+    return {
+        nextMachineAt = self.nextMachineAt,
+        nextEnergyAt = self.nextEnergyAt,
+        nextDetectorAt = self.nextDetectorAt,
+        nextAeAt = self.nextAeAt
+    }
+end
+
 function Poller:collectMachines()
+    local startMs = nowMs()
     local timestamp = nowMs()
     local machineTypes = self.discovery:getMachines()
+    local totalMachines = 0
 
     for _, entry in ipairs(machineTypes) do
+        totalMachines = totalMachines + #entry.machines
         for idx, machine in ipairs(entry.machines) do
             local active, data = MachineActivity.getActivity(machine.peripheral)
             local fields = {
@@ -87,9 +118,17 @@ function Poller:collectMachines()
             end
         end
     end
+
+    self.stats.machines = {
+        count = totalMachines,
+        duration_ms = nowMs() - startMs,
+        last_at = timestamp
+    }
+    self:emit("machines", self.stats.machines)
 end
 
 function Poller:collectEnergyDetectors()
+    local startMs = nowMs()
     local timestamp = nowMs()
     local detectors = self.discovery:getEnergyDetectors()
 
@@ -111,9 +150,17 @@ function Poller:collectEnergyDetectors()
             sleep(0)
         end
     end
+
+    self.stats.detectors = {
+        count = #detectors,
+        duration_ms = nowMs() - startMs,
+        last_at = timestamp
+    }
+    self:emit("detectors", self.stats.detectors)
 end
 
 function Poller:collectEnergy()
+    local startMs = nowMs()
     local timestamp = nowMs()
     local storages = self.discovery:getEnergyStorages()
     local totalStored = 0
@@ -153,6 +200,13 @@ function Poller:collectEnergy()
             percent = totalCapacity > 0 and (totalStored / totalCapacity * 100) or 0
         }, timestamp)
     end
+
+    self.stats.energy = {
+        count = #storages,
+        duration_ms = nowMs() - startMs,
+        last_at = timestamp
+    }
+    self:emit("energy", self.stats.energy)
 end
 
 function Poller:collectAE()
@@ -217,6 +271,13 @@ function Poller:collectAE()
     end
 
     local duration = nowMs() - startMs
+    self.stats.ae = {
+        items = #items,
+        fluids = #fluids,
+        duration_ms = duration,
+        last_at = timestamp
+    }
+    self:emit("ae", self.stats.ae)
     return true, duration
 end
 
