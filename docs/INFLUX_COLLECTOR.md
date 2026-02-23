@@ -39,6 +39,7 @@ INFLUX_NODE=overworld-node
 - `node`: computer label or `cc-<id>`
 - `machine_interval_s`: 5
 - `energy_interval_s`: 5
+- `energy_detector_interval_s`: 5
 - `ae_interval_s`: 60
 - `ae_slow_interval_s`: 600
 - `ae_slow_threshold_ms`: 5000
@@ -59,6 +60,10 @@ Fields: `stored_fe`, `capacity_fe`, `percent`
 ### `energy_total`
 Tags: `node`  
 Fields: `stored_fe`, `capacity_fe`, `percent`
+
+### `energy_flow`
+Tags: `node`, `name`  
+Fields: `rate_fe_t`, `limit_fe_t`
 
 ### `ae_summary`
 Tags: `node`, `source`  

@@ -8,6 +8,12 @@ local Peripherals = mpm('utils/Peripherals')
 
 local EnergyInterface = {}
 
+local EXTRA_ENERGY_TYPES = {
+    "quantumEntangloporter",
+    "quantum_entangloporter",
+    "entangloporter"
+}
+
 -- Known mod prefixes for classification
 local MOD_PREFIXES = {
     ["mekanism"] = { label = "Mekanism", color = colors.cyan },
@@ -54,6 +60,18 @@ local function isLikelyStorageType(typeName, peripheralName)
     return false
 end
 
+local function isExplicitEnergyType(typeName)
+    if not typeName then
+        return false
+    end
+    for _, candidate in ipairs(EXTRA_ENERGY_TYPES) do
+        if Peripherals.typeMatches(typeName, candidate) then
+            return true
+        end
+    end
+    return false
+end
+
 local function joulesToFE(value)
     if type(mekanismEnergyHelper) == "table" and type(mekanismEnergyHelper.joulesToFE) == "function" then
         local ok, converted = pcall(mekanismEnergyHelper.joulesToFE, value)
@@ -81,7 +99,7 @@ function EnergyInterface.findAll()
         local hasEnergyStorageType = Peripherals.hasType(name, "energy_storage")
         local p = Peripherals.wrap(name)
 
-        local isStorage = hasEnergyStorageType or isLikelyStorageType(primaryType, name)
+        local isStorage = hasEnergyStorageType or isLikelyStorageType(primaryType, name) or isExplicitEnergyType(primaryType)
         if isStorage and hasEnergyMethods(p) then
             table.insert(storages, {
                 peripheral = p,

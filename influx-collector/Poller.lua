@@ -32,6 +32,7 @@ function Poller.new(config, influx, discovery)
     self.discovery = discovery
     self.nextMachineAt = 0
     self.nextEnergyAt = 0
+    self.nextDetectorAt = 0
     self.nextAeAt = 0
     return self
 end
@@ -84,6 +85,30 @@ function Poller:collectMachines()
             if idx % 10 == 0 then
                 sleep(0)
             end
+        end
+    end
+end
+
+function Poller:collectEnergyDetectors()
+    local timestamp = nowMs()
+    local detectors = self.discovery:getEnergyDetectors()
+
+    for idx, entry in ipairs(detectors) do
+        local rateOk, rate = pcall(entry.peripheral.getTransferRate)
+        local limitOk, limit = pcall(entry.peripheral.getTransferRateLimit)
+        if rateOk and type(rate) == "number" then
+            local fields = { rate_fe_t = rate }
+            if limitOk and type(limit) == "number" then
+                fields.limit_fe_t = limit
+            end
+            self.influx:add("energy_flow", {
+                node = self.config.node,
+                name = entry.name
+            }, fields, timestamp)
+        end
+
+        if idx % 10 == 0 then
+            sleep(0)
         end
     end
 end
@@ -207,6 +232,12 @@ function Poller:run()
         if now >= self.nextEnergyAt then
             self:collectEnergy()
             self.nextEnergyAt = now + ((self.config.energy_interval_s or 5) * 1000)
+        end
+
+        if now >= self.nextDetectorAt then
+            self:collectEnergyDetectors()
+            local interval = self.config.energy_detector_interval_s or self.config.energy_interval_s or 5
+            self.nextDetectorAt = now + (interval * 1000)
         end
 
         if now >= self.nextAeAt then

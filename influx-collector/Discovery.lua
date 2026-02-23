@@ -1,6 +1,7 @@
 local AEInterface = mpm('peripherals/AEInterface')
 local EnergyInterface = mpm('peripherals/EnergyInterface')
 local MachineActivity = mpm('peripherals/MachineActivity')
+local Peripherals = mpm('utils/Peripherals')
 
 local Discovery = {}
 Discovery.__index = Discovery
@@ -50,6 +51,23 @@ function Discovery:getMachines()
         end
     end
     return filtered
+end
+
+function Discovery:getEnergyDetectors()
+    local detectors = {}
+    local names = Peripherals.getNames()
+    for _, name in ipairs(names) do
+        if Peripherals.hasType(name, "energy_detector") then
+            local ok, wrapped = pcall(Peripherals.wrap, name)
+            if ok and wrapped then
+                table.insert(detectors, {
+                    peripheral = wrapped,
+                    name = name
+                })
+            end
+        end
+    end
+    return detectors
 end
 
 return Discovery
