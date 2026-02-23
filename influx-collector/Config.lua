@@ -35,6 +35,13 @@ local function normalizeUrl(url)
     return url:gsub("/+$", "")
 end
 
+local function isValidUrl(url)
+    if type(url) ~= "string" or url == "" then
+        return false
+    end
+    return url:match("^https?://") ~= nil
+end
+
 local function merge(base, overrides)
     if type(overrides) ~= "table" then
         return base
@@ -174,6 +181,11 @@ function Config.prompt()
     print("InfluxDB URL (e.g. https://influx.shelfwood.co):")
     local url = read()
     if url == "" then url = DEFAULTS.url end
+    while not isValidUrl(url) do
+        print("Invalid URL. Include http:// or https://")
+        url = read()
+        if url == "" then url = DEFAULTS.url end
+    end
 
     print("InfluxDB Org (default: " .. DEFAULTS.org .. "):")
     local org = read()
@@ -230,6 +242,9 @@ function Config.ensure()
     end
 
     if not config.url or config.url == "" then
+        config.url = DEFAULTS.url
+    end
+    if not isValidUrl(config.url) then
         config.url = DEFAULTS.url
     end
 

@@ -16,6 +16,7 @@ The collector runs an event-driven terminal dashboard showing collection cadence
 ## HTTP Notes
 - If you see `http.checkURL blocked`, add `https://influx.shelfwood.co` to your CC:Tweaked HTTP whitelist.
 - If you see `http.post failed`, the dashboard now surfaces the exact reason and status body.
+- URL inputs must include `http://` or `https://` (invalid inputs are rejected at setup).
 
 ## Configuration
 The collector reads config from three locations (lowest to highest priority):
