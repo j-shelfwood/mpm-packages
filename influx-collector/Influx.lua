@@ -123,6 +123,21 @@ function Influx:flush(force)
     end
 
     local url = self:buildWriteUrl()
+    if http.checkURL then
+        local okCheck, reason = http.checkURL(url)
+        if not okCheck then
+            self.lastError = reason or "http.checkURL blocked"
+            self.lastFlushStatus = "error"
+            self.lastFlushAt = now
+            self.lastFlushDurationMs = 0
+            self.lastBatchLines = #self.buffer
+            self.backoffSeconds = math.min((self.backoffSeconds == 0 and 5) or (self.backoffSeconds * 2), 60)
+            self.nextFlushAt = now + (self.backoffSeconds * 1000)
+            pcall(os.queueEvent, "collector_event", { kind = "flush", status = "error", error = self.lastError })
+            return false
+        end
+    end
+
     local body = table.concat(self.buffer, "\n")
     local batchLines = #self.buffer
     local headers = {
@@ -131,9 +146,9 @@ function Influx:flush(force)
     }
 
     local startMs = nowMs()
-    local ok, response = pcall(http.post, url, body, headers)
-    if not ok or not response then
-        self.lastError = "http.post failed"
+    local ok, response, errMessage, errResponse = pcall(http.post, url, body, headers)
+    if not ok then
+        self.lastError = tostring(response or "http.post threw")
         self.lastFlushStatus = "error"
         self.lastFlushAt = now
         self.lastFlushDurationMs = nowMs() - startMs
@@ -141,6 +156,25 @@ function Influx:flush(force)
         self.backoffSeconds = math.min((self.backoffSeconds == 0 and 5) or (self.backoffSeconds * 2), 60)
         self.nextFlushAt = now + (self.backoffSeconds * 1000)
         pcall(os.queueEvent, "collector_event", { kind = "flush", status = "error", error = self.lastError })
+        return false
+    end
+
+    if not response then
+        self.lastError = tostring(errMessage or "http.post failed")
+        response = errResponse
+        self.lastFlushStatus = "error"
+        self.lastFlushAt = now
+        self.lastFlushDurationMs = nowMs() - startMs
+        self.lastBatchLines = batchLines
+        self.backoffSeconds = math.min((self.backoffSeconds == 0 and 5) or (self.backoffSeconds * 2), 60)
+        self.nextFlushAt = now + (self.backoffSeconds * 1000)
+        pcall(os.queueEvent, "collector_event", { kind = "flush", status = "error", error = self.lastError })
+        if response and response.getResponseCode then
+            local status = response.getResponseCode()
+            local respBody = response.readAll and response.readAll() or ""
+            response.close()
+            self.lastError = string.format("%s (status %d): %s", self.lastError, status, respBody)
+        end
         return false
     end
 

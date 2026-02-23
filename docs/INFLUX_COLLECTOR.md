@@ -13,6 +13,10 @@ The collector runs an event-driven terminal dashboard showing collection cadence
 - Triggered by `collector_event` or `collector_dirty` events
 - Redraws at most once per second on a timer
 
+## HTTP Notes
+- If you see `http.checkURL blocked`, add `https://influx.shelfwood.co` to your CC:Tweaked HTTP whitelist.
+- If you see `http.post failed`, the dashboard now surfaces the exact reason and status body.
+
 ## Configuration
 The collector reads config from three locations (lowest to highest priority):
 1. `/influx-collector.config`
