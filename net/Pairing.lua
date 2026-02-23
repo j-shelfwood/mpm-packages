@@ -151,10 +151,13 @@ function Pairing.acceptFromPocket(callbacks)
         if not tickTimer then
             tickTimer = os.startTimer(0.5)
         end
-        local event, p1, p2, p3 = Yield.waitForEvent(function(ev)
-            local name = ev[1]
-            return name == "timer" or name == "rednet_message" or name == "key"
-        end)
+        local event, p1, p2, p3
+        while true do
+            event, p1, p2, p3 = os.pullEvent()
+            if event == "timer" or event == "rednet_message" or event == "key" then
+                break
+            end
+        end
 
         if event == "timer" and p1 == tickTimer then
             tickTimer = nil
@@ -275,10 +278,13 @@ function Pairing.deliverToPending(secret, computerId, callbacks, timeout)
         if not scanTimer then
             scanTimer = os.startTimer(0.3)
         end
-        local event, p1, p2, p3 = Yield.waitForEvent(function(ev)
-            local name = ev[1]
-            return name == "timer" or name == "rednet_message" or name == "key"
-        end)
+        local event, p1, p2, p3
+        while true do
+            event, p1, p2, p3 = os.pullEvent()
+            if event == "timer" or event == "rednet_message" or event == "key" then
+                break
+            end
+        end
 
         if event == "timer" and p1 == scanTimer then
             scanTimer = nil
@@ -386,10 +392,13 @@ function Pairing.deliverToPending(secret, computerId, callbacks, timeout)
                             if not confirmTimer then
                                 confirmTimer = os.startTimer(0.5)
                             end
-                            local cEvent, cp1, cp2, cp3 = Yield.waitForEvent(function(ev)
-                                local name = ev[1]
-                                return name == "timer" or name == "rednet_message"
-                            end)
+                            local cEvent, cp1, cp2, cp3
+                            while true do
+                                cEvent, cp1, cp2, cp3 = os.pullEvent()
+                                if cEvent == "timer" or cEvent == "rednet_message" then
+                                    break
+                                end
+                            end
 
                             if cEvent == "timer" and cp1 == confirmTimer then
                                 confirmTimer = nil

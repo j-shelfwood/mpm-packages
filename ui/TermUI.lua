@@ -355,9 +355,10 @@ end
 -- @return The mapped value for the pressed key
 function TermUI.waitForKey(validKeys)
     while true do
-        local _, keyCode = Yield.waitForEvent(function(ev)
-            return ev[1] == "key"
-        end)
+        local event, keyCode = os.pullEvent()
+        if event ~= "key" then
+            goto continue
+        end
         local keyName = keys.getName(keyCode)
 
         if keyName then
@@ -374,16 +375,19 @@ function TermUI.waitForKey(validKeys)
                 return validKeys[tostring(num)]
             end
         end
+        ::continue::
     end
 end
 
 -- Wait for any key press
 -- @return key name
 function TermUI.waitForAnyKey()
-    local _, keyCode = Yield.waitForEvent(function(ev)
-        return ev[1] == "key"
-    end)
-    return keys.getName(keyCode)
+    while true do
+        local event, keyCode = os.pullEvent()
+        if event == "key" then
+            return keys.getName(keyCode)
+        end
+    end
 end
 
 -- Draw an animated scanning/loading indicator

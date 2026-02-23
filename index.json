@@ -63,5 +63,10 @@
     "name": "ai",
     "description": "MCP Bridge - connects this computer to mpm-mcp-server so AI agents can execute Lua, read/write files, and call peripherals",
     "dependencies": []
+  },
+  {
+    "name": "influx-collector",
+    "description": "InfluxDB telemetry collector for CC:Tweaked nodes",
+    "dependencies": ["peripherals", "utils"]
   }
 ]

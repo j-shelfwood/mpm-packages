@@ -103,11 +103,12 @@ end
 
 -- Compact list threshold: monitors narrower than this use single-line list mode
 local COMPACT_LIST_THRESHOLD = 20
+local HARD_MAX_ITEMS = 100
 
 -- Render compact single-line list for narrow monitors
 -- Each item: "Name         Count" on one line (name left, count right)
 local function renderCompactList(self, data, formatItem, startY, def)
-    local maxItems = def.maxItems or 50
+    local maxItems = math.min(def.maxItems or 50, HARD_MAX_ITEMS)
     local maxRows = self.height - startY
     local count = math.min(#data, maxItems, maxRows)
 
@@ -174,7 +175,7 @@ function BaseViewRenderers.renderGrid(self, data, formatItem, startY, def)
     end
 
     -- Limit items for performance
-    local maxItems = def.maxItems or 50
+    local maxItems = math.min(def.maxItems or 50, HARD_MAX_ITEMS)
     local displayData = {}
     for i = 1, math.min(#data, maxItems) do
         displayData[i] = data[i]
@@ -190,7 +191,7 @@ end
 -- Render list layout
 function BaseViewRenderers.renderList(self, data, formatItem, startY, def)
     local maxRows = self.height - startY
-    local maxItems = def.maxItems or maxRows
+    local maxItems = math.min(def.maxItems or maxRows, maxRows, HARD_MAX_ITEMS)
 
     for i = 1, math.min(#data, maxItems, maxRows) do
         local item = data[i]

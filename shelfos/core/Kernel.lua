@@ -115,10 +115,13 @@ function Kernel:keyboardLoop(runningRef)
 
     while runningRef.value do
         local waitStart = os.epoch("utc")
-        local event, p1 = Yield.waitForEvent(function(ev)
-            local name = ev[1]
-            return name == "key" or name == "peripheral" or name == "peripheral_detach"
-        end)
+        local event, p1
+        while true do
+            event, p1 = os.pullEvent()
+            if event == "key" or event == "peripheral" or event == "peripheral_detach" then
+                break
+            end
+        end
         local waitDuration = os.epoch("utc") - waitStart
         local handlerStart = os.epoch("utc")
 
@@ -162,10 +165,13 @@ end
 
 function Kernel:dashboardLoop(runningRef)
     while runningRef.value do
-        local event, p1 = Yield.waitForEvent(function(ev)
-            local name = ev[1]
-            return name == "dashboard_dirty" or name == "term_resize" or name == "dashboard_event"
-        end)
+        local event, p1
+        while true do
+            event, p1 = os.pullEvent()
+            if event == "dashboard_dirty" or event == "term_resize" or event == "dashboard_event" then
+                break
+            end
+        end
 
         if event == "dashboard_dirty" then
             if self.dashboard and not Terminal.isDialogOpen() and not self.pairingActive then

@@ -291,9 +291,13 @@ function MonitorLifecycle.runLoop(monitor, running)
             goto continue
         end
 
-        local event, p1, p2, p3 = Yield.waitForEvent(function(ev)
-            return shouldHandleEvent(ev[1], ev[2])
-        end)
+        local event, p1, p2, p3
+        while true do
+            event, p1, p2, p3 = os.pullEvent()
+            if shouldHandleEvent(event, p1) then
+                break
+            end
+        end
 
         if event == "timer" then
             monitor:handleTimer(p1)

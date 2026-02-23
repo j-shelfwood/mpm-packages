@@ -1,0 +1,12 @@
+{
+  "name": "influx-collector",
+  "description": "InfluxDB telemetry collector for CC:Tweaked nodes",
+  "files": [
+    "start.lua",
+    "Config.lua",
+    "Discovery.lua",
+    "Influx.lua",
+    "Poller.lua"
+  ],
+  "dependencies": ["peripherals", "utils"]
+}

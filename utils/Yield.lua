@@ -1,6 +1,6 @@
 -- Yield.lua
 -- Cooperative yielding utilities for CC:Tweaked
--- Prevents "too long without yielding" errors while preserving event queue
+-- Prevents "too long without yielding" errors in parallel loops.
 
 local Yield = {}
 
@@ -10,65 +10,24 @@ Yield.DEFAULT_INTERVAL = 100
 -- Unique event name for yielding
 local YIELD_EVENT = "mpm_yield_" .. tostring(os.epoch("utc"))
 
--- Safe yield that preserves ALL events in the queue
--- CRITICAL: os.pullEvent(filter) and os.sleep() both DISCARD non-matching events!
--- This implementation pulls all events, requeues non-matching ones, preserving order.
--- Pattern from: https://gist.github.com/dmarcuse/f878fae3210770c0facd
 function Yield.yield()
-    -- Queue our marker event
     os.queueEvent(YIELD_EVENT)
-
-    -- Collect events until we see our marker
-    local events = {}
     while true do
-        local event = {os.pullEventRaw()}
+        local event = { os.pullEventRaw() }
         if event[1] == YIELD_EVENT then
-            -- Found our marker, we're done yielding
-            break
-        elseif event[1] == "terminate" then
-            -- Don't swallow terminate events - propagate immediately
-            error("Terminated", 0)
-        else
-            -- Save this event to requeue later
-            table.insert(events, event)
+            return
         end
-    end
-
-    -- Requeue all captured events in original order
-    for _, event in ipairs(events) do
-        os.queueEvent(table.unpack(event))
+        if event[1] == "terminate" then
+            error("Terminated", 0)
+        end
     end
 end
 
--- Sleep for a duration while preserving non-timer events in the queue.
--- @param seconds Number of seconds to wait
 function Yield.sleep(seconds)
-    local duration = seconds or 0
-    if duration <= 0 then
-        Yield.yield()
-        return
-    end
-
-    local timer = os.startTimer(duration)
-    local events = {}
-
-    while true do
-        local event = {os.pullEventRaw()}
-        if event[1] == "timer" and event[2] == timer then
-            break
-        elseif event[1] == "terminate" then
-            error("Terminated", 0)
-        else
-            table.insert(events, event)
-        end
-    end
-
-    for _, event in ipairs(events) do
-        os.queueEvent(table.unpack(event))
-    end
+    os.sleep(seconds or 0)
 end
 
--- Wait for an event that matches the predicate while preserving others.
+-- Wait for an event that matches the predicate.
 -- @param matcher Function(eventTable) -> boolean
 -- @return unpacked event values
 function Yield.waitForEvent(matcher)
@@ -76,17 +35,11 @@ function Yield.waitForEvent(matcher)
         error("Yield.waitForEvent requires a matcher function")
     end
 
-    local events = {}
-
     while true do
         local event = { os.pullEvent() }
         if matcher(event) then
-            for _, queued in ipairs(events) do
-                os.queueEvent(table.unpack(queued))
-            end
             return table.unpack(event)
         end
-        table.insert(events, event)
     end
 end
 

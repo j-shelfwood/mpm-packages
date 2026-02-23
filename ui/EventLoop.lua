@@ -57,9 +57,9 @@ function EventLoop.drainMonitorTouches(monitorName, maxDrain)
 
     drainCounter = drainCounter + 1
     local marker = DRAIN_EVENT_PREFIX .. tostring(drainCounter)
-    local retained = {}
     local drained = 0
 
+    -- Drain without requeueing to avoid duplicating events in parallel loops.
     os.queueEvent(marker)
 
     while true do
@@ -67,9 +67,6 @@ function EventLoop.drainMonitorTouches(monitorName, maxDrain)
         if event[1] == marker then
             break
         elseif event[1] == "terminate" then
-            for i = 1, #retained do
-                os.queueEvent(table.unpack(retained[i]))
-            end
             error("Terminated", 0)
         end
 
@@ -77,12 +74,8 @@ function EventLoop.drainMonitorTouches(monitorName, maxDrain)
         if isTargetTouch and drained < limit then
             drained = drained + 1
         else
-            table.insert(retained, event)
+            os.queueEvent(table.unpack(event))
         end
-    end
-
-    for i = 1, #retained do
-        os.queueEvent(table.unpack(retained[i]))
     end
 
     return drained
@@ -106,15 +99,14 @@ function EventLoop.waitForMonitorEvent(monitorName, opts)
     local acceptTermResize = opts.acceptTermResize == true
 
     while true do
-        local event, p1, p2, p3 = Yield.waitForEvent(function(ev)
-            local name = ev[1]
-            if name == "monitor_touch" then return true end
-            if name == "monitor_resize" then return true end
-            if name == "peripheral_detach" then return true end
-            if name == "key" and acceptKey then return true end
-            if name == "term_resize" and acceptTermResize then return true end
-            return false
-        end)
+        local event, p1, p2, p3 = os.pullEvent()
+        if event ~= "monitor_touch"
+            and event ~= "monitor_resize"
+            and event ~= "peripheral_detach"
+            and not (event == "key" and acceptKey)
+            and not (event == "term_resize" and acceptTermResize) then
+            goto continue
+        end
 
         if event == "monitor_touch" then
             if isTouchGuarded(p1) then
@@ -195,9 +187,7 @@ end
 -- @return keyCode
 function EventLoop.waitForKey()
     while true do
-        local event, keyCode = Yield.waitForEvent(function(ev)
-            return ev[1] == "key"
-        end)
+        local event, keyCode = os.pullEvent()
         if event == "key" then
             return keyCode
         end

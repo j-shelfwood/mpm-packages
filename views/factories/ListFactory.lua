@@ -140,7 +140,7 @@ function ListFactory.create(config)
             -- Viewport slice: only pass visible items to renderWithData.
             -- renderWithData runs with the buffer hidden (no yields allowed),
             -- so it must be O(1) relative to total inventory size.
-            local maxItems = config.maxItems or 100
+            local maxItems = math.min(config.maxItems or 100, 100)
             if #filtered > maxItems then
                 local sliced = {}
                 for i = 1, maxItems do
