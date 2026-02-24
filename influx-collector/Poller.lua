@@ -39,6 +39,13 @@ function Poller.new(config, influx, discovery)
                       connected = false, online = false, cpu_total = 0, cpu_busy = 0, task_count = 0 },
         inventory = { items = 0, fluids = 0, chemicals = 0, last_at = 0, duration_ms = 0 }
     }
+    -- nil = not yet probed; true/false set after first discovery attempt
+    self.present = {
+        machines  = nil,
+        energy    = nil,
+        detectors = nil,
+        ae        = nil,
+    }
     self.lastMachinesActiveAt = 0
     self.lastDetectorsActiveAt = 0
     self.nextMachineAt    = 0
@@ -69,7 +76,8 @@ function Poller:getSchedule()
         nextAeAt        = self.nextAeAt,
         nextInventoryAt = self.nextInventoryAt,
         machineBurst    = self:isMachineBurstActive(),
-        detectorBurst   = self:isDetectorBurstActive()
+        detectorBurst   = self:isDetectorBurstActive(),
+        present         = self.present,
     }
 end
 
@@ -93,6 +101,11 @@ function Poller:collectMachines()
     local startMs = nowMs()
     local timestamp = nowMs()
     local machineTypes = self.discovery:getMachines()
+    self.present.machines = #machineTypes > 0
+    if not self.present.machines then
+        self.stats.machines = { count = 0, duration_ms = 0, last_at = 0, active = false, burst = false, active_count = 0 }
+        return
+    end
     local totalMachines = 0
     local activeDetected = false
     local activeCount = 0
@@ -186,6 +199,11 @@ function Poller:collectEnergyDetectors()
     local startMs = nowMs()
     local timestamp = nowMs()
     local detectors = self.discovery:getEnergyDetectors()
+    self.present.detectors = #detectors > 0
+    if not self.present.detectors then
+        self.stats.detectors = { count = 0, duration_ms = 0, last_at = 0, active = false, burst = false }
+        return
+    end
     local activeDetected = false
 
     for idx, entry in ipairs(detectors) do
@@ -228,6 +246,11 @@ function Poller:collectEnergy()
     local startMs = nowMs()
     local timestamp = nowMs()
     local storages = self.discovery:getEnergyStorages()
+    self.present.energy = #storages > 0
+    if not self.present.energy then
+        self.stats.energy = { count = 0, duration_ms = 0, last_at = 0 }
+        return
+    end
     local totalStored = 0
     local totalCapacity = 0
 
@@ -282,10 +305,12 @@ function Poller:collectAE()
         cpu_total = 0, cpu_busy = 0, task_count = 0
     }
     if not ae then
+        self.present.ae = false
         self.stats.ae = disconnected
         self:emit("ae", self.stats.ae)
         return false, 0
     end
+    self.present.ae = true
 
     local conn = ae.getConnectionStatus and ae:getConnectionStatus() or { isConnected = false, isOnline = false }
     if not conn.isConnected then
@@ -505,36 +530,53 @@ function Poller:collectInventory()
     self:emit("inventory", self.stats.inventory)
 end
 
+-- How long to wait before re-probing a peripheral type that wasn't found (ms).
+local ABSENT_RECHECK_MS = 60 * 1000
+
 function Poller:run()
     while true do
         local now = nowMs()
 
         if now >= self.nextMachineAt then
             self:collectMachines()
-            local interval = self.config.machine_interval_s or 5
-            if self:isMachineBurstActive() then
-                interval = self.config.machine_burst_interval_s or interval
+            if not self.present.machines then
+                self.nextMachineAt = now + ABSENT_RECHECK_MS
+            else
+                local interval = self.config.machine_interval_s or 5
+                if self:isMachineBurstActive() then
+                    interval = self.config.machine_burst_interval_s or interval
+                end
+                self.nextMachineAt = now + (interval * 1000)
             end
-            self.nextMachineAt = now + (interval * 1000)
         end
 
         if now >= self.nextEnergyAt then
             self:collectEnergy()
-            self.nextEnergyAt = now + ((self.config.energy_interval_s or 5) * 1000)
+            if not self.present.energy then
+                self.nextEnergyAt = now + ABSENT_RECHECK_MS
+            else
+                self.nextEnergyAt = now + ((self.config.energy_interval_s or 5) * 1000)
+            end
         end
 
         if now >= self.nextDetectorAt then
             self:collectEnergyDetectors()
-            local interval = self.config.energy_detector_interval_s or self.config.energy_interval_s or 5
-            if self:isDetectorBurstActive() then
-                interval = self.config.energy_detector_burst_interval_s or interval
+            if not self.present.detectors then
+                self.nextDetectorAt = now + ABSENT_RECHECK_MS
+            else
+                local interval = self.config.energy_detector_interval_s or self.config.energy_interval_s or 5
+                if self:isDetectorBurstActive() then
+                    interval = self.config.energy_detector_burst_interval_s or interval
+                end
+                self.nextDetectorAt = now + (interval * 1000)
             end
-            self.nextDetectorAt = now + (interval * 1000)
         end
 
         if now >= self.nextAeAt then
             local ok, duration = self:collectAE()
-            if ok and duration > (self.config.ae_slow_threshold_ms or 5000) then
+            if not self.present.ae then
+                self.nextAeAt = now + ABSENT_RECHECK_MS
+            elseif ok and duration > (self.config.ae_slow_threshold_ms or 5000) then
                 self.nextAeAt = now + ((self.config.ae_slow_interval_s or 600) * 1000)
             else
                 self.nextAeAt = now + ((self.config.ae_interval_s or 60) * 1000)
@@ -542,8 +584,15 @@ function Poller:run()
         end
 
         if now >= self.nextInventoryAt then
-            self:collectInventory()
-            self.nextInventoryAt = now + ((self.config.inventory_interval_s or 600) * 1000)
+            -- inventory piggybacks on AE; skip entirely if AE not present
+            if self.present.ae ~= false then
+                self:collectInventory()
+            end
+            if not self.present.ae then
+                self.nextInventoryAt = now + ABSENT_RECHECK_MS
+            else
+                self.nextInventoryAt = now + ((self.config.inventory_interval_s or 600) * 1000)
+            end
         end
 
         self.influx:flushIfDue()
