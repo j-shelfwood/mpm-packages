@@ -442,8 +442,9 @@ spec:
                   |> filter(fn: (r) => r._measurement == "machine_type")
                   |> pivot(rowKey: ["_time", "type", "mod", "node"], columnKey: ["_field"], valueColumn: "_value")
                   |> group()
+                  |> sort(columns: ["_time"], desc: true)
+                  |> unique(column: "type")
                   |> sort(columns: ["type"])
-                  |> last(column: "_time")
                   |> keep(columns: ["type", "mod", "node", "total_count", "active_count", "active_percent"])
           tableOptions:
               verticalTimeAxis: false
@@ -489,6 +490,7 @@ spec:
                   |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)
                   |> map(fn: (r) => ({r with _value: if r._value == 1.0 then "active" else "idle"}))
                   |> keep(columns: ["_time", "_value", "name", "type", "node"])
+                  |> group()
           colors:
             - hex: "#4ED8A0"
               name: active
