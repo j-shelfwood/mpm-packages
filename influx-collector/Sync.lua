@@ -30,45 +30,33 @@ function Sync.getStatus()
     return Sync.state
 end
 
+-- Request config from any peer on the network.
+-- Returns the config table on success, or nil on timeout/no modem.
 function Sync.requestConfig(timeoutSeconds)
     if not openModem() then
         markStatus("no_modem")
         return nil
     end
 
-    local nonce = tostring(nowMs()) .. "-" .. tostring(math.random(1000, 9999))
-    local message = {
-        type = "config_request",
-        nonce = nonce,
-        sender = os.getComputerID(),
-        want_token = true
-    }
-
-    rednet.broadcast(message, Sync.PROTOCOL)
+    rednet.broadcast({ type = "config_request" }, Sync.PROTOCOL)
     Sync.state.lastRequestAt = nowMs()
     markStatus("request_sent")
 
     local timeout = tonumber(timeoutSeconds) or 5
-    local deadline = nowMs() + (timeout * 1000)
+    local _, payload = rednet.receive(Sync.PROTOCOL, timeout)
 
-    while nowMs() < deadline do
-        local event = { os.pullEvent() }
-        if event[1] == "rednet_message" and event[4] == Sync.PROTOCOL then
-            local payload = event[3]
-            if type(payload) == "table" and payload.type == "config_response" and payload.nonce == nonce then
-                Sync.state.lastResponseAt = nowMs()
-                markStatus("received")
-                return payload.config
-            end
-        else
-            os.queueEvent(table.unpack(event))
-        end
+    if type(payload) == "table" and payload.type == "config_response" then
+        Sync.state.lastResponseAt = nowMs()
+        markStatus("received")
+        return payload.config
     end
 
     markStatus("timeout")
     return nil
 end
 
+-- Respond to config requests from peers while the collector is running.
+-- Runs forever; intended to be called inside parallel.waitForAll.
 function Sync.respondLoop(config)
     if not openModem() then
         Sync.state.enabled = false
@@ -80,34 +68,21 @@ function Sync.respondLoop(config)
     markStatus("listening")
 
     while true do
-        local event = { os.pullEventRaw() }
-        if event[1] == "terminate" then
-            error("Terminated", 0)
-        end
-
-        if event[1] == "rednet_message" and event[4] == Sync.PROTOCOL then
-            local senderId = event[2]
-            local payload = event[3]
-            if type(payload) == "table" and payload.type == "config_request" then
-                Sync.state.lastRequestAt = nowMs()
-                local response = {
-                    type = "config_response",
-                    nonce = payload.nonce,
-                    config = {
-                        url = config.url,
-                        org = config.org,
-                        bucket = config.bucket,
-                        token = config.share_token and config.token or nil,
-                        share_token = config.share_token == true
-                    }
+        local senderId, payload = rednet.receive(Sync.PROTOCOL)
+        if type(payload) == "table" and payload.type == "config_request" then
+            Sync.state.lastRequestAt = nowMs()
+            rednet.send(senderId, {
+                type = "config_response",
+                config = {
+                    url         = config.url,
+                    org         = config.org,
+                    bucket      = config.bucket,
+                    token       = config.share_token and config.token or nil,
+                    share_token = config.share_token == true
                 }
-                rednet.send(senderId, response, Sync.PROTOCOL)
-                Sync.state.lastResponseAt = nowMs()
-                markStatus("responded")
-            end
-        else
-            os.queueEvent(table.unpack(event))
-            sleep(0)
+            }, Sync.PROTOCOL)
+            Sync.state.lastResponseAt = nowMs()
+            markStatus("responded")
         end
     end
 end
