@@ -18,7 +18,7 @@ local DEFAULTS = {
     bucket = "mc",
     token = "",
     node = defaultNode(),
-    share_token = false,
+    share_token = true,
     machine_interval_s = 5,
     machine_burst_interval_s = 1,
     machine_burst_window_s = 10,
@@ -254,7 +254,7 @@ function Config.loadMerged()
     config = merge(config, envConfig)
     config = merge(config, settingsConfig)
     if config.share_token == nil then
-        config.share_token = false
+        config.share_token = DEFAULTS.share_token
     end
 
     return config, {
@@ -293,7 +293,7 @@ function Config.ensure()
     config.node = config.node or defaultNode()
     config.url = normalizeUrl(config.url)
     if config.share_token == nil then
-        config.share_token = false
+        config.share_token = DEFAULTS.share_token
     end
 
     if not hadFile then
