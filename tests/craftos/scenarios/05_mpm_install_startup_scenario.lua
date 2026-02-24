@@ -20,7 +20,7 @@ return function(h)
         wipe("/mpm")
     end
 
-    h:test("provisioning: local mpm+shelfos install is reproducible", function()
+    h:test("provisioning: local mpm+influx-collector install is reproducible", function()
         reset_install_state()
 
         local realShutdown = os.shutdown
@@ -32,13 +32,13 @@ return function(h)
 
         h:assert_true(ok, "Local installer failed: " .. tostring(err))
         h:assert_true(fs.exists("/mpm.lua"), "Missing /mpm.lua")
-        h:assert_true(fs.exists("/mpm/Packages/shelfos/start.lua"), "Missing installed shelfos package")
-        h:assert_true(fs.exists("/mpm/Packages/net/Pairing.lua"), "Missing transitive dependency package")
+        h:assert_true(fs.exists("/mpm/Packages/influx-collector/start.lua"), "Missing installed influx-collector package")
+        h:assert_true(fs.exists("/mpm/Packages/utils/Theme.lua"), "Missing transitive dependency package")
     end)
 
-    h:test("startup: mpm startup shelfos writes boot scripts", function()
-        local ok, err = run_mpm("startup", "shelfos")
-        h:assert_true(ok, "mpm startup shelfos failed: " .. tostring(err))
+    h:test("startup: mpm startup influx-collector writes boot scripts", function()
+        local ok, err = run_mpm("startup", "influx-collector")
+        h:assert_true(ok, "mpm startup influx-collector failed: " .. tostring(err))
 
         h:assert_true(fs.exists("/startup.config"), "Missing /startup.config")
         h:assert_true(fs.exists("/startup.lua"), "Missing /startup.lua")
@@ -47,7 +47,7 @@ return function(h)
         h:assert_not_nil(content, "Failed to read startup.lua: " .. tostring(err))
         h:assert_contains(content, "mpm selfupdate", "startup.lua missing selfupdate step")
         h:assert_contains(content, "mpm update", "startup.lua missing package update step")
-        h:assert_contains(content, "mpm run shelfos", "startup.lua missing shelfos run step")
+        h:assert_contains(content, "mpm run influx-collector", "startup.lua missing influx-collector run step")
 
         local helpOk = run_mpm("help")
         h:assert_true(helpOk, "mpm help should execute from /mpm.lua entrypoint")

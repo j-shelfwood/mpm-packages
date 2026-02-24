@@ -39,38 +39,25 @@ tests/
 
 ## Coverage Tracks
 
-1. **README + entrypoint contracts**
-   - verifies onboarding instructions in `shelfos/README.md` map to real package entrypoints
+1. **Provisioning + startup lifecycle**
+   - installs local `mpm` + `influx-collector`, configures `mpm startup influx-collector`, validates generated `/startup.lua`
 
-2. **Swarm boot + UI keystroke interactions**
-   - verifies `shelfos-swarm` startup guards and deterministic menu navigation using key events
-
-3. **Provisioning + startup lifecycle**
-   - installs local `mpm` + `shelfos`, configures `mpm startup shelfos`, validates generated `/startup.lua`
-
-4. **Pairing runtime simulation**
-   - drives `net/Pairing` state-machine flows in CraftOS runtime with deterministic event injection
-
-5. **View rendering smoke**
-   - renders real view modules (`views/Clock`) to an in-memory terminal buffer and asserts rendered output
-
-6. **MPM storage hygiene**
-   - verifies stale manifest file pruning on `mpm update`
-   - verifies orphan dependency cleanup and `mpm prune --dry-run`
-   - verifies stale core file pruning on `mpm selfupdate`
-   - verifies disk usage output after update/selfupdate
+2. **MPM storage hygiene**
+    - verifies stale manifest file pruning on `mpm update`
+    - verifies orphan dependency cleanup and `mpm prune --dry-run`
+    - verifies stale core file pruning on `mpm selfupdate`
+    - verifies disk usage output after update/selfupdate
 
 ## Coverage Critique
 
 Current strengths:
 - Real CraftOS runtime execution catches API-level behavioral regressions.
-- End-to-end provisioning and startup lifecycle is already covered.
+- End-to-end provisioning and startup lifecycle is covered for core `mpm` behavior.
 
 Current weaknesses:
-- Network interactions are mostly mocked per-scenario and do not exercise real remote taps.
+- Network interactions are mocked per-scenario and do not exercise real remote taps.
 - No deterministic fault-injection matrix for low disk, write failures, and interrupted updates.
 - No line/branch coverage metrics are collected, so blind spots are inferred, not measured.
-- `mpm` core behaviors were previously underrepresented; scenario `19_*` begins filling this gap.
 
 ## Extending Coverage
 

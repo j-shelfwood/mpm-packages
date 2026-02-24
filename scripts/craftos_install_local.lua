@@ -1,4 +1,4 @@
--- Installs mpm and shelfos (+ deps) from mounted /workspace into CraftOS storage.
+-- Installs mpm and influx-collector (+ deps) from mounted /workspace into CraftOS storage.
 
 local WORKSPACE = "/workspace"
 
@@ -107,10 +107,9 @@ local function verify()
         "/mpm.lua",
         "/mpm/bootstrap.lua",
         "/mpm/taps.json",
-        "/mpm/Packages/shelfos/start.lua",
-        "/mpm/Packages/net/Pairing.lua",
+        "/mpm/Packages/influx-collector/start.lua",
         "/mpm/Packages/ui/Controller.lua",
-        "/mpm/Packages/views/Manager.lua",
+        "/mpm/Packages/utils/Theme.lua",
     }
 
     for _, path in ipairs(required) do
@@ -123,7 +122,7 @@ local function verify()
 end
 
 install_mpm()
-install_package("shelfos")
+install_package("influx-collector")
 verify()
 print("[ok] local install complete")
 os.shutdown()
