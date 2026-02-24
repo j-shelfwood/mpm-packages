@@ -32,10 +32,10 @@ function Poller.new(config, influx, discovery)
     self.discovery = discovery
     self.onEvent = nil
     self.stats = {
-        machines = { count = 0, duration_ms = 0, last_at = 0, active = false, burst = false },
+        machines = { count = 0, duration_ms = 0, last_at = 0, active = false, burst = false, active_count = 0 },
         energy = { count = 0, duration_ms = 0, last_at = 0 },
         detectors = { count = 0, duration_ms = 0, last_at = 0, active = false, burst = false },
-        ae = { items = 0, fluids = 0, duration_ms = 0, last_at = 0, connected = false, online = false }
+        ae = { items = 0, fluids = 0, duration_ms = 0, last_at = 0, connected = false, online = false, cpu_total = 0, cpu_busy = 0, task_count = 0 }
     }
     self.lastMachinesActiveAt = 0
     self.lastDetectorsActiveAt = 0
@@ -91,55 +91,60 @@ function Poller:collectMachines()
     local machineTypes = self.discovery:getMachines()
     local totalMachines = 0
     local activeDetected = false
+    local activeCount = 0
+    local uniqueMods = {}
 
+    -- Per-machine activity write; accumulate per-type active counts in one pass
     for _, entry in ipairs(machineTypes) do
-        totalMachines = totalMachines + #entry.machines
+        local typeTotal = #entry.machines
+        totalMachines = totalMachines + typeTotal
+        uniqueMods[entry.classification.mod] = true
+        local typeActive = 0
+
         for idx, machine in ipairs(entry.machines) do
             local active, data = MachineActivity.getActivity(machine.peripheral)
             if active then
                 activeDetected = true
+                activeCount = activeCount + 1
+                typeActive = typeActive + 1
             end
-            local fields = {
-                active = active and 1 or 0
-            }
 
-            if type(data.progress) == "number" then
-                fields.progress = data.progress
-            end
-            if type(data.total) == "number" then
-                fields.progress_total = data.total
-            end
-            if type(data.percent) == "number" then
-                fields.progress_percent = data.percent
-            end
-            if type(data.rate) == "number" then
-                fields.production_rate = data.rate
-            end
-            if type(data.usage) == "number" then
-                fields.energy_usage = data.usage
-            end
+            local fields = { active = active and 1 or 0 }
+            if type(data.progress) == "number" then fields.progress = data.progress end
+            if type(data.total) == "number" then fields.progress_total = data.total end
+            if type(data.percent) == "number" then fields.progress_percent = data.percent end
+            if type(data.rate) == "number" then fields.production_rate = data.rate end
+            if type(data.usage) == "number" then fields.energy_usage = data.usage end
 
             local energyPercent = MachineActivity.getEnergyPercent(machine.peripheral)
-            if type(energyPercent) == "number" then
-                fields.energy_percent = energyPercent * 100
-            end
+            if type(energyPercent) == "number" then fields.energy_percent = energyPercent * 100 end
 
             local formed = MachineActivity.getFormedState(machine.peripheral)
-            if type(formed) == "boolean" then
-                fields.formed = formed and 1 or 0
-            end
+            if type(formed) == "boolean" then fields.formed = formed and 1 or 0 end
 
             self.influx:add("machine_activity", {
-                node = self.config.node,
-                mod = entry.classification.mod,
+                node     = self.config.node,
+                mod      = entry.classification.mod,
                 category = entry.classification.category,
-                type = entry.type,
-                name = machine.name
+                type     = entry.type,
+                name     = machine.name
             }, fields, timestamp)
 
-            if idx % 10 == 0 then
-                sleep(0)
-            end
+            if idx % 10 == 0 then sleep(0) end
+        end
+
+        -- Per-type rollup (no second poll — reuses typeActive from above)
+        if typeTotal > 0 then
+            self.influx:add("machine_type", {
+                node     = self.config.node,
+                mod      = entry.classification.mod,
+                category = entry.classification.category,
+                type     = entry.type
+            }, {
+                total_count    = typeTotal,
+                active_count   = typeActive,
+                active_percent = typeActive / typeTotal * 100
+            }, timestamp)
         end
     end
 
@@ -147,12 +152,28 @@ function Poller:collectMachines()
         self.lastMachinesActiveAt = timestamp
     end
 
+    -- Node-level summary across all types
+    if totalMachines > 0 then
+        local modCount = 0
+        for _ in pairs(uniqueMods) do modCount = modCount + 1 end
+        self.influx:add("machine_summary", {
+            node = self.config.node
+        }, {
+            total_machines  = totalMachines,
+            active_machines = activeCount,
+            active_percent  = activeCount / totalMachines * 100,
+            unique_types    = #machineTypes,
+            unique_mods     = modCount
+        }, timestamp)
+    end
+
     self.stats.machines = {
         count = totalMachines,
         duration_ms = nowMs() - startMs,
         last_at = timestamp,
         active = activeDetected,
-        burst = self:isMachineBurstActive()
+        burst = self:isMachineBurstActive(),
+        active_count = activeCount
     }
     self:emit("machines", self.stats.machines)
 end
@@ -258,7 +279,10 @@ function Poller:collectAE()
             duration_ms = 0,
             last_at = 0,
             connected = false,
-            online = false
+            online = false,
+            cpu_total = 0,
+            cpu_busy = 0,
+            task_count = 0
         }
         self:emit("ae", self.stats.ae)
         return false, 0
@@ -272,7 +296,10 @@ function Poller:collectAE()
             duration_ms = 0,
             last_at = nowMs(),
             connected = conn.isConnected,
-            online = conn.isOnline
+            online = conn.isOnline,
+            cpu_total = 0,
+            cpu_busy = 0,
+            task_count = 0
         }
         self:emit("ae", self.stats.ae)
         return false, 0
@@ -285,6 +312,31 @@ function Poller:collectAE()
     local storageFluids = ae:fluidStorage()
     local energy = ae:energy()
     local timestamp = nowMs()
+    local cpus = ae:getCraftingCPUs() or {}
+    local tasks = ae:getCraftingTasks() or {}
+    local cpuTotal = #cpus
+    local cpuBusy = 0
+    for _, cpu in ipairs(cpus) do
+        if cpu.isBusy then
+            cpuBusy = cpuBusy + 1
+        end
+    end
+    if cpuTotal > 0 then
+        self.influx:add("ae_crafting_cpu", {
+            node = self.config.node,
+            source = ae.bridgeName or "me_bridge"
+        }, {
+            total = cpuTotal,
+            busy = cpuBusy,
+            busy_percent = cpuTotal > 0 and (cpuBusy / cpuTotal * 100) or 0
+        }, timestamp)
+    end
+    self.influx:add("ae_crafting_task", {
+        node = self.config.node,
+        source = ae.bridgeName or "me_bridge"
+    }, {
+        count = #tasks
+    }, timestamp)
 
     local totalItems = sumCounts(items, "count")
     local totalFluids = sumCounts(fluids, "amount")
@@ -340,7 +392,10 @@ function Poller:collectAE()
         duration_ms = duration,
         last_at = timestamp,
         connected = conn.isConnected,
-        online = conn.isOnline
+        online = conn.isOnline,
+        cpu_total = cpuTotal,
+        cpu_busy = cpuBusy,
+        task_count = #tasks
     }
     self:emit("ae", self.stats.ae)
     return true, duration
