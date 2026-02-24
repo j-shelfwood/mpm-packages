@@ -81,9 +81,21 @@ Fields: `stored_fe`, `capacity_fe`, `percent`
 Tags: `node`, `name`  
 Fields: `rate_fe_t`, `limit_fe_t`
 
+### `machine_type`
+Tags: `node`, `mod`, `category`, `type`  
+Fields: `active_count`, `total_count`, `active_percent`
+
 ### `ae_summary`
 Tags: `node`, `source`  
 Fields: `items_total`, `items_unique`, `fluids_total`, `fluids_unique`, `item_storage_used`, `item_storage_total`, `item_storage_available`, `fluid_storage_used`, `fluid_storage_total`, `fluid_storage_available`, `energy_stored`, `energy_capacity`, `energy_usage`
+
+### `ae_crafting_cpu`
+Tags: `node`, `source`  
+Fields: `total`, `busy`, `busy_percent`
+
+### `ae_crafting_task`
+Tags: `node`, `source`  
+Fields: `count`
 
 ### `ae_item`
 Tags: `node`, `item`  
