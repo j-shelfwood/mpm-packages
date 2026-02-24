@@ -200,16 +200,8 @@ spec:
             - query: |-
                 from(bucket: "mc")
                   |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
-                  |> filter(fn: (r) => r._measurement == "ae_crafting_cpu" and r._field == "busy")
+                  |> filter(fn: (r) => r._measurement == "ae_crafting_cpu" and (r._field == "busy" or r._field == "total"))
                   |> last()
-                  |> map(fn: (r) => ({r with _value: float(v: r._value)}))
-
-                total = from(bucket: "mc")
-                  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
-                  |> filter(fn: (r) => r._measurement == "ae_crafting_cpu" and r._field == "total")
-                  |> last()
-
-                union(tables: [busy, total])
                   |> pivot(rowKey: ["_time", "node", "source"], columnKey: ["_field"], valueColumn: "_value")
                   |> map(fn: (r) => ({r with _value: string(v: int(v: r.busy)) + "/" + string(v: int(v: r.total))}))
           colors:
@@ -497,4 +489,11 @@ spec:
                   |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)
                   |> map(fn: (r) => ({r with _value: if r._value == 1.0 then "active" else "idle"}))
                   |> keep(columns: ["_time", "_value", "name", "type", "node"])
+          colors:
+            - hex: "#4ED8A0"
+              name: active
+              type: scale
+            - hex: "#545667"
+              name: idle
+              type: scale
           staticLegend: {}
