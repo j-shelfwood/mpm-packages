@@ -475,3 +475,26 @@ spec:
               displayName: Active %
               visible: true
           staticLegend: {}
+
+        # ── Row 6: Machine activity grid (y=19, height=6) ──────────────────────
+        # Mosaic: one row per machine peripheral name, coloured by "active"/"idle".
+        # active=1 → "active" (green tile), active=0 → "idle" (grey tile).
+        # Y-axis = name tag; machines sort alphabetically so same-type machines
+        # cluster together (eliteCrushing_0, eliteCrushing_1, etc.).
+        # Fill column must be a string field — map integer active → string here.
+
+        - kind: Mosaic
+          name: Machine Activity Grid
+          height: 6
+          width: 12
+          xPos: 0
+          yPos: 19
+          queries:
+            - query: |-
+                from(bucket: "mc")
+                  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+                  |> filter(fn: (r) => r._measurement == "machine_activity" and r._field == "active")
+                  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)
+                  |> map(fn: (r) => ({r with _value: if r._value == 1.0 then "active" else "idle"}))
+                  |> keep(columns: ["_time", "_value", "name", "type", "node"])
+          staticLegend: {}
