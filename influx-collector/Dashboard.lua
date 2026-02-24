@@ -98,11 +98,14 @@ function Dashboard:render()
 
     TermUI.drawSeparator(y); y = y + 1
 
-    TermUI.drawInfoLine(y, "Machines", string.format("%d | %s | %s",
+    local machineBurst = pollerStats.machines and pollerStats.machines.burst
+    local machineStatus = machineBurst and "burst" or "idle"
+    TermUI.drawInfoLine(y, "Machines", string.format("%d | %s | %s | %s",
         (pollerStats.machines and pollerStats.machines.count) or 0,
         formatAge(pollerStats.machines and pollerStats.machines.last_at),
-        formatSeconds(pollerStats.machines and pollerStats.machines.duration_ms)
-    ), colors.white); y = y + 1
+        formatSeconds(pollerStats.machines and pollerStats.machines.duration_ms),
+        machineStatus
+    ), machineBurst and colors.lime or colors.white); y = y + 1
 
     TermUI.drawInfoLine(y, "Energy", string.format("%d | %s | %s",
         (pollerStats.energy and pollerStats.energy.count) or 0,
@@ -110,11 +113,14 @@ function Dashboard:render()
         formatSeconds(pollerStats.energy and pollerStats.energy.duration_ms)
     ), colors.white); y = y + 1
 
-    TermUI.drawInfoLine(y, "Detectors", string.format("%d | %s | %s",
+    local detectorBurst = pollerStats.detectors and pollerStats.detectors.burst
+    local detectorStatus = detectorBurst and "burst" or "idle"
+    TermUI.drawInfoLine(y, "Detectors", string.format("%d | %s | %s | %s",
         (pollerStats.detectors and pollerStats.detectors.count) or 0,
         formatAge(pollerStats.detectors and pollerStats.detectors.last_at),
-        formatSeconds(pollerStats.detectors and pollerStats.detectors.duration_ms)
-    ), colors.white); y = y + 1
+        formatSeconds(pollerStats.detectors and pollerStats.detectors.duration_ms),
+        detectorStatus
+    ), detectorBurst and colors.lime or colors.white); y = y + 1
 
     TermUI.drawInfoLine(y, "AE", string.format("%d items | %d fluids | %s",
         (pollerStats.ae and pollerStats.ae.items) or 0,
@@ -124,9 +130,9 @@ function Dashboard:render()
 
     TermUI.drawSeparator(y); y = y + 1
 
-    TermUI.drawInfoLine(y, "Next machine", formatIn(schedule.nextMachineAt), colors.lightGray); y = y + 1
+    TermUI.drawInfoLine(y, "Next machine", formatIn(schedule.nextMachineAt), schedule.machineBurst and colors.lime or colors.lightGray); y = y + 1
     TermUI.drawInfoLine(y, "Next energy", formatIn(schedule.nextEnergyAt), colors.lightGray); y = y + 1
-    TermUI.drawInfoLine(y, "Next detector", formatIn(schedule.nextDetectorAt), colors.lightGray); y = y + 1
+    TermUI.drawInfoLine(y, "Next detector", formatIn(schedule.nextDetectorAt), schedule.detectorBurst and colors.lime or colors.lightGray); y = y + 1
     TermUI.drawInfoLine(y, "Next AE", formatIn(schedule.nextAeAt), colors.lightGray); y = y + 1
 
     if y < h then

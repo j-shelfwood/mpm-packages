@@ -32,11 +32,13 @@ function Poller.new(config, influx, discovery)
     self.discovery = discovery
     self.onEvent = nil
     self.stats = {
-        machines = { count = 0, duration_ms = 0, last_at = 0 },
+        machines = { count = 0, duration_ms = 0, last_at = 0, active = false, burst = false },
         energy = { count = 0, duration_ms = 0, last_at = 0 },
-        detectors = { count = 0, duration_ms = 0, last_at = 0 },
+        detectors = { count = 0, duration_ms = 0, last_at = 0, active = false, burst = false },
         ae = { items = 0, fluids = 0, duration_ms = 0, last_at = 0 }
     }
+    self.lastMachinesActiveAt = 0
+    self.lastDetectorsActiveAt = 0
     self.nextMachineAt = 0
     self.nextEnergyAt = 0
     self.nextDetectorAt = 0
@@ -61,8 +63,26 @@ function Poller:getSchedule()
         nextMachineAt = self.nextMachineAt,
         nextEnergyAt = self.nextEnergyAt,
         nextDetectorAt = self.nextDetectorAt,
-        nextAeAt = self.nextAeAt
+        nextAeAt = self.nextAeAt,
+        machineBurst = self:isMachineBurstActive(),
+        detectorBurst = self:isDetectorBurstActive()
     }
+end
+
+function Poller:isMachineBurstActive()
+    if not self.lastMachinesActiveAt or self.lastMachinesActiveAt == 0 then
+        return false
+    end
+    local windowMs = (self.config.machine_burst_window_s or 10) * 1000
+    return (nowMs() - self.lastMachinesActiveAt) <= windowMs
+end
+
+function Poller:isDetectorBurstActive()
+    if not self.lastDetectorsActiveAt or self.lastDetectorsActiveAt == 0 then
+        return false
+    end
+    local windowMs = (self.config.energy_detector_burst_window_s or 10) * 1000
+    return (nowMs() - self.lastDetectorsActiveAt) <= windowMs
 end
 
 function Poller:collectMachines()
@@ -70,11 +90,15 @@ function Poller:collectMachines()
     local timestamp = nowMs()
     local machineTypes = self.discovery:getMachines()
     local totalMachines = 0
+    local activeDetected = false
 
     for _, entry in ipairs(machineTypes) do
         totalMachines = totalMachines + #entry.machines
         for idx, machine in ipairs(entry.machines) do
             local active, data = MachineActivity.getActivity(machine.peripheral)
+            if active then
+                activeDetected = true
+            end
             local fields = {
                 active = active and 1 or 0
             }
@@ -119,10 +143,16 @@ function Poller:collectMachines()
         end
     end
 
+    if activeDetected then
+        self.lastMachinesActiveAt = timestamp
+    end
+
     self.stats.machines = {
         count = totalMachines,
         duration_ms = nowMs() - startMs,
-        last_at = timestamp
+        last_at = timestamp,
+        active = activeDetected,
+        burst = self:isMachineBurstActive()
     }
     self:emit("machines", self.stats.machines)
 end
@@ -131,11 +161,15 @@ function Poller:collectEnergyDetectors()
     local startMs = nowMs()
     local timestamp = nowMs()
     local detectors = self.discovery:getEnergyDetectors()
+    local activeDetected = false
 
     for idx, entry in ipairs(detectors) do
         local rateOk, rate = pcall(entry.peripheral.getTransferRate)
         local limitOk, limit = pcall(entry.peripheral.getTransferRateLimit)
         if rateOk and type(rate) == "number" then
+            if rate > 0 then
+                activeDetected = true
+            end
             local fields = { rate_fe_t = rate }
             if limitOk and type(limit) == "number" then
                 fields.limit_fe_t = limit
@@ -151,10 +185,16 @@ function Poller:collectEnergyDetectors()
         end
     end
 
+    if activeDetected then
+        self.lastDetectorsActiveAt = timestamp
+    end
+
     self.stats.detectors = {
         count = #detectors,
         duration_ms = nowMs() - startMs,
-        last_at = timestamp
+        last_at = timestamp,
+        active = activeDetected,
+        burst = self:isDetectorBurstActive()
     }
     self:emit("detectors", self.stats.detectors)
 end
@@ -287,7 +327,11 @@ function Poller:run()
 
         if now >= self.nextMachineAt then
             self:collectMachines()
-            self.nextMachineAt = now + ((self.config.machine_interval_s or 5) * 1000)
+            local interval = self.config.machine_interval_s or 5
+            if self:isMachineBurstActive() then
+                interval = self.config.machine_burst_interval_s or interval
+            end
+            self.nextMachineAt = now + (interval * 1000)
         end
 
         if now >= self.nextEnergyAt then
@@ -298,6 +342,9 @@ function Poller:run()
         if now >= self.nextDetectorAt then
             self:collectEnergyDetectors()
             local interval = self.config.energy_detector_interval_s or self.config.energy_interval_s or 5
+            if self:isDetectorBurstActive() then
+                interval = self.config.energy_detector_burst_interval_s or interval
+            end
             self.nextDetectorAt = now + (interval * 1000)
         end
 

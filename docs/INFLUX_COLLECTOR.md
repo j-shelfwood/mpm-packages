@@ -48,8 +48,12 @@ INFLUX_NODE=overworld-node
 - `bucket`: mc
 - `node`: computer label or `cc-<id>`
 - `machine_interval_s`: 5
+- `machine_burst_interval_s`: 1
+- `machine_burst_window_s`: 10
 - `energy_interval_s`: 5
 - `energy_detector_interval_s`: 5
+- `energy_detector_burst_interval_s`: 1
+- `energy_detector_burst_window_s`: 10
 - `ae_interval_s`: 60
 - `ae_slow_interval_s`: 600
 - `ae_slow_threshold_ms`: 5000
@@ -90,3 +94,4 @@ Fields: `amount`
 ## Notes
 - AE2 lists are limited to top N items/fluids to keep payloads bounded.
 - Tokens are stored in plain text on the computer; use a least-privilege token per bucket.
+- Burst polling auto-activates for machines and energy detectors when activity is detected, then decays after the burst window.
