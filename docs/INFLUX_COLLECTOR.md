@@ -98,3 +98,4 @@ Fields: `amount`
 - Tokens are stored in plain text on the computer; use a least-privilege token per bucket.
 - Burst polling auto-activates for machines and energy detectors when activity is detected, then decays after the burst window.
 - Config sync: a new node broadcasts on `influx_collector_sync` and copies url/org/bucket, plus token only if `share_token=true` on the existing node.
+- AE metrics are only emitted when the ME Bridge is connected; dashboard shows AE connection status.

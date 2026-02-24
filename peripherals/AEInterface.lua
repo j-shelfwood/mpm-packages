@@ -146,6 +146,19 @@ function AEInterface:getReadStatus(key)
     return statusFor(self, key)
 end
 
+function AEInterface:getConnectionStatus()
+    local okConnected, isConnected = pcall(function()
+        return self.bridge.isConnected and self.bridge.isConnected() or false
+    end)
+    local okOnline, isOnline = pcall(function()
+        return self.bridge.isOnline and self.bridge.isOnline() or false
+    end)
+    return {
+        isConnected = okConnected and isConnected or false,
+        isOnline = okOnline and isOnline or false
+    }
+end
+
 -- Fetch all items from the network
 -- @return array of {registryName, displayName, count, isCraftable}
 function AEInterface:items()

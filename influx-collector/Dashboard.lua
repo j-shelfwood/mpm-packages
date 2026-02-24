@@ -125,11 +125,17 @@ function Dashboard:render()
         detectorStatus
     ), detectorBurst and colors.lime or colors.white); y = y + 1
 
-    TermUI.drawInfoLine(y, "AE", string.format("%d items | %d fluids | %s",
-        (pollerStats.ae and pollerStats.ae.items) or 0,
-        (pollerStats.ae and pollerStats.ae.fluids) or 0,
-        formatAge(pollerStats.ae and pollerStats.ae.last_at)
-    ), colors.white); y = y + 1
+    local aeStatus = pollerStats.ae or {}
+    local aeConnected = aeStatus.connected == true
+    local aeOnline = aeStatus.online == true
+    local aeLabel = aeConnected and (aeOnline and "online" or "connected") or "disconnected"
+    local aeColor = aeConnected and (aeOnline and colors.lime or colors.yellow) or colors.red
+    TermUI.drawInfoLine(y, "AE", string.format("%s | %d items | %d fluids | %s",
+        aeLabel,
+        aeStatus.items or 0,
+        aeStatus.fluids or 0,
+        formatAge(aeStatus.last_at)
+    ), aeColor); y = y + 1
 
     TermUI.drawSeparator(y); y = y + 1
 

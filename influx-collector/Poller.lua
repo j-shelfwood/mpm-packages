@@ -35,7 +35,7 @@ function Poller.new(config, influx, discovery)
         machines = { count = 0, duration_ms = 0, last_at = 0, active = false, burst = false },
         energy = { count = 0, duration_ms = 0, last_at = 0 },
         detectors = { count = 0, duration_ms = 0, last_at = 0, active = false, burst = false },
-        ae = { items = 0, fluids = 0, duration_ms = 0, last_at = 0 }
+        ae = { items = 0, fluids = 0, duration_ms = 0, last_at = 0, connected = false, online = false }
     }
     self.lastMachinesActiveAt = 0
     self.lastDetectorsActiveAt = 0
@@ -252,6 +252,29 @@ end
 function Poller:collectAE()
     local ae = self.discovery:getAE()
     if not ae then
+        self.stats.ae = {
+            items = 0,
+            fluids = 0,
+            duration_ms = 0,
+            last_at = 0,
+            connected = false,
+            online = false
+        }
+        self:emit("ae", self.stats.ae)
+        return false, 0
+    end
+
+    local conn = ae.getConnectionStatus and ae:getConnectionStatus() or { isConnected = false, isOnline = false }
+    if not conn.isConnected then
+        self.stats.ae = {
+            items = 0,
+            fluids = 0,
+            duration_ms = 0,
+            last_at = nowMs(),
+            connected = conn.isConnected,
+            online = conn.isOnline
+        }
+        self:emit("ae", self.stats.ae)
         return false, 0
     end
 
@@ -315,7 +338,9 @@ function Poller:collectAE()
         items = #items,
         fluids = #fluids,
         duration_ms = duration,
-        last_at = timestamp
+        last_at = timestamp,
+        connected = conn.isConnected,
+        online = conn.isOnline
     }
     self:emit("ae", self.stats.ae)
     return true, duration
