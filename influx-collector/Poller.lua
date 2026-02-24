@@ -32,17 +32,20 @@ function Poller.new(config, influx, discovery)
     self.discovery = discovery
     self.onEvent = nil
     self.stats = {
-        machines = { count = 0, duration_ms = 0, last_at = 0, active = false, burst = false, active_count = 0 },
-        energy = { count = 0, duration_ms = 0, last_at = 0 },
+        machines  = { count = 0, duration_ms = 0, last_at = 0, active = false, burst = false, active_count = 0 },
+        energy    = { count = 0, duration_ms = 0, last_at = 0 },
         detectors = { count = 0, duration_ms = 0, last_at = 0, active = false, burst = false },
-        ae = { items = 0, fluids = 0, duration_ms = 0, last_at = 0, connected = false, online = false, cpu_total = 0, cpu_busy = 0, task_count = 0 }
+        ae        = { items = 0, fluids = 0, chemicals = 0, duration_ms = 0, last_at = 0,
+                      connected = false, online = false, cpu_total = 0, cpu_busy = 0, task_count = 0 },
+        inventory = { items = 0, fluids = 0, chemicals = 0, last_at = 0, duration_ms = 0 }
     }
     self.lastMachinesActiveAt = 0
     self.lastDetectorsActiveAt = 0
-    self.nextMachineAt = 0
-    self.nextEnergyAt = 0
-    self.nextDetectorAt = 0
-    self.nextAeAt = 0
+    self.nextMachineAt    = 0
+    self.nextEnergyAt     = 0
+    self.nextDetectorAt   = 0
+    self.nextAeAt         = 0
+    self.nextInventoryAt  = 0
     return self
 end
 
@@ -60,12 +63,13 @@ end
 
 function Poller:getSchedule()
     return {
-        nextMachineAt = self.nextMachineAt,
-        nextEnergyAt = self.nextEnergyAt,
-        nextDetectorAt = self.nextDetectorAt,
-        nextAeAt = self.nextAeAt,
-        machineBurst = self:isMachineBurstActive(),
-        detectorBurst = self:isDetectorBurstActive()
+        nextMachineAt   = self.nextMachineAt,
+        nextEnergyAt    = self.nextEnergyAt,
+        nextDetectorAt  = self.nextDetectorAt,
+        nextAeAt        = self.nextAeAt,
+        nextInventoryAt = self.nextInventoryAt,
+        machineBurst    = self:isMachineBurstActive(),
+        detectorBurst   = self:isDetectorBurstActive()
     }
 end
 
@@ -272,94 +276,138 @@ end
 
 function Poller:collectAE()
     local ae = self.discovery:getAE()
+    local disconnected = {
+        items = 0, fluids = 0, chemicals = 0, duration_ms = 0,
+        last_at = 0, connected = false, online = false,
+        cpu_total = 0, cpu_busy = 0, task_count = 0
+    }
     if not ae then
-        self.stats.ae = {
-            items = 0,
-            fluids = 0,
-            duration_ms = 0,
-            last_at = 0,
-            connected = false,
-            online = false,
-            cpu_total = 0,
-            cpu_busy = 0,
-            task_count = 0
-        }
+        self.stats.ae = disconnected
         self:emit("ae", self.stats.ae)
         return false, 0
     end
 
     local conn = ae.getConnectionStatus and ae:getConnectionStatus() or { isConnected = false, isOnline = false }
     if not conn.isConnected then
-        self.stats.ae = {
-            items = 0,
-            fluids = 0,
-            duration_ms = 0,
-            last_at = nowMs(),
-            connected = conn.isConnected,
-            online = conn.isOnline,
-            cpu_total = 0,
-            cpu_busy = 0,
-            task_count = 0
-        }
+        disconnected.last_at = nowMs()
+        disconnected.connected = conn.isConnected
+        disconnected.online = conn.isOnline
+        self.stats.ae = disconnected
         self:emit("ae", self.stats.ae)
         return false, 0
     end
 
     local startMs = nowMs()
-    local items = ae:items() or {}
-    local fluids = ae:fluids() or {}
+    local src = ae.bridgeName or "me_bridge"
+    local node = self.config.node
+
+    -- Storage and energy
+    local items        = ae:items() or {}
+    local fluids       = ae:fluids() or {}
+    local chemicals    = ae:chemicals() or {}
     local storageItems = ae:itemStorage()
     local storageFluids = ae:fluidStorage()
-    local energy = ae:energy()
-    local timestamp = nowMs()
+    local energy       = ae:energy()
+    local energyInput  = ae:getAverageEnergyInput() or 0
+
+    -- Crafting CPUs
     local cpus = ae:getCraftingCPUs() or {}
-    local tasks = ae:getCraftingTasks() or {}
     local cpuTotal = #cpus
     local cpuBusy = 0
     for _, cpu in ipairs(cpus) do
-        if cpu.isBusy then
-            cpuBusy = cpuBusy + 1
-        end
+        if cpu.isBusy then cpuBusy = cpuBusy + 1 end
     end
+
+    -- Per-CPU detail
+    for _, cpu in ipairs(cpus) do
+        local cpuName = (type(cpu.name) == "string" and cpu.name ~= "") and cpu.name or "unnamed"
+        self.influx:add("ae_cpu", {
+            node   = node,
+            source = src,
+            cpu    = cpuName
+        }, {
+            storage      = type(cpu.storage) == "number" and cpu.storage or 0,
+            co_processors = type(cpu.coProcessors) == "number" and cpu.coProcessors or 0,
+            is_busy      = cpu.isBusy and 1 or 0
+        }, startMs)
+    end
+
+    -- CPU fleet summary
     if cpuTotal > 0 then
         self.influx:add("ae_crafting_cpu", {
-            node = self.config.node,
-            source = ae.bridgeName or "me_bridge"
+            node   = node,
+            source = src
         }, {
-            total = cpuTotal,
-            busy = cpuBusy,
-            busy_percent = cpuTotal > 0 and (cpuBusy / cpuTotal * 100) or 0
-        }, timestamp)
+            total        = cpuTotal,
+            busy         = cpuBusy,
+            busy_percent = cpuBusy / cpuTotal * 100
+        }, startMs)
     end
+
+    -- Active crafting tasks — per-item detail
+    local tasks = ae:getCraftingTasks() or {}
+    for _, task in ipairs(tasks) do
+        local res = type(task.resource) == "table" and task.resource or {}
+        local itemName = res.name or "unknown"
+        local cpuName = (type(task.cpu) == "table" and type(task.cpu.name) == "string" and task.cpu.name ~= "")
+                         and task.cpu.name or "unknown"
+        self.influx:add("ae_crafting_job", {
+            node   = node,
+            source = src,
+            item   = itemName,
+            cpu    = cpuName
+        }, {
+            quantity   = type(task.quantity) == "number" and task.quantity or 0,
+            crafted    = type(task.crafted) == "number" and task.crafted or 0,
+            completion = type(task.completion) == "number" and task.completion * 100 or 0
+        }, startMs)
+    end
+
+    -- Crafting task count summary
     self.influx:add("ae_crafting_task", {
-        node = self.config.node,
-        source = ae.bridgeName or "me_bridge"
+        node   = node,
+        source = src
     }, {
         count = #tasks
-    }, timestamp)
+    }, startMs)
 
-    local totalItems = sumCounts(items, "count")
-    local totalFluids = sumCounts(fluids, "amount")
+    -- AE network summary
+    local totalItems   = sumCounts(items, "count")
+    local totalFluids  = sumCounts(fluids, "amount")
+    local totalChemicals = sumCounts(chemicals, "amount")
 
-    self.influx:add("ae_summary", {
-        node = self.config.node,
-        source = ae.bridgeName or "me_bridge"
-    }, {
-        items_total = totalItems,
-        items_unique = #items,
-        fluids_total = totalFluids,
-        fluids_unique = #fluids,
-        item_storage_used = storageItems.used,
-        item_storage_total = storageItems.total,
+    local summaryFields = {
+        items_total            = totalItems,
+        items_unique           = #items,
+        fluids_total           = totalFluids,
+        fluids_unique          = #fluids,
+        item_storage_used      = storageItems.used,
+        item_storage_total     = storageItems.total,
         item_storage_available = storageItems.available,
-        fluid_storage_used = storageFluids.used,
-        fluid_storage_total = storageFluids.total,
+        fluid_storage_used     = storageFluids.used,
+        fluid_storage_total    = storageFluids.total,
         fluid_storage_available = storageFluids.available,
-        energy_stored = energy.stored,
-        energy_capacity = energy.capacity,
-        energy_usage = energy.usage
-    }, timestamp)
+        energy_stored          = energy.stored,
+        energy_capacity        = energy.capacity,
+        energy_usage           = energy.usage,
+        energy_input           = energyInput
+    }
 
+    -- Add chemical storage if the bridge supports it
+    if ae:hasChemicalSupport() then
+        summaryFields.chemicals_total   = totalChemicals
+        summaryFields.chemicals_unique  = #chemicals
+        local chemStorage = ae:getStorage("chemicals", false)
+        if chemStorage then
+            summaryFields.chemical_storage_used      = chemStorage.used
+            summaryFields.chemical_storage_total     = chemStorage.total
+            summaryFields.chemical_storage_available = chemStorage.available
+        end
+    end
+
+    self.influx:add("ae_summary", { node = node, source = src }, summaryFields, startMs)
+
+    -- Top N items and fluids
     sortByField(items, "count")
     sortByField(fluids, "amount")
 
@@ -367,38 +415,101 @@ function Poller:collectAE()
     for i = 1, itemLimit do
         local item = items[i]
         self.influx:add("ae_item", {
-            node = self.config.node,
+            node = node,
             item = item.registryName
-        }, {
-            count = item.count
-        }, timestamp)
+        }, { count = item.count }, startMs)
     end
 
     local fluidLimit = math.min(self.config.ae_top_fluids or 10, #fluids)
     for i = 1, fluidLimit do
         local fluid = fluids[i]
         self.influx:add("ae_fluid", {
-            node = self.config.node,
+            node  = node,
             fluid = fluid.registryName
-        }, {
-            amount = fluid.amount
-        }, timestamp)
+        }, { amount = fluid.amount }, startMs)
+    end
+
+    -- Top N chemicals
+    if ae:hasChemicalSupport() and #chemicals > 0 then
+        sortByField(chemicals, "amount")
+        local chemLimit = math.min(self.config.ae_top_chemicals or 10, #chemicals)
+        for i = 1, chemLimit do
+            local chem = chemicals[i]
+            self.influx:add("ae_chemical", {
+                node     = node,
+                chemical = chem.registryName
+            }, { amount = chem.amount }, startMs)
+        end
     end
 
     local duration = nowMs() - startMs
     self.stats.ae = {
-        items = #items,
-        fluids = #fluids,
+        items      = #items,
+        fluids     = #fluids,
+        chemicals  = #chemicals,
         duration_ms = duration,
-        last_at = timestamp,
-        connected = conn.isConnected,
-        online = conn.isOnline,
-        cpu_total = cpuTotal,
-        cpu_busy = cpuBusy,
+        last_at    = startMs,
+        connected  = conn.isConnected,
+        online     = conn.isOnline,
+        cpu_total  = cpuTotal,
+        cpu_busy   = cpuBusy,
         task_count = #tasks
     }
     self:emit("ae", self.stats.ae)
     return true, duration
+end
+
+-- Full inventory snapshot — all items, fluids, chemicals.
+-- Runs on a slow timer (default 10 min). Writes one line per unique item/fluid/chemical.
+-- Tagged with snapshot=true so dashboards can distinguish from rolling top-N data.
+function Poller:collectInventory()
+    local ae = self.discovery:getAE()
+    if not ae then return end
+
+    local conn = ae.getConnectionStatus and ae:getConnectionStatus() or { isConnected = false }
+    if not conn.isConnected then return end
+
+    local startMs = nowMs()
+    local node = self.config.node
+    local src  = ae.bridgeName or "me_bridge"
+
+    local items     = ae:items() or {}
+    local fluids    = ae:fluids() or {}
+    local chemicals = ae:hasChemicalSupport() and (ae:chemicals() or {}) or {}
+
+    for _, item in ipairs(items) do
+        self.influx:add("inventory_item", {
+            node = node,
+            item = item.registryName
+        }, {
+            count      = item.count,
+            craftable  = item.isCraftable and 1 or 0
+        }, startMs)
+    end
+
+    for _, fluid in ipairs(fluids) do
+        self.influx:add("inventory_fluid", {
+            node  = node,
+            fluid = fluid.registryName
+        }, { amount = fluid.amount }, startMs)
+    end
+
+    for _, chem in ipairs(chemicals) do
+        self.influx:add("inventory_chemical", {
+            node     = node,
+            chemical = chem.registryName
+        }, { amount = chem.amount }, startMs)
+    end
+
+    local duration = nowMs() - startMs
+    self.stats.inventory = {
+        items      = #items,
+        fluids     = #fluids,
+        chemicals  = #chemicals,
+        last_at    = startMs,
+        duration_ms = duration
+    }
+    self:emit("inventory", self.stats.inventory)
 end
 
 function Poller:run()
@@ -435,6 +546,11 @@ function Poller:run()
             else
                 self.nextAeAt = now + ((self.config.ae_interval_s or 60) * 1000)
             end
+        end
+
+        if now >= self.nextInventoryAt then
+            self:collectInventory()
+            self.nextInventoryAt = now + ((self.config.inventory_interval_s or 600) * 1000)
         end
 
         self.influx:flushIfDue()

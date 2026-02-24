@@ -31,6 +31,8 @@ local DEFAULTS = {
     ae_slow_threshold_ms = 5000,
     ae_top_items = 20,
     ae_top_fluids = 10,
+    ae_top_chemicals = 10,
+    inventory_interval_s = 600,
     flush_interval_s = 5,
     max_buffer_lines = 5000
 }

@@ -103,8 +103,9 @@ function Dashboard:render()
 
     local machineBurst = pollerStats.machines and pollerStats.machines.burst
     local machineStatus = machineBurst and "burst" or "idle"
-    TermUI.drawInfoLine(y, "Machines", string.format("%d | %s | %s | %s",
+    TermUI.drawInfoLine(y, "Machines", string.format("%d (%d) | %s | %s | %s",
         (pollerStats.machines and pollerStats.machines.count) or 0,
+        (pollerStats.machines and pollerStats.machines.active_count) or 0,
         formatAge(pollerStats.machines and pollerStats.machines.last_at),
         formatSeconds(pollerStats.machines and pollerStats.machines.duration_ms),
         machineStatus
@@ -130,12 +131,26 @@ function Dashboard:render()
     local aeOnline = aeStatus.online == true
     local aeLabel = aeConnected and (aeOnline and "online" or "connected") or "disconnected"
     local aeColor = aeConnected and (aeOnline and colors.lime or colors.yellow) or colors.red
-    TermUI.drawInfoLine(y, "AE", string.format("%s | %d items | %d fluids | %s",
+    local aeChemStr = (aeStatus.chemicals and aeStatus.chemicals > 0) and (" | " .. aeStatus.chemicals .. " chem") or ""
+    TermUI.drawInfoLine(y, "AE", string.format("%s | %d items | %d fluids%s | CPU %d/%d | tasks %d | %s",
         aeLabel,
         aeStatus.items or 0,
         aeStatus.fluids or 0,
+        aeChemStr,
+        aeStatus.cpu_busy or 0,
+        aeStatus.cpu_total or 0,
+        aeStatus.task_count or 0,
         formatAge(aeStatus.last_at)
     ), aeColor); y = y + 1
+
+    local invStatus = pollerStats.inventory or {}
+    if invStatus.last_at and invStatus.last_at > 0 then
+        TermUI.drawInfoLine(y, "Inventory", string.format("%d items | %d fluids | snap %s ago",
+            invStatus.items or 0,
+            invStatus.fluids or 0,
+            formatAge(invStatus.last_at)
+        ), colors.lightGray); y = y + 1
+    end
 
     TermUI.drawSeparator(y); y = y + 1
 
@@ -143,6 +158,7 @@ function Dashboard:render()
     TermUI.drawInfoLine(y, "Next energy", formatIn(schedule.nextEnergyAt), colors.lightGray); y = y + 1
     TermUI.drawInfoLine(y, "Next detector", formatIn(schedule.nextDetectorAt), schedule.detectorBurst and colors.lime or colors.lightGray); y = y + 1
     TermUI.drawInfoLine(y, "Next AE", formatIn(schedule.nextAeAt), colors.lightGray); y = y + 1
+    TermUI.drawInfoLine(y, "Next inventory", formatIn(schedule.nextInventoryAt), colors.lightGray); y = y + 1
 
     if y < h then
         TermUI.drawText(2, y + 1, "Last event: " .. tostring(self.lastEvent) .. " (" .. formatAge(self.lastEventAt) .. ")", colors.gray)
