@@ -295,14 +295,19 @@ function Config.ensure()
     if config.share_token == nil then
         config.share_token = DEFAULTS.share_token
     end
+    local shareToken = config.share_token
+    if config.token and config.token ~= "" then
+        config.share_token = true
+    end
+    local shareTokenChanged = config.share_token ~= shareToken
 
-    if not hadFile then
+    if not hadFile or shareTokenChanged then
         Config.saveFile(config)
     end
-    if not hadEnv then
+    if not hadEnv or shareTokenChanged then
         Config.saveEnv(config)
     end
-    if not hadSettings then
+    if not hadSettings or shareTokenChanged then
         Config.saveSettings(config)
     end
 
