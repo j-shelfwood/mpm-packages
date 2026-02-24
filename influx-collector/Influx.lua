@@ -104,10 +104,10 @@ function Influx:add(measurement, tags, fields, timestampMs)
 
     table.insert(self.buffer, line)
 
-    if #self.buffer > (self.config.max_buffer_lines or 5000) then
-        while #self.buffer > (self.config.max_buffer_lines or 5000) do
-            table.remove(self.buffer, 1)
-        end
+    local maxLines = self.config.max_buffer_lines or 5000
+    if #self.buffer > maxLines then
+        local excess = #self.buffer - maxLines
+        self.buffer = { table.unpack(self.buffer, excess + 1) }
     end
 end
 

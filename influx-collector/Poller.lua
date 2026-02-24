@@ -440,23 +440,26 @@ function Poller:collectAE()
             node = node,
             item = item.registryName
         }, { count = item.count }, startMs)
+        if i % 10 == 0 then sleep(0) end
     end
 
     -- All fluids
-    for _, fluid in ipairs(fluids) do
+    for i, fluid in ipairs(fluids) do
         self.influx:add("ae_fluid", {
             node  = node,
             fluid = fluid.registryName
         }, { amount = fluid.amount }, startMs)
+        if i % 10 == 0 then sleep(0) end
     end
 
     -- All chemicals
     if ae:hasChemicalSupport() and #chemicals > 0 then
-        for _, chem in ipairs(chemicals) do
+        for i, chem in ipairs(chemicals) do
             self.influx:add("ae_chemical", {
                 node     = node,
                 chemical = chem.registryName
             }, { amount = chem.amount }, startMs)
+            if i % 10 == 0 then sleep(0) end
         end
     end
 
@@ -495,7 +498,7 @@ function Poller:collectInventory()
     local fluids    = ae:fluids() or {}
     local chemicals = ae:hasChemicalSupport() and (ae:chemicals() or {}) or {}
 
-    for _, item in ipairs(items) do
+    for i, item in ipairs(items) do
         self.influx:add("inventory_item", {
             node = node,
             item = item.registryName
@@ -503,20 +506,23 @@ function Poller:collectInventory()
             count      = item.count,
             craftable  = item.isCraftable and 1 or 0
         }, startMs)
+        if i % 10 == 0 then sleep(0) end
     end
 
-    for _, fluid in ipairs(fluids) do
+    for i, fluid in ipairs(fluids) do
         self.influx:add("inventory_fluid", {
             node  = node,
             fluid = fluid.registryName
         }, { amount = fluid.amount }, startMs)
+        if i % 10 == 0 then sleep(0) end
     end
 
-    for _, chem in ipairs(chemicals) do
+    for i, chem in ipairs(chemicals) do
         self.influx:add("inventory_chemical", {
             node     = node,
             chemical = chem.registryName
         }, { amount = chem.amount }, startMs)
+        if i % 10 == 0 then sleep(0) end
     end
 
     local duration = nowMs() - startMs

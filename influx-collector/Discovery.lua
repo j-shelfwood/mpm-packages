@@ -6,11 +6,19 @@ local Peripherals = mpm('utils/Peripherals')
 local Discovery = {}
 Discovery.__index = Discovery
 
+local CACHE_TTL_MS = 30000  -- 30s TTL for peripheral scan results
+
 function Discovery.new()
     local self = setmetatable({}, Discovery)
     self._ae = nil
     self._aeCheckedAt = 0
     self._aeCheckIntervalMs = 10000
+    self._energyStorages = nil
+    self._energyStoragesAt = 0
+    self._machines = nil
+    self._machinesAt = 0
+    self._detectors = nil
+    self._detectorsAt = 0
     return self
 end
 
@@ -39,10 +47,21 @@ function Discovery:getAE()
 end
 
 function Discovery:getEnergyStorages()
-    return EnergyInterface.findAll()
+    local now = nowMs()
+    if self._energyStorages and (now - self._energyStoragesAt) < CACHE_TTL_MS then
+        return self._energyStorages
+    end
+    self._energyStoragesAt = now
+    self._energyStorages = EnergyInterface.findAll()
+    return self._energyStorages
 end
 
 function Discovery:getMachines()
+    local now = nowMs()
+    if self._machines and (now - self._machinesAt) < CACHE_TTL_MS then
+        return self._machines
+    end
+    self._machinesAt = now
     local types = MachineActivity.buildTypeList("all")
     local filtered = {}
     for _, entry in ipairs(types) do
@@ -50,10 +69,16 @@ function Discovery:getMachines()
             table.insert(filtered, entry)
         end
     end
-    return filtered
+    self._machines = filtered
+    return self._machines
 end
 
 function Discovery:getEnergyDetectors()
+    local now = nowMs()
+    if self._detectors and (now - self._detectorsAt) < CACHE_TTL_MS then
+        return self._detectors
+    end
+    self._detectorsAt = now
     local detectors = {}
     local names = Peripherals.getNames()
     for _, name in ipairs(names) do
@@ -67,7 +92,8 @@ function Discovery:getEnergyDetectors()
             end
         end
     end
-    return detectors
+    self._detectors = detectors
+    return self._detectors
 end
 
 return Discovery
