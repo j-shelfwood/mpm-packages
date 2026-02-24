@@ -1,4 +1,5 @@
 local TermUI = mpm('ui/TermUI')
+local Sync = mpm('influx-collector/Sync')
 
 local Dashboard = {}
 Dashboard.__index = Dashboard
@@ -78,6 +79,8 @@ function Dashboard:render()
     local endpoint = truncate(self.config.url or "-", math.max(8, w - 12))
     TermUI.drawInfoLine(y, "Node", self.config.node or "-", colors.white); y = y + 1
     TermUI.drawInfoLine(y, "Endpoint", endpoint, colors.white); y = y + 1
+    local syncStatus = Sync.getStatus()
+    TermUI.drawInfoLine(y, "Sync", syncStatus.lastStatus or "idle", syncStatus.lastStatus == "responded" and colors.lime or colors.lightGray); y = y + 1
 
     TermUI.drawSeparator(y); y = y + 1
 

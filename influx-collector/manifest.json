@@ -7,7 +7,8 @@
     "Discovery.lua",
     "Dashboard.lua",
     "Influx.lua",
-    "Poller.lua"
+    "Poller.lua",
+    "Sync.lua"
   ],
   "dependencies": ["peripherals", "ui", "utils"]
 }

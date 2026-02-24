@@ -18,6 +18,7 @@ local DEFAULTS = {
     bucket = "mc",
     token = "",
     node = defaultNode(),
+    share_token = false,
     machine_interval_s = 5,
     machine_burst_interval_s = 1,
     machine_burst_window_s = 10,
@@ -71,6 +72,14 @@ local function parseEnvValue(value)
         return value:sub(2, -2)
     end
     return value
+end
+
+local function parseBool(value)
+    if type(value) ~= "string" then
+        return false
+    end
+    local normalized = value:lower()
+    return normalized == "1" or normalized == "true" or normalized == "yes"
 end
 
 local function envKey(key)
@@ -128,6 +137,7 @@ function Config.loadEnv()
                 if key == "INFLUX_BUCKET" then data.bucket = value end
                 if key == "INFLUX_TOKEN" then data.token = value end
                 if key == "INFLUX_NODE" then data.node = value end
+                if key == "INFLUX_SHARE_TOKEN" then data.share_token = parseBool(value) end
             end
         end
     end
@@ -147,6 +157,7 @@ function Config.saveEnv(config)
     handle.writeLine("INFLUX_BUCKET=" .. tostring(config.bucket))
     handle.writeLine("INFLUX_TOKEN=" .. tostring(config.token))
     handle.writeLine("INFLUX_NODE=" .. tostring(config.node))
+    handle.writeLine("INFLUX_SHARE_TOKEN=" .. tostring(config.share_token and "true" or "false"))
     handle.close()
 end
 
@@ -159,7 +170,8 @@ function Config.loadSettings()
         org = settings.get(SETTINGS_PREFIX .. "org"),
         bucket = settings.get(SETTINGS_PREFIX .. "bucket"),
         token = settings.get(SETTINGS_PREFIX .. "token"),
-        node = settings.get(SETTINGS_PREFIX .. "node")
+        node = settings.get(SETTINGS_PREFIX .. "node"),
+        share_token = settings.get(SETTINGS_PREFIX .. "share_token")
     }
     if not data.url and not data.token and not data.org then
         return nil
@@ -178,6 +190,7 @@ function Config.saveSettings(config)
     settings.set(SETTINGS_PREFIX .. "bucket", config.bucket)
     settings.set(SETTINGS_PREFIX .. "token", config.token)
     settings.set(SETTINGS_PREFIX .. "node", config.node)
+    settings.set(SETTINGS_PREFIX .. "share_token", config.share_token == true)
     settings.save()
 end
 
@@ -208,6 +221,7 @@ function Config.prompt()
         bucket = bucket,
         token = token,
         node = defaultNode(),
+        share_token = DEFAULTS.share_token,
         machine_interval_s = DEFAULTS.machine_interval_s,
         machine_burst_interval_s = DEFAULTS.machine_burst_interval_s,
         machine_burst_window_s = DEFAULTS.machine_burst_window_s,
@@ -230,19 +244,31 @@ function Config.prompt()
     return config
 end
 
-function Config.ensure()
+function Config.loadMerged()
     local config = merge({}, DEFAULTS)
     local fileConfig = Config.loadFile()
     local envConfig = Config.loadEnv()
     local settingsConfig = Config.loadSettings()
 
-    local hadFile = fileConfig ~= nil
-    local hadEnv = envConfig ~= nil
-    local hadSettings = settingsConfig ~= nil
-
     config = merge(config, fileConfig)
     config = merge(config, envConfig)
     config = merge(config, settingsConfig)
+    if config.share_token == nil then
+        config.share_token = false
+    end
+
+    return config, {
+        hadFile = fileConfig ~= nil,
+        hadEnv = envConfig ~= nil,
+        hadSettings = settingsConfig ~= nil
+    }
+end
+
+function Config.ensure()
+    local config, meta = Config.loadMerged()
+    local hadFile = meta.hadFile
+    local hadEnv = meta.hadEnv
+    local hadSettings = meta.hadSettings
 
     if not config or not config.token or config.token == "" then
         config = Config.prompt()
@@ -266,6 +292,9 @@ function Config.ensure()
 
     config.node = config.node or defaultNode()
     config.url = normalizeUrl(config.url)
+    if config.share_token == nil then
+        config.share_token = false
+    end
 
     if not hadFile then
         Config.saveFile(config)

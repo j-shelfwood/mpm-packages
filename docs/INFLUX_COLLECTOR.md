@@ -33,6 +33,7 @@ INFLUX_ORG=shelfwood
 INFLUX_BUCKET=mc
 INFLUX_TOKEN=...token...
 INFLUX_NODE=overworld-node
+INFLUX_SHARE_TOKEN=false
 ```
 
 ### Settings Keys
@@ -47,6 +48,7 @@ INFLUX_NODE=overworld-node
 - `org`: shelfwood
 - `bucket`: mc
 - `node`: computer label or `cc-<id>`
+- `share_token`: false
 - `machine_interval_s`: 5
 - `machine_burst_interval_s`: 1
 - `machine_burst_window_s`: 10
@@ -95,3 +97,4 @@ Fields: `amount`
 - AE2 lists are limited to top N items/fluids to keep payloads bounded.
 - Tokens are stored in plain text on the computer; use a least-privilege token per bucket.
 - Burst polling auto-activates for machines and energy detectors when activity is detected, then decays after the burst window.
+- Config sync: a new node broadcasts on `influx_collector_sync` and copies url/org/bucket, plus token only if `share_token=true` on the existing node.
