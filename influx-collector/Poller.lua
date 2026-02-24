@@ -407,12 +407,9 @@ function Poller:collectAE()
 
     self.influx:add("ae_summary", { node = node, source = src }, summaryFields, startMs)
 
-    -- Top N items and fluids
+    -- All items (top N by count for ordering, but all are written)
     sortByField(items, "count")
-    sortByField(fluids, "amount")
-
-    local itemLimit = math.min(self.config.ae_top_items or 20, #items)
-    for i = 1, itemLimit do
+    for i = 1, #items do
         local item = items[i]
         self.influx:add("ae_item", {
             node = node,
@@ -420,21 +417,17 @@ function Poller:collectAE()
         }, { count = item.count }, startMs)
     end
 
-    local fluidLimit = math.min(self.config.ae_top_fluids or 10, #fluids)
-    for i = 1, fluidLimit do
-        local fluid = fluids[i]
+    -- All fluids
+    for _, fluid in ipairs(fluids) do
         self.influx:add("ae_fluid", {
             node  = node,
             fluid = fluid.registryName
         }, { amount = fluid.amount }, startMs)
     end
 
-    -- Top N chemicals
+    -- All chemicals
     if ae:hasChemicalSupport() and #chemicals > 0 then
-        sortByField(chemicals, "amount")
-        local chemLimit = math.min(self.config.ae_top_chemicals or 10, #chemicals)
-        for i = 1, chemLimit do
-            local chem = chemicals[i]
+        for _, chem in ipairs(chemicals) do
             self.influx:add("ae_chemical", {
                 node     = node,
                 chemical = chem.registryName
