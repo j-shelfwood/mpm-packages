@@ -1,0 +1,8 @@
+{
+  "name": "ai",
+  "description": "MCP Bridge - connects this computer to mpm-mcp-server so AI agents can execute Lua, read/write files, and call peripherals",
+  "files": [
+    "Bridge.lua"
+  ],
+  "dependencies": ["net", "utils"]
+}
