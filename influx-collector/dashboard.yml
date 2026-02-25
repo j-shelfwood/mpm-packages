@@ -1,7 +1,59 @@
+# CC Telemetry — InfluxDB Dashboard Template
+#
+# SOURCE OF TRUTH: This file. Edit here, then apply with `influx apply`.
+# Do NOT edit dashboards in the InfluxDB UI without exporting back here afterwards.
+#
+# WORKFLOW:
+#   Apply (deploy to InfluxDB):
+#     influx apply -f mpm-packages/influx-collector/dashboard.yml \
+#       --host https://influx.shelfwood.co \
+#       --token <operator_token_from_1password> \
+#       --org shelfwood
+#
+#   Export (pull live state back to file):
+#     influx export all \
+#       --host https://influx.shelfwood.co \
+#       --token <operator_token_from_1password> \
+#       --org shelfwood \
+#       --filter=resourceKind=Variable \
+#       --filter=resourceKind=Dashboard \
+#       > mpm-packages/influx-collector/dashboard.yml
+#     Then strip the auto-generated `metadata.name` slugs and add this header back.
+#
+# TOKENS:
+#   Two tokens exist in InfluxDB (see 1Password vault "Shelfwood", item "influx.shelfwood.co"):
+#   - admin_token  : operator-level token — required for `influx apply` and `influx export`
+#   - token        : influx-collector write token — used by CC:Tweaked nodes, write-only to mc bucket
+#
+# VARIABLES (used by dashboard charts):
+#   detector_generation  — energy_flow `name` tag value for your generation detector peripheral
+#   detector_consumption — energy_flow `name` tag value for your consumption detector peripheral
+#   Both are dropdown-selectable in the dashboard UI. Values come from live `energy_flow` tag data.
+#
+# NODES:
+#   cc-58  — AE2 network + energy (me_bridge_1, me_bridge_2) + energy detectors + inventory snapshots
+#   cc-49  — Machines only (machine_activity, machine_type, machine_summary)
+#
+# DASHBOARD LAYOUT (12-column grid):
+#   Row 1 (y=0,  h=2): Energy Stored FE | Energy % | Power Generation | Power Consumption | Net Flow | AE Items Total
+#   Row 2 (y=2,  h=2): AE Crafting Tasks | CPUs Busy | AE Energy Usage | Item Storage Used | Machines Active | Machines Total
+#   Row 3 (y=4,  h=5): Power Generation vs Consumption (line, 8-wide) | Energy Storage % (line, 4-wide)
+#   Row 4 (y=9,  h=5): AE Items Total over time (line, 6-wide) | AE Energy Usage & Input (line, 6-wide)
+#   Row 5 (y=14, h=5): Active Crafting Jobs (table, 6-wide) | Machine Types (table, 6-wide)
+#   Row 6 (y=19, h=6): Machine Activity Grid (mosaic, 12-wide) — green=active, grey=idle per machine
+#
+# NOTE: `ae_crafting_job` (Active Crafting Jobs table) only contains rows while AE2 crafting
+#       tasks are actively running. The table will be empty when no jobs are in progress.
+#
+# NOTE: metadata.name values below are arbitrary slugs assigned by InfluxDB on import.
+#       They have no semantic meaning. InfluxDB uses `spec.name` as the display name.
+#       On re-import, `influx apply` matches by slug and updates in-place (idempotent).
+
+---
 apiVersion: influxdata.com/v2alpha1
 kind: Variable
 metadata:
-    name: cc-telemetry-detector-generation
+    name: frosty-bardeen-86b001
 spec:
     description: Peripheral name of the energy detector measuring power GENERATION
     language: flux
@@ -14,7 +66,7 @@ spec:
 apiVersion: influxdata.com/v2alpha1
 kind: Variable
 metadata:
-    name: cc-telemetry-detector-consumption
+    name: modest-mccarthy-86b003
 spec:
     description: Peripheral name of the energy detector measuring power CONSUMPTION
     language: flux
@@ -27,60 +79,59 @@ spec:
 apiVersion: influxdata.com/v2alpha1
 kind: Dashboard
 metadata:
-    name: cc-telemetry-dashboard
+    name: compassionate-tesla-06b001
 spec:
     description: Minecraft CC:Tweaked telemetry — energy, AE2, crafting, machines
     name: CC Telemetry
     charts:
 
-        # ── Row 1: Energy headline stats (y=0, height=2) ───────────────────────
+        # ── Row 1: Energy + AE headline stats (y=0, height=2) ──────────────────
 
-        - kind: Single_Stat
-          name: Energy Stored (FE)
+        - colors:
+            - hex: '#31C0F6'
+              name: pool
+              type: text
+          decimalPlaces: 0
           height: 2
-          width: 3
-          xPos: 0
-          yPos: 0
+          kind: Single_Stat
+          name: Energy Stored (FE)
           queries:
             - query: |-
                 from(bucket: "mc")
                   |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
                   |> filter(fn: (r) => r._measurement == "energy_total" and r._field == "stored_fe")
                   |> last()
-          decimalPlaces: 0
-          suffix: " FE"
-          colors:
-            - hex: "#31C0F6"
-              name: pool
-              type: text
           staticLegend: {}
+          suffix: ' FE'
+          width: 3
 
-        - kind: Single_Stat
-          name: Energy %
+        - colors:
+            - hex: '#00C9FF'
+              name: laser
+              type: text
+          decimalPlaces: 1
           height: 2
-          width: 1
-          xPos: 3
-          yPos: 0
+          kind: Single_Stat
+          name: Energy %
           queries:
             - query: |-
                 from(bucket: "mc")
                   |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
                   |> filter(fn: (r) => r._measurement == "energy_total" and r._field == "percent")
                   |> last()
-          decimalPlaces: 1
-          suffix: "%"
-          colors:
-            - hex: "#00C9FF"
-              name: laser
-              type: text
           staticLegend: {}
+          suffix: '%'
+          width: 1
+          xPos: 3
 
-        - kind: Single_Stat
-          name: Power Generation
+        - colors:
+            - hex: '#4ED8A0'
+              name: mint
+              type: text
+          decimalPlaces: 0
           height: 2
-          width: 2
-          xPos: 4
-          yPos: 0
+          kind: Single_Stat
+          name: Power Generation
           queries:
             - query: |-
                 from(bucket: "mc")
@@ -88,20 +139,19 @@ spec:
                   |> filter(fn: (r) => r._measurement == "energy_flow" and r._field == "rate_fe_t")
                   |> filter(fn: (r) => r.name == v.detector_generation)
                   |> last()
-          decimalPlaces: 0
-          suffix: " FE/t"
-          colors:
-            - hex: "#4ED8A0"
-              name: mint
-              type: text
           staticLegend: {}
-
-        - kind: Single_Stat
-          name: Power Consumption
-          height: 2
+          suffix: ' FE/t'
           width: 2
-          xPos: 6
-          yPos: 0
+          xPos: 4
+
+        - colors:
+            - hex: '#F48FB1'
+              name: pink
+              type: text
+          decimalPlaces: 0
+          height: 2
+          kind: Single_Stat
+          name: Power Consumption
           queries:
             - query: |-
                 from(bucket: "mc")
@@ -109,20 +159,19 @@ spec:
                   |> filter(fn: (r) => r._measurement == "energy_flow" and r._field == "rate_fe_t")
                   |> filter(fn: (r) => r.name == v.detector_consumption)
                   |> last()
-          decimalPlaces: 0
-          suffix: " FE/t"
-          colors:
-            - hex: "#F48FB1"
-              name: pink
-              type: text
           staticLegend: {}
-
-        - kind: Single_Stat
-          name: Net Flow
-          height: 2
+          suffix: ' FE/t'
           width: 2
-          xPos: 8
-          yPos: 0
+          xPos: 6
+
+        - colors:
+            - hex: '#FFD166'
+              name: gold
+              type: text
+          decimalPlaces: 0
+          height: 2
+          kind: Single_Stat
+          name: Net Flow
           queries:
             - query: |-
                 gen = from(bucket: "mc")
@@ -141,61 +190,58 @@ spec:
 
                 join(tables: {gen: gen, con: con}, on: ["_time", "node"])
                   |> map(fn: (r) => ({r with _value: r._value_gen - r._value_con}))
-          decimalPlaces: 0
-          suffix: " FE/t"
-          colors:
-            - hex: "#FFD166"
-              name: gold
-              type: text
           staticLegend: {}
-
-        - kind: Single_Stat
-          name: AE Items Total
-          height: 2
+          suffix: ' FE/t'
           width: 2
-          xPos: 10
-          yPos: 0
+          xPos: 8
+
+        - colors:
+            - hex: '#F48FB1'
+              name: pink
+              type: text
+          decimalPlaces: 0
+          height: 2
+          kind: Single_Stat
+          name: AE Items Total
           queries:
             - query: |-
                 from(bucket: "mc")
                   |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
                   |> filter(fn: (r) => r._measurement == "ae_summary" and r._field == "items_total")
                   |> last()
-          decimalPlaces: 0
-          colors:
-            - hex: "#F48FB1"
-              name: pink
-              type: text
           staticLegend: {}
-
-        # ── Row 2: AE headline stats (y=2, height=2) ───────────────────────────
-
-        - kind: Single_Stat
-          name: AE Crafting Tasks
-          height: 2
           width: 2
-          xPos: 0
-          yPos: 2
+          xPos: 10
+
+        # ── Row 2: AE + machine headline stats (y=2, height=2) ─────────────────
+
+        - colors:
+            - hex: '#FFD166'
+              name: gold
+              type: text
+          decimalPlaces: 0
+          height: 2
+          kind: Single_Stat
+          name: AE Crafting Tasks
           queries:
             - query: |-
                 from(bucket: "mc")
                   |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
                   |> filter(fn: (r) => r._measurement == "ae_crafting_task" and r._field == "count")
                   |> last()
-          decimalPlaces: 0
-          suffix: " jobs"
-          colors:
-            - hex: "#FFD166"
-              name: gold
-              type: text
           staticLegend: {}
-
-        - kind: Single_Stat
-          name: CPUs Busy
-          height: 2
+          suffix: ' jobs'
           width: 2
-          xPos: 2
           yPos: 2
+
+        - colors:
+            - hex: '#4ED8A0'
+              id: cpu-color
+              name: mint
+              type: text
+          height: 2
+          kind: Single_Stat
+          name: CPUs Busy
           queries:
             - query: |-
                 from(bucket: "mc")
@@ -204,98 +250,103 @@ spec:
                   |> last()
                   |> pivot(rowKey: ["_time", "node", "source"], columnKey: ["_field"], valueColumn: "_value")
                   |> map(fn: (r) => ({r with _value: string(v: int(v: r.busy)) + "/" + string(v: int(v: r.total))}))
-          colors:
-            - hex: "#4ED8A0"
-              name: mint
-              type: text
           staticLegend: {}
-
-        - kind: Single_Stat
-          name: AE Energy Usage
-          height: 2
           width: 2
-          xPos: 4
+          xPos: 2
           yPos: 2
+
+        - colors:
+            - hex: '#FFB94A'
+              name: amber
+              type: text
+          decimalPlaces: 0
+          height: 2
+          kind: Single_Stat
+          name: AE Energy Usage
           queries:
             - query: |-
                 from(bucket: "mc")
                   |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
                   |> filter(fn: (r) => r._measurement == "ae_summary" and r._field == "energy_usage")
                   |> last()
-          decimalPlaces: 0
-          suffix: " FE/t"
-          colors:
-            - hex: "#FFB94A"
-              name: amber
-              type: text
           staticLegend: {}
-
-        - kind: Single_Stat
-          name: Item Storage Used
-          height: 2
+          suffix: ' FE/t'
           width: 2
-          xPos: 6
+          xPos: 4
           yPos: 2
+
+        - colors:
+            - hex: '#31C0F6'
+              name: pool
+              type: text
+          decimalPlaces: 0
+          height: 2
+          kind: Single_Stat
+          name: Item Storage Used
           queries:
             - query: |-
                 from(bucket: "mc")
                   |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
                   |> filter(fn: (r) => r._measurement == "ae_summary" and r._field == "item_storage_used")
                   |> last()
-          decimalPlaces: 0
-          suffix: " bytes"
-          colors:
-            - hex: "#31C0F6"
-              name: pool
-              type: text
           staticLegend: {}
-
-        - kind: Single_Stat
-          name: Machines Active
-          height: 2
+          suffix: ' bytes'
           width: 2
-          xPos: 8
+          xPos: 6
           yPos: 2
+
+        - colors:
+            - hex: '#4ED8A0'
+              name: mint
+              type: text
+          decimalPlaces: 0
+          height: 2
+          kind: Single_Stat
+          name: Machines Active
           queries:
             - query: |-
                 from(bucket: "mc")
                   |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
                   |> filter(fn: (r) => r._measurement == "machine_summary" and r._field == "active_machines")
                   |> last()
-          decimalPlaces: 0
-          colors:
-            - hex: "#4ED8A0"
-              name: mint
-              type: text
           staticLegend: {}
-
-        - kind: Single_Stat
-          name: Machines Total
-          height: 2
           width: 2
-          xPos: 10
+          xPos: 8
           yPos: 2
+
+        - colors:
+            - hex: '#A5F3FC'
+              name: cyan
+              type: text
+          decimalPlaces: 0
+          height: 2
+          kind: Single_Stat
+          name: Machines Total
           queries:
             - query: |-
                 from(bucket: "mc")
                   |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
                   |> filter(fn: (r) => r._measurement == "machine_summary" and r._field == "total_machines")
                   |> last()
-          decimalPlaces: 0
-          colors:
-            - hex: "#A5F3FC"
-              name: cyan
-              type: text
           staticLegend: {}
+          width: 2
+          xPos: 10
+          yPos: 2
 
-        # ── Row 3: Energy flow graph (y=4, height=5) ────────────────────────────
+        # ── Row 3: Energy graphs (y=4, height=5) ────────────────────────────────
 
-        - kind: Xy
-          name: Power Generation vs Consumption
+        - axes:
+            - base: "10"
+              name: x
+              scale: linear
+            - base: "10"
+              name: "y"
+              scale: linear
+              suffix: ' FE/t'
+          geom: line
           height: 5
-          width: 8
-          xPos: 0
-          yPos: 4
+          kind: Xy
+          name: Power Generation vs Consumption
           queries:
             - query: |-
                 from(bucket: "mc")
@@ -305,23 +356,22 @@ spec:
                   |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)
                   |> map(fn: (r) => ({r with _field: if r.name == v.detector_generation then "generation" else "consumption"}))
                   |> yield(name: "mean")
-          geom: line
-          axes:
+          staticLegend: {}
+          width: 8
+          yPos: 4
+
+        - axes:
             - base: "10"
               name: x
               scale: linear
             - base: "10"
               name: "y"
               scale: linear
-              suffix: " FE/t"
-          staticLegend: {}
-
-        - kind: Xy
-          name: Energy Storage (%)
+              suffix: '%'
+          geom: line
           height: 5
-          width: 4
-          xPos: 8
-          yPos: 4
+          kind: Xy
+          name: Energy Storage (%)
           queries:
             - query: |-
                 from(bucket: "mc")
@@ -329,25 +379,24 @@ spec:
                   |> filter(fn: (r) => r._measurement == "energy_storage" and r._field == "percent")
                   |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)
                   |> yield(name: "mean")
-          geom: line
-          axes:
+          staticLegend: {}
+          width: 4
+          xPos: 8
+          yPos: 4
+
+        # ── Row 4: AE2 graphs (y=9, height=5) ───────────────────────────────────
+
+        - axes:
             - base: "10"
               name: x
               scale: linear
             - base: "10"
               name: "y"
               scale: linear
-              suffix: "%"
-          staticLegend: {}
-
-        # ── Row 4: AE2 graphs (y=9, height=5) ──────────────────────────────────
-
-        - kind: Xy
-          name: AE Items Total
+          geom: line
           height: 5
-          width: 6
-          xPos: 0
-          yPos: 9
+          kind: Xy
+          name: AE Items Total
           queries:
             - query: |-
                 from(bucket: "mc")
@@ -355,22 +404,22 @@ spec:
                   |> filter(fn: (r) => r._measurement == "ae_summary" and r._field == "items_total")
                   |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)
                   |> yield(name: "mean")
-          geom: line
-          axes:
+          staticLegend: {}
+          width: 6
+          yPos: 9
+
+        - axes:
             - base: "10"
               name: x
               scale: linear
             - base: "10"
               name: "y"
               scale: linear
-          staticLegend: {}
-
-        - kind: Xy
-          name: AE Energy Usage & Input
+              suffix: ' FE/t'
+          geom: line
           height: 5
-          width: 6
-          xPos: 6
-          yPos: 9
+          kind: Xy
+          name: AE Energy Usage & Input
           queries:
             - query: |-
                 from(bucket: "mc")
@@ -378,25 +427,35 @@ spec:
                   |> filter(fn: (r) => r._measurement == "ae_summary" and (r._field == "energy_usage" or r._field == "energy_input"))
                   |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)
                   |> yield(name: "mean")
-          geom: line
-          axes:
-            - base: "10"
-              name: x
-              scale: linear
-            - base: "10"
-              name: "y"
-              scale: linear
-              suffix: " FE/t"
           staticLegend: {}
-
-        # ── Row 5: Crafting queue table + machine type table (y=14, height=5) ──
-
-        - kind: Table
-          name: Active Crafting Jobs
-          height: 5
           width: 6
-          xPos: 0
-          yPos: 14
+          xPos: 6
+          yPos: 9
+
+        # ── Row 5: Crafting + machine tables (y=14, height=5) ───────────────────
+
+        - fieldOptions:
+            - displayName: Time
+              fieldName: _time
+              visible: true
+            - displayName: Item
+              fieldName: item
+              visible: true
+            - displayName: CPU
+              fieldName: cpu
+              visible: true
+            - displayName: Qty
+              fieldName: quantity
+              visible: true
+            - displayName: Crafted
+              fieldName: crafted
+              visible: true
+            - displayName: Done %
+              fieldName: completion
+              visible: true
+          height: 5
+          kind: Table
+          name: Active Crafting Jobs
           queries:
             - query: |-
                 from(bucket: "mc")
@@ -406,35 +465,34 @@ spec:
                   |> sort(columns: ["_time"], desc: true)
                   |> limit(n: 50)
                   |> keep(columns: ["_time", "item", "cpu", "quantity", "crafted", "completion"])
-          tableOptions:
-              verticalTimeAxis: true
-          fieldOptions:
-            - fieldName: _time
-              displayName: Time
-              visible: true
-            - fieldName: item
-              displayName: Item
-              visible: true
-            - fieldName: cpu
-              displayName: CPU
-              visible: true
-            - fieldName: quantity
-              displayName: Qty
-              visible: true
-            - fieldName: crafted
-              displayName: Crafted
-              visible: true
-            - fieldName: completion
-              displayName: Done %
-              visible: true
           staticLegend: {}
-
-        - kind: Table
-          name: Machine Types
-          height: 5
+          tableOptions:
+            verticalTimeAxis: true
           width: 6
-          xPos: 6
           yPos: 14
+
+        - fieldOptions:
+            - displayName: Type
+              fieldName: type
+              visible: true
+            - displayName: Mod
+              fieldName: mod
+              visible: true
+            - displayName: Node
+              fieldName: node
+              visible: true
+            - displayName: Total
+              fieldName: total_count
+              visible: true
+            - displayName: Active
+              fieldName: active_count
+              visible: true
+            - displayName: Active %
+              fieldName: active_percent
+              visible: true
+          height: 5
+          kind: Table
+          name: Machine Types
           queries:
             - query: |-
                 from(bucket: "mc")
@@ -446,42 +504,28 @@ spec:
                   |> unique(column: "type")
                   |> sort(columns: ["type"])
                   |> keep(columns: ["type", "mod", "node", "total_count", "active_count", "active_percent"])
-          tableOptions:
-              verticalTimeAxis: false
-          fieldOptions:
-            - fieldName: type
-              displayName: Type
-              visible: true
-            - fieldName: mod
-              displayName: Mod
-              visible: true
-            - fieldName: node
-              displayName: Node
-              visible: true
-            - fieldName: total_count
-              displayName: Total
-              visible: true
-            - fieldName: active_count
-              displayName: Active
-              visible: true
-            - fieldName: active_percent
-              displayName: Active %
-              visible: true
           staticLegend: {}
+          width: 6
+          xPos: 6
+          yPos: 14
 
-        # ── Row 6: Machine activity grid (y=19, height=6) ──────────────────────
-        # Mosaic: one row per machine peripheral name, coloured by "active"/"idle".
-        # active=1 → "active" (green tile), active=0 → "idle" (grey tile).
-        # Y-axis = name tag; machines sort alphabetically so same-type machines
-        # cluster together (eliteCrushing_0, eliteCrushing_1, etc.).
-        # Fill column must be a string field — map integer active → string here.
+        # ── Row 6: Machine activity mosaic (y=19, height=6) ─────────────────────
+        # One tile per machine peripheral, coloured active (green) or idle (grey).
+        # Y-axis = machine `name` tag; grouped by `type` label column.
 
-        - kind: Mosaic
-          name: Machine Activity Grid
+        - axes:
+            - name: x
+            - label: Machine
+              name: "y"
+          colors:
+            - hex: '#545667'
+            - hex: '#4ED8A0'
           height: 6
-          width: 12
-          xPos: 0
-          yPos: 19
+          kind: Mosaic
+          legendColorizeRows: true
+          legendOpacity: 1
+          legendOrientationThreshold: 10
+          name: Machine Activity Grid
           queries:
             - query: |-
                 from(bucket: "mc")
@@ -491,11 +535,11 @@ spec:
                   |> map(fn: (r) => ({r with _value: if r._value == 1.0 then "active" else "idle"}))
                   |> keep(columns: ["_time", "_value", "name", "type", "node"])
                   |> group()
-          colors:
-            - hex: "#4ED8A0"
-              name: active
-              type: scale
-            - hex: "#545667"
-              name: idle
-              type: scale
           staticLegend: {}
+          width: 12
+          xCol: _time
+          yLabelColumns:
+            - type
+          yPos: 19
+          ySeriesColumns:
+            - name
