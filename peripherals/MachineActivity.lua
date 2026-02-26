@@ -44,6 +44,22 @@ local ACTIVITY_STRATEGIES = {
         return false, {}
     end },
 
+    -- Generic machine activity flags (some MI integrations expose these)
+    { method = "isActive", detect = function(p)
+        local active = readValue(p, "isActive")
+        if type(active) == "boolean" then
+            return active, {}
+        end
+        return false, {}
+    end },
+    { method = "isRunning", detect = function(p)
+        local active = readValue(p, "isRunning")
+        if type(active) == "boolean" then
+            return active, {}
+        end
+        return false, {}
+    end },
+
     -- Mekanism Processing (recipe progress)
     {
         method = "getRecipeProgress",
@@ -66,6 +82,28 @@ local ACTIVITY_STRATEGIES = {
                 progress = progressValue,
                 total = total,
                 percent = total > 0 and (progressValue / total * 100) or 0
+            }
+        end
+    },
+
+    -- Generic progress-based activity (used by some non-Mekanism peripherals)
+    {
+        method = "getProgress",
+        detect = function(p)
+            local progress = readValue(p, "getProgress")
+            if type(progress) ~= "number" then
+                return false, {}
+            end
+            local total = readValue(p, "getMaxProgress")
+            if type(total) ~= "number" then
+                total = readValue(p, "getProgressMax")
+            end
+            local progressValue = progress or 0
+            local active = progressValue > 0
+            return active, {
+                progress = progressValue,
+                total = type(total) == "number" and total or 0,
+                percent = type(total) == "number" and total > 0 and (progressValue / total * 100) or 0
             }
         end
     },
@@ -255,14 +293,18 @@ end
 -- Returns: { mod = "mekanism"|"mi"|"unknown", category = string, label = string, color = color }
 function MachineActivity.classify(peripheralType)
     buildTypeCategoryMap()
+    local normalizedType = (peripheralType or ""):lower()
 
     -- Check Mekanism
     if typeToCategory[peripheralType] then
         return typeToCategory[peripheralType]
     end
 
-    -- Check for MI pattern (modern_industrialization:xxx)
-    if peripheralType:match("^modern_industrialization:") then
+    -- Check for MI pattern (modern_industrialization:xxx and common variants)
+    if normalizedType:match("^modern_industrialization:")
+        or normalizedType:match("^modernindustrialization:")
+        or normalizedType:find("modern_industrialization", 1, true)
+        or normalizedType:find("modernindustrialization", 1, true) then
         local shortName = peripheralType:match(":(.+)$") or peripheralType
         return {
             mod = "mi",
@@ -301,13 +343,18 @@ function MachineActivity.discoverAll(forceRefresh)
         if pTypeOk and pType then
             local pOk, p = pcall(Peripherals.wrap, name)
             if not pOk then p = nil end
+            local classification = MachineActivity.classify(pType)
             local supported, _ = MachineActivity.supportsActivity(p)
+            -- MI peripherals are included even if activity method detection is incomplete.
+            -- This guarantees baseline telemetry (active=0 + optional energy/formed fields)
+            -- instead of silently dropping all MI machines.
+            local include = supported or classification.mod == "mi"
 
-            if supported then
+            if include then
                 if not result[pType] then
                     result[pType] = {
                         machines = {},
-                        classification = MachineActivity.classify(pType)
+                        classification = classification
                     }
                 end
                 table.insert(result[pType].machines, {

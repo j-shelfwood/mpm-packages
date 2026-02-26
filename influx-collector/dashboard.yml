@@ -41,6 +41,7 @@
 #   Row 4 (y=9,  h=5): AE Items Total over time (line, 6-wide) | AE Energy Usage & Input (line, 6-wide)
 #   Row 5 (y=14, h=5): Active Crafting Jobs (table, 6-wide) | Machine Types (table, 6-wide)
 #   Row 6 (y=19, h=6): Machine Activity Grid (mosaic, 12-wide) — green=active, grey=idle per machine
+#   Row 7 (y=25, h=6): MI Machine Details (table, 12-wide) — latest active/progress/energy per MI machine
 #
 # NOTE: `ae_crafting_job` (Active Crafting Jobs table) only contains rows while AE2 crafting
 #       tasks are actively running. The table will be empty when no jobs are in progress.
@@ -543,3 +544,53 @@ spec:
           yPos: 19
           ySeriesColumns:
             - name
+
+        # ── Row 7: MI machine validation table (y=25, height=6) ─────────────────
+        # Latest snapshot per MI machine to verify collector integration fields.
+
+        - fieldOptions:
+            - displayName: Time
+              fieldName: _time
+              visible: true
+            - displayName: Name
+              fieldName: name
+              visible: true
+            - displayName: Type
+              fieldName: type
+              visible: true
+            - displayName: Active
+              fieldName: active
+              visible: true
+            - displayName: Progress %
+              fieldName: progress_percent
+              visible: true
+            - displayName: Energy Use
+              fieldName: energy_usage
+              visible: true
+            - displayName: Energy %
+              fieldName: energy_percent
+              visible: true
+            - displayName: Formed
+              fieldName: formed
+              visible: true
+          height: 6
+          kind: Table
+          name: MI Machine Details
+          queries:
+            - query: |-
+                from(bucket: "mc")
+                  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+                  |> filter(fn: (r) => r._measurement == "machine_activity")
+                  |> filter(fn: (r) => r.mod == "mi")
+                  |> filter(fn: (r) => r._field == "active" or r._field == "progress_percent" or r._field == "energy_usage" or r._field == "energy_percent" or r._field == "formed")
+                  |> pivot(rowKey: ["_time", "name", "type", "node"], columnKey: ["_field"], valueColumn: "_value")
+                  |> group()
+                  |> sort(columns: ["_time"], desc: true)
+                  |> unique(column: "name")
+                  |> sort(columns: ["name"])
+                  |> keep(columns: ["_time", "name", "type", "active", "progress_percent", "energy_usage", "energy_percent", "formed"])
+          staticLegend: {}
+          tableOptions:
+            verticalTimeAxis: true
+          width: 12
+          yPos: 25
