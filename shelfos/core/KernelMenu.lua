@@ -28,6 +28,7 @@ function KernelMenu.draw()
     Terminal.drawMenu({
         { key = "m", label = "Monitors" },
         { key = "s", label = "Status" },
+        { key = "p", label = "Peripherals" },
         { key = "l", label = "Link" },
         { key = "r", label = "Reset" },
         { key = "q", label = "Quit" }
@@ -48,6 +49,12 @@ function KernelMenu.handleKey(kernel, key, runningRef)
     elseif action == "status" then
         Terminal.showDialog(function()
             Menu.showStatus(kernel.config)
+        end)
+        refreshRuntimeUI(kernel)
+
+    elseif action == "peripherals" then
+        Terminal.showDialog(function()
+            Menu.showPeripherals(kernel)
         end)
         refreshRuntimeUI(kernel)
 

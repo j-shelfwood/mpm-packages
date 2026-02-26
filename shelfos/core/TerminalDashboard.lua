@@ -290,6 +290,53 @@ local function drawActivityBounded(x, y, width, label, lastActivityTs, count, op
     term.setTextColor(colors.white)
 end
 
+local function collectPeripheralRows(kernel)
+    local rows = {}
+    local localEntries = {}
+
+    for _, name in ipairs(peripheral.getNames()) do
+        table.insert(localEntries, {
+            name = name,
+            pType = peripheral.getType(name) or "unknown"
+        })
+    end
+
+    table.sort(localEntries, function(a, b)
+        return a.name < b.name
+    end)
+
+    for _, entry in ipairs(localEntries) do
+        table.insert(rows, "L " .. entry.name .. " [" .. entry.pType .. "]")
+    end
+
+    local remoteEntries = {}
+    if kernel and kernel.peripheralClient and kernel.peripheralClient.remotePeripherals then
+        local hostMap = kernel.peripheralClient.hostComputers or {}
+        for _, info in pairs(kernel.peripheralClient.remotePeripherals) do
+            local hostInfo = hostMap[info.hostId]
+            local hostName = hostInfo and hostInfo.computerName or ("#" .. tostring(info.hostId or "?"))
+            table.insert(remoteEntries, {
+                name = info.displayName or info.name or "unknown",
+                pType = info.type or "unknown",
+                host = hostName
+            })
+        end
+    end
+
+    table.sort(remoteEntries, function(a, b)
+        if a.host == b.host then
+            return a.name < b.name
+        end
+        return a.host < b.host
+    end)
+
+    for _, entry in ipairs(remoteEntries) do
+        table.insert(rows, "R " .. entry.name .. " [" .. entry.pType .. "] @" .. entry.host)
+    end
+
+    return rows, #localEntries, #remoteEntries
+end
+
 function TerminalDashboard:render(kernel)
     if Terminal.isDialogOpen() then
         return
@@ -456,6 +503,24 @@ function TerminalDashboard:render(kernel)
         y = drawMetricRow(y, "Shared Local", sharedCount, colors.white, nil, nil, nil)
     end
     y = y + 1
+
+    if y < h - 3 then
+        local peripheralRows, localPeripheralCount, remotePeripheralCount = collectPeripheralRows(kernel)
+        TermUI.drawText(contentX, y, "Peripherals (L:" .. tostring(localPeripheralCount) .. " R:" .. tostring(remotePeripheralCount) .. ", key: P)", colors.lightGray)
+        y = y + 1
+        if #peripheralRows == 0 then
+            if y < h - 2 then
+                TermUI.drawText(contentX + 1, y, "(none)", colors.gray)
+                y = y + 1
+            end
+        else
+            for _, row in ipairs(peripheralRows) do
+                if y >= h - 2 then break end
+                TermUI.drawText(contentX + 1, y, DashboardUtils.truncateText(row, math.max(1, w - (contentX + 1))), colors.white)
+                y = y + 1
+            end
+        end
+    end
 
     if kernel and #kernel.monitors > 0 and y < h - 3 then
         TermUI.drawText(contentX, y, "Views", colors.lightGray)

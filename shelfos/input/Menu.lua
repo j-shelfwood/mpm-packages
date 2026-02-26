@@ -17,6 +17,7 @@ local Menu = {}
 local menuKeys = {
     m = "monitors",
     s = "status",
+    p = "peripherals",
     l = "link",
     r = "reset",
     q = "quit"
@@ -38,6 +39,70 @@ end
 -- @param target Term-like object (default: term.current())
 function Menu.showStatus(config, target)
     MenuStatus.show(config, target)
+end
+
+-- Show peripherals list dialog
+-- @param kernel Kernel instance (used for remote peripheral context)
+-- @param target Term-like object (default: term.current())
+function Menu.showPeripherals(kernel, target)
+    target = target or term.current()
+
+    local lines = { "" }
+    local localPeripherals = {}
+
+    for _, name in ipairs(peripheral.getNames()) do
+        table.insert(localPeripherals, {
+            name = name,
+            pType = peripheral.getType(name) or "unknown"
+        })
+    end
+
+    table.sort(localPeripherals, function(a, b)
+        return a.name < b.name
+    end)
+
+    table.insert(lines, "Local (" .. tostring(#localPeripherals) .. "):")
+    if #localPeripherals == 0 then
+        table.insert(lines, "  (none)")
+    else
+        for _, entry in ipairs(localPeripherals) do
+            table.insert(lines, "  " .. entry.name .. " [" .. entry.pType .. "]")
+        end
+    end
+
+    local remotePeripherals = {}
+    if kernel and kernel.peripheralClient and kernel.peripheralClient.remotePeripherals then
+        local hostMap = kernel.peripheralClient.hostComputers or {}
+        for _, info in pairs(kernel.peripheralClient.remotePeripherals) do
+            local hostInfo = hostMap[info.hostId]
+            local hostName = hostInfo and hostInfo.computerName or ("#" .. tostring(info.hostId or "?"))
+            table.insert(remotePeripherals, {
+                name = info.displayName or info.name or "unknown",
+                pType = info.type or "unknown",
+                host = hostName
+            })
+        end
+    end
+
+    table.sort(remotePeripherals, function(a, b)
+        if a.host == b.host then
+            return a.name < b.name
+        end
+        return a.host < b.host
+    end)
+
+    table.insert(lines, "")
+    table.insert(lines, "Remote (" .. tostring(#remotePeripherals) .. "):")
+    if #remotePeripherals == 0 then
+        table.insert(lines, "  (none)")
+    else
+        for _, entry in ipairs(remotePeripherals) do
+            table.insert(lines, "  " .. entry.name .. " [" .. entry.pType .. "]")
+            table.insert(lines, "    from: " .. entry.host)
+        end
+    end
+
+    Controller.showInfo(target, "Peripherals", lines)
 end
 
 -- Show monitors overview dialog

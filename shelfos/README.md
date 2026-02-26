@@ -29,6 +29,7 @@ ShelfOS supports both monitor-attached and terminal-only (0 monitor) nodes under
 |-----|--------|
 | `M` | Open monitor/view management |
 | `S` | Open status view |
+| `P` | Open peripherals list |
 | `L` | Open swarm link menu |
 | `R` | Factory reset and reboot |
 | `Q` | Quit ShelfOS |
