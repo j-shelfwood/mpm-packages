@@ -345,10 +345,11 @@ function MachineActivity.discoverAll(forceRefresh)
             if not pOk then p = nil end
             local classification = MachineActivity.classify(pType)
             local supported, _ = MachineActivity.supportsActivity(p)
+            local excluded = (pType == "me_bridge" or pType == "meBridge" or pType == "rs_bridge" or pType == "rsBridge")
             -- MI peripherals are included even if activity method detection is incomplete.
             -- This guarantees baseline telemetry (active=0 + optional energy/formed fields)
             -- instead of silently dropping all MI machines.
-            local include = supported or classification.mod == "mi"
+            local include = (supported or classification.mod == "mi") and not excluded
 
             if include then
                 if not result[pType] then

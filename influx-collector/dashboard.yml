@@ -509,7 +509,7 @@ spec:
                 from(bucket: "mc")
                   |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
                   |> filter(fn: (r) => r._measurement == "machine_type")
-                  |> filter(fn: (r) => r.mod == "mekanism" or r.mod == "mi" or r.mod == "modern_industrialization" or r.mod == "modernindustrialization")
+                  |> filter(fn: (r) => r.type != "me_bridge")
                   |> pivot(rowKey: ["_time", "type", "mod", "node"], columnKey: ["_field"], valueColumn: "_value")
                   |> map(fn: (r) => ({r with
                       type: if exists r.type then string(v: r.type) else "unknown",
@@ -551,11 +551,11 @@ spec:
                 from(bucket: "mc")
                   |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
                   |> filter(fn: (r) => r._measurement == "machine_activity" and r._field == "active")
-                  |> filter(fn: (r) => r.mod == "mekanism" or r.mod == "mi" or r.mod == "modern_industrialization" or r.mod == "modernindustrialization")
+                  |> filter(fn: (r) => r.type != "me_bridge")
                   |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)
                   |> filter(fn: (r) => exists r.name and exists r.type and exists r.node)
                   |> map(fn: (r) => ({r with
-                      _value: if r._value == 1.0 then "active" else "idle",
+                      _value: if r._value == 1.0 then 1.0 else 0.0,
                       name: string(v: r.name),
                       type: string(v: r.type),
                       node: string(v: r.node)
@@ -617,7 +617,7 @@ spec:
                 from(bucket: "mc")
                   |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
                   |> filter(fn: (r) => r._measurement == "machine_activity")
-                  |> filter(fn: (r) => r.mod == "mekanism" or r.mod == "mi" or r.mod == "modern_industrialization" or r.mod == "modernindustrialization")
+                  |> filter(fn: (r) => r.type != "me_bridge")
                   |> filter(fn: (r) => r._field == "active" or r._field == "progress_percent" or r._field == "energy_usage" or r._field == "energy_percent" or r._field == "formed")
                   |> pivot(rowKey: ["_time", "name", "type", "node"], columnKey: ["_field"], valueColumn: "_value")
                   |> map(fn: (r) => ({r with
