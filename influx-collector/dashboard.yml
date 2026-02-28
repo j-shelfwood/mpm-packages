@@ -449,6 +449,10 @@ spec:
             - displayName: Done %
               fieldName: completion
               visible: true
+          colors:
+            - hex: '#31C0F6'
+              name: pool
+              type: text
           height: 5
           kind: Table
           name: Active Crafting Jobs
@@ -493,6 +497,10 @@ spec:
             - displayName: Active %
               fieldName: active_percent
               visible: true
+          colors:
+            - hex: '#4ED8A0'
+              name: mint
+              type: text
           height: 5
           kind: Table
           name: Machine Types
@@ -597,6 +605,10 @@ spec:
             - displayName: Formed
               fieldName: formed
               visible: true
+          colors:
+            - hex: '#FFD166'
+              name: gold
+              type: text
           height: 6
           kind: Table
           name: Machine Details
