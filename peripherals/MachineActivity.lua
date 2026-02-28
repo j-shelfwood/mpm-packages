@@ -10,6 +10,32 @@ local discoveryCacheAt = 0
 local DISCOVERY_CACHE_TTL_MS = 5000
 local WATCH_INTERVAL_MS = 1200
 
+-- Common Modern Industrialization machine type names seen without mod prefixes.
+-- These are treated as MI for dashboard grouping even when peripheral providers
+-- omit `modern_industrialization:` in their type string.
+local MI_TYPE_HINTS = {
+    electric_furnace = true,
+    macerator = true,
+    compressor = true,
+    forge_hammer = true,
+    wiremill = true,
+    cutting_machine = true,
+    cutter = true,
+    bending_machine = true,
+    mixer = true,
+    canner = true,
+    packer = true,
+    unpacker = true,
+    assembler = true,
+    centrifuge = true,
+    electrolyzer = true,
+    distillery = true,
+    blast_furnace = true,
+    arc_furnace = true,
+    large_boiler = true,
+    steam_turbine = true
+}
+
 local function readValue(p, methodName, args)
     if not p or type(p[methodName]) ~= "function" then
         return nil
@@ -294,6 +320,8 @@ end
 function MachineActivity.classify(peripheralType)
     buildTypeCategoryMap()
     local normalizedType = (peripheralType or ""):lower()
+    local shortName = tostring(peripheralType or ""):match(":(.+)$") or tostring(peripheralType or "")
+    local normalizedShort = shortName:lower():gsub("[^%w_]", "")
 
     -- Check Mekanism
     if typeToCategory[peripheralType] then
@@ -305,7 +333,16 @@ function MachineActivity.classify(peripheralType)
         or normalizedType:match("^modernindustrialization:")
         or normalizedType:find("modern_industrialization", 1, true)
         or normalizedType:find("modernindustrialization", 1, true) then
-        local shortName = peripheralType:match(":(.+)$") or peripheralType
+        return {
+            mod = "mi",
+            category = "mi_machines",
+            label = "MI: " .. shortName:gsub("_", " "),
+            color = colors.blue
+        }
+    end
+
+    -- Fallback MI detection for providers that expose only short machine names.
+    if MI_TYPE_HINTS[normalizedShort] then
         return {
             mod = "mi",
             category = "mi_machines",

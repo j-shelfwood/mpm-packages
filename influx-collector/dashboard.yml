@@ -40,8 +40,8 @@
 #   Row 3 (y=4,  h=5): Power Generation vs Consumption (line, 8-wide) | Energy Storage % (line, 4-wide)
 #   Row 4 (y=9,  h=5): AE Items Total over time (line, 6-wide) | AE Energy Usage & Input (line, 6-wide)
 #   Row 5 (y=14, h=5): Active Crafting Jobs (table, 6-wide) | Machine Types (table, 6-wide)
-#   Row 6 (y=19, h=6): Machine Activity Grid (mosaic, 12-wide) — green=active, grey=idle per machine
-#   Row 7 (y=25, h=6): MI Machine Details (table, 12-wide) — latest active/progress/energy per MI machine
+#   Row 6 (y=19, h=6): Machine Activity Grid (table, 12-wide) — latest active/idle state per machine
+#   Row 7 (y=25, h=6): Machine Details (table, 12-wide) — latest active/progress/energy per machine
 #
 # NOTE: `ae_crafting_job` (Active Crafting Jobs table) only contains rows while AE2 crafting
 #       tasks are actively running. The table will be empty when no jobs are in progress.
@@ -519,32 +519,46 @@ spec:
                       active_count: if exists r.active_count then r.active_count else 0.0,
                       active_percent: if exists r.active_percent then r.active_percent else 0.0
                   }))
-                  |> group()
+                  |> group(columns: ["node", "mod", "type"])
                   |> sort(columns: ["_time"], desc: true)
-                  |> unique(column: "type")
-                  |> sort(columns: ["type"])
+                  |> limit(n: 1)
+                  |> group()
+                  |> sort(columns: ["mod", "type", "node"])
                   |> keep(columns: ["type", "mod", "node", "total_count", "active_count", "active_percent"])
           staticLegend: {}
           width: 6
           xPos: 6
           yPos: 14
 
-        # ── Row 6: Machine activity mosaic (y=19, height=6) ─────────────────────
-        # One tile per machine peripheral, coloured active (green) or idle (grey).
-        # Y-axis = machine `name` tag; grouped by `type` label column.
+        # ── Row 6: Machine activity table (y=19, height=6) ──────────────────────
+        # Robust table fallback (avoids Mosaic visualization schema failures).
+        # One row per machine with latest active state.
 
-        - axes:
-            - name: x
-            - label: Machine
-              name: "y"
+        - fieldOptions:
+            - displayName: Time
+              fieldName: _time
+              visible: true
+            - displayName: Node
+              fieldName: node
+              visible: true
+            - displayName: Mod
+              fieldName: mod
+              visible: true
+            - displayName: Type
+              fieldName: type
+              visible: true
+            - displayName: Name
+              fieldName: name
+              visible: true
+            - displayName: Active
+              fieldName: active
+              visible: true
           colors:
-            - hex: '#545667'
             - hex: '#4ED8A0'
+              name: mint
+              type: text
           height: 6
-          kind: Mosaic
-          legendColorizeRows: true
-          legendOpacity: 1
-          legendOrientationThreshold: 10
+          kind: Table
           name: Machine Activity Grid
           queries:
             - query: |-
@@ -552,24 +566,25 @@ spec:
                   |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
                   |> filter(fn: (r) => r._measurement == "machine_activity" and r._field == "active")
                   |> filter(fn: (r) => r.type != "me_bridge")
-                  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)
                   |> filter(fn: (r) => exists r.name and exists r.type and exists r.node)
                   |> map(fn: (r) => ({r with
-                      _value: if r._value == 1.0 then 1.0 else 0.0,
+                      mod: if exists r.mod then string(v: r.mod) else "unknown",
                       name: string(v: r.name),
                       type: string(v: r.type),
-                      node: string(v: r.node)
+                      node: string(v: r.node),
+                      active: if r._value == 1.0 then 1.0 else 0.0
                   }))
-                  |> keep(columns: ["_time", "_value", "name", "type", "node"])
+                  |> group(columns: ["node", "mod", "type", "name"])
+                  |> sort(columns: ["_time"], desc: true)
+                  |> limit(n: 1)
                   |> group()
+                  |> sort(columns: ["mod", "type", "name"])
+                  |> keep(columns: ["_time", "node", "mod", "type", "name", "active"])
           staticLegend: {}
+          tableOptions:
+            verticalTimeAxis: true
           width: 12
-          xCol: _time
-          yLabelColumns:
-            - type
           yPos: 19
-          ySeriesColumns:
-            - name
 
         # ── Row 7: Machine validation table (y=25, height=6) ────────────────────
         # Latest snapshot per machine (Mekanism + MI) to verify collector fields.
@@ -631,10 +646,11 @@ spec:
                       energy_percent: if exists r.energy_percent then r.energy_percent else 0.0,
                       formed: if exists r.formed then r.formed else 0.0
                   }))
-                  |> group()
+                  |> group(columns: ["node", "mod", "type", "name"])
                   |> sort(columns: ["_time"], desc: true)
-                  |> unique(column: "name")
-                  |> sort(columns: ["name"])
+                  |> limit(n: 1)
+                  |> group()
+                  |> sort(columns: ["mod", "type", "name"])
                   |> keep(columns: ["_time", "mod", "node", "name", "type", "active", "progress_percent", "energy_usage", "energy_percent", "formed"])
           staticLegend: {}
           tableOptions:
