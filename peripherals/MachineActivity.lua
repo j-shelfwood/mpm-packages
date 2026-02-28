@@ -9,12 +9,16 @@ local discoveryCache = nil
 local discoveryCacheAt = 0
 local DISCOVERY_CACHE_TTL_MS = 5000
 local WATCH_INTERVAL_MS = 1200
+local MOD_MI = "modern_industrialization"
 
 -- Common Modern Industrialization machine type names seen without mod prefixes.
 -- These are treated as MI for dashboard grouping even when peripheral providers
 -- omit `modern_industrialization:` in their type string.
 local MI_TYPE_HINTS = {
+    alloy_smelter = true,
+    arc_furnace = true,
     electric_furnace = true,
+    furnace = true,
     macerator = true,
     compressor = true,
     forge_hammer = true,
@@ -28,12 +32,48 @@ local MI_TYPE_HINTS = {
     unpacker = true,
     assembler = true,
     centrifuge = true,
+    chemical_reactor = true,
     electrolyzer = true,
     distillery = true,
     blast_furnace = true,
-    arc_furnace = true,
+    canning_machine = true,
+    fluid_extractor = true,
+    fluid_solidifier = true,
+    laser_engraver = true,
+    polarizer = true,
+    plate_bender = true,
+    recycler = true,
+    scanner = true,
+    replicator = true,
+    thermal_centrifuge = true,
+    ore_washer = true,
+    vacuum_freezer = true,
+    implosion_compressor = true,
+    heat_exchanger = true,
+    steam_blast_furnace = true,
+    electric_quarry = true,
+    steam_quarry = true,
+    distillation_tower = true,
+    oil_drilling_rig = true,
+    fusion_reactor = true,
+    industrial_electrolyzer = true,
+    industrial_macerator = true,
+    industrial_centrifuge = true,
+    industrial_furnace = true,
+    bronze_boiler = true,
+    steel_boiler = true,
+    diesel_generator = true,
+    steam_turbine = true,
     large_boiler = true,
-    steam_turbine = true
+    electric_water_pump = true,
+    lv_diesel_generator = true,
+    mv_diesel_generator = true,
+    hv_diesel_generator = true,
+    lv_transformer = true,
+    mv_transformer = true,
+    hv_transformer = true,
+    ev_transformer = true,
+    iv_transformer = true
 }
 
 local function readValue(p, methodName, args)
@@ -59,8 +99,53 @@ local function readValue(p, methodName, args)
     return nil
 end
 
+local function normalizeMiToken(value)
+    if type(value) ~= "string" then
+        return nil
+    end
+    local token = value:lower():gsub("[^%w_]", "")
+    token = token:gsub("^(bronze_|steel_|primitive_)", "")
+    token = token:gsub("^(ulv_|lv_|mv_|hv_|ev_|iv_|luv_|zpm_|uv_)", "")
+    token = token:gsub("^electric_", "")
+    return token
+end
+
 -- Activity detection strategies by method availability
 local ACTIVITY_STRATEGIES = {
+    -- Modern Industrialization integrations often expose this richer structure.
+    { method = "getCraftingInformation", detect = function(p)
+        local info = readValue(p, "getCraftingInformation")
+        if type(info) ~= "table" then
+            return false, {}
+        end
+        if type(info.isActive) == "boolean" then
+            return info.isActive, {}
+        end
+        local progress = info.progress
+        if type(progress) ~= "number" then
+            progress = info.recipeProgress
+        end
+        if type(progress) ~= "number" then
+            progress = info.craftingProgress
+        end
+        if type(progress) ~= "number" then
+            return false, {}
+        end
+        local total = info.maxProgress
+        if type(total) ~= "number" then
+            total = info.progressMax
+        end
+        if type(total) ~= "number" or total <= 0 then
+            total = 1
+        end
+        local active = progress > 0 and progress < total
+        return active, {
+            progress = progress,
+            total = total,
+            percent = total > 0 and (progress / total * 100) or 0
+        }
+    end },
+
     -- Modern Industrialization / Generic
     { method = "isBusy", detect = function(p)
         local busy = readValue(p, "isBusy")
@@ -316,37 +401,45 @@ function MachineActivity.getFormedState(p)
 end
 
 -- Classify a peripheral type
--- Returns: { mod = "mekanism"|"mi"|"unknown", category = string, label = string, color = color }
-function MachineActivity.classify(peripheralType)
+-- Returns: { mod = "mekanism"|MOD_MI|"unknown", category = string, label = string, color = color }
+function MachineActivity.classify(peripheralType, peripheralName, peripheralObj)
     buildTypeCategoryMap()
     local normalizedType = (peripheralType or ""):lower()
     local shortName = tostring(peripheralType or ""):match(":(.+)$") or tostring(peripheralType or "")
-    local normalizedShort = shortName:lower():gsub("[^%w_]", "")
+    local displayName = tostring(peripheralName or shortName)
+    local normalizedShort = normalizeMiToken(shortName) or ""
+    local normalizedName = normalizeMiToken(peripheralName or "") or ""
+    local hasMiCraftingInfo = peripheralObj and type(peripheralObj.getCraftingInformation) == "function"
 
     -- Check Mekanism
-    if typeToCategory[peripheralType] then
-        return typeToCategory[peripheralType]
+    local mekanismMatch = typeToCategory[peripheralType] or typeToCategory[shortName]
+    if mekanismMatch then
+        return mekanismMatch
     end
 
     -- Check for MI pattern (modern_industrialization:xxx and common variants)
     if normalizedType:match("^modern_industrialization:")
         or normalizedType:match("^modernindustrialization:")
         or normalizedType:find("modern_industrialization", 1, true)
-        or normalizedType:find("modernindustrialization", 1, true) then
+        or normalizedType:find("modernindustrialization", 1, true)
+        or normalizedType:match("^mi_")
+        or normalizedType:match("mi_crafter")
+        or normalizedType:match("_crafter$")
+        or hasMiCraftingInfo then
         return {
-            mod = "mi",
+            mod = MOD_MI,
             category = "mi_machines",
-            label = "MI: " .. shortName:gsub("_", " "),
+            label = "MI: " .. displayName:gsub("_", " "),
             color = colors.blue
         }
     end
 
     -- Fallback MI detection for providers that expose only short machine names.
-    if MI_TYPE_HINTS[normalizedShort] then
+    if MI_TYPE_HINTS[normalizedShort] or MI_TYPE_HINTS[normalizedName] then
         return {
-            mod = "mi",
+            mod = MOD_MI,
             category = "mi_machines",
-            label = "MI: " .. shortName:gsub("_", " "),
+            label = "MI: " .. displayName:gsub("_", " "),
             color = colors.blue
         }
     end
@@ -380,13 +473,13 @@ function MachineActivity.discoverAll(forceRefresh)
         if pTypeOk and pType then
             local pOk, p = pcall(Peripherals.wrap, name)
             if not pOk then p = nil end
-            local classification = MachineActivity.classify(pType)
+            local classification = MachineActivity.classify(pType, name, p)
             local supported, _ = MachineActivity.supportsActivity(p)
             local excluded = (pType == "me_bridge" or pType == "meBridge" or pType == "rs_bridge" or pType == "rsBridge")
             -- MI peripherals are included even if activity method detection is incomplete.
             -- This guarantees baseline telemetry (active=0 + optional energy/formed fields)
             -- instead of silently dropping all MI machines.
-            local include = (supported or classification.mod == "mi") and not excluded
+            local include = (supported or classification.mod == MOD_MI) and not excluded
 
             if include then
                 if not result[pType] then
@@ -410,9 +503,12 @@ function MachineActivity.discoverAll(forceRefresh)
 end
 
 -- Discover machines filtered by mod
--- modFilter: "all", "mekanism", "mi"
+-- modFilter: "all", "mekanism", "modern_industrialization" (legacy alias: "mi")
 function MachineActivity.discover(modFilter, forceRefresh)
     local all = MachineActivity.discoverAll(forceRefresh)
+    if modFilter == "mi" then
+        modFilter = MOD_MI
+    end
 
     if modFilter == "all" then
         return all
@@ -434,7 +530,7 @@ function MachineActivity.invalidateCache()
 end
 
 -- Get available machine types as config options
--- modFilter: "all", "mekanism", "mi"
+-- modFilter: "all", "mekanism", "modern_industrialization" (legacy alias: "mi")
 function MachineActivity.getMachineTypes(modFilter)
     local discovered = MachineActivity.discover(modFilter or "all")
     local types = {}
@@ -442,7 +538,7 @@ function MachineActivity.getMachineTypes(modFilter)
     for pType, data in pairs(discovered) do
         local shortName = MachineActivity.getShortName(pType)
         local label = shortName
-        if data.classification.mod == "mi" then
+        if data.classification.mod == MOD_MI then
             label = "MI: " .. shortName
         end
         local count = #data.machines
@@ -479,7 +575,7 @@ function MachineActivity.buildTypeList(modFilter)
 
     for pType, data in pairs(discovered) do
         local shortName = MachineActivity.getShortName(pType)
-        local label = data.classification.mod == "mi" and ("MI: " .. shortName) or shortName
+        local label = data.classification.mod == MOD_MI and ("MI: " .. shortName) or shortName
         table.insert(types, {
             type = pType,
             label = label,
@@ -529,7 +625,7 @@ function MachineActivity.getModFilters()
     return {
         { value = "all", label = "All Mods" },
         { value = "mekanism", label = "Mekanism" },
-        { value = "mi", label = "Modern Industrialization" }
+        { value = MOD_MI, label = "Modern Industrialization" }
     }
 end
 

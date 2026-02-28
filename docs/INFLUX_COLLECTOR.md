@@ -69,6 +69,10 @@ INFLUX_SHARE_TOKEN=false
 Tags: `node`, `mod`, `category`, `type`, `name`  
 Fields: `active`, `progress`, `progress_total`, `progress_percent`, `production_rate`, `energy_usage`, `energy_percent`, `formed`
 
+`mod` tag normalization:
+- Mekanism: `mekanism`
+- Modern Industrialization: `modern_industrialization` (legacy filter alias `mi` is still accepted in views)
+
 ### `energy_storage`
 Tags: `node`, `mod`, `type`, `name`, `storage`  
 Fields: `stored_fe`, `capacity_fe`, `percent`
