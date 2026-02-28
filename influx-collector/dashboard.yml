@@ -175,22 +175,16 @@ spec:
           name: Net Flow
           queries:
             - query: |-
-                gen = from(bucket: "mc")
+                from(bucket: "mc")
                   |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
                   |> filter(fn: (r) => r._measurement == "energy_flow" and r._field == "rate_fe_t")
-                  |> filter(fn: (r) => r.name == v.detector_generation)
+                  |> filter(fn: (r) => r.name == v.detector_generation or r.name == v.detector_consumption)
+                  |> group(columns: ["node", "name"])
                   |> last()
-                  |> map(fn: (r) => ({r with _value: r._value}))
-
-                con = from(bucket: "mc")
-                  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
-                  |> filter(fn: (r) => r._measurement == "energy_flow" and r._field == "rate_fe_t")
-                  |> filter(fn: (r) => r.name == v.detector_consumption)
-                  |> last()
-                  |> map(fn: (r) => ({r with _value: r._value}))
-
-                join(tables: {gen: gen, con: con}, on: ["_time", "node"])
-                  |> map(fn: (r) => ({r with _value: r._value_gen - r._value_con}))
+                  |> map(fn: (r) => ({r with _field: if r.name == v.detector_generation then "generation" else "consumption"}))
+                  |> group(columns: ["node"])
+                  |> pivot(rowKey: ["node"], columnKey: ["_field"], valueColumn: "_value")
+                  |> map(fn: (r) => ({r with _value: (if exists r.generation then r.generation else 0.0) - (if exists r.consumption then r.consumption else 0.0)}))
           staticLegend: {}
           suffix: ' FE/t'
           width: 2
@@ -248,9 +242,10 @@ spec:
                 from(bucket: "mc")
                   |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
                   |> filter(fn: (r) => r._measurement == "ae_crafting_cpu" and (r._field == "busy" or r._field == "total"))
+                  |> group(columns: ["node", "source", "_field"])
                   |> last()
-                  |> pivot(rowKey: ["_time", "node", "source"], columnKey: ["_field"], valueColumn: "_value")
-                  |> map(fn: (r) => ({r with _value: string(v: int(v: r.busy)) + "/" + string(v: int(v: r.total))}))
+                  |> pivot(rowKey: ["node", "source"], columnKey: ["_field"], valueColumn: "_value")
+                  |> map(fn: (r) => ({r with _value: string(v: int(v: if exists r.busy then r.busy else 0.0)) + "/" + string(v: int(v: if exists r.total then r.total else 0.0))}))
           staticLegend: {}
           width: 2
           xPos: 2
@@ -545,12 +540,18 @@ spec:
           ySeriesColumns:
             - name
 
-        # ── Row 7: MI machine validation table (y=25, height=6) ─────────────────
-        # Latest snapshot per MI machine to verify collector integration fields.
+        # ── Row 7: Machine validation table (y=25, height=6) ────────────────────
+        # Latest snapshot per machine (Mekanism + MI) to verify collector fields.
 
         - fieldOptions:
             - displayName: Time
               fieldName: _time
+              visible: true
+            - displayName: Mod
+              fieldName: mod
+              visible: true
+            - displayName: Node
+              fieldName: node
               visible: true
             - displayName: Name
               fieldName: name
@@ -575,20 +576,19 @@ spec:
               visible: true
           height: 6
           kind: Table
-          name: MI Machine Details
+          name: Machine Details
           queries:
             - query: |-
                 from(bucket: "mc")
                   |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
                   |> filter(fn: (r) => r._measurement == "machine_activity")
-                  |> filter(fn: (r) => r.mod == "mi")
                   |> filter(fn: (r) => r._field == "active" or r._field == "progress_percent" or r._field == "energy_usage" or r._field == "energy_percent" or r._field == "formed")
                   |> pivot(rowKey: ["_time", "name", "type", "node"], columnKey: ["_field"], valueColumn: "_value")
                   |> group()
                   |> sort(columns: ["_time"], desc: true)
                   |> unique(column: "name")
                   |> sort(columns: ["name"])
-                  |> keep(columns: ["_time", "name", "type", "active", "progress_percent", "energy_usage", "energy_percent", "formed"])
+                  |> keep(columns: ["_time", "mod", "node", "name", "type", "active", "progress_percent", "energy_usage", "energy_percent", "formed"])
           staticLegend: {}
           tableOptions:
             verticalTimeAxis: true

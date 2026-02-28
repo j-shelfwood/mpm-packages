@@ -62,14 +62,10 @@ function Discovery:getMachines()
         return self._machines
     end
     self._machinesAt = now
-    local types = MachineActivity.buildTypeList("all")
-    local filtered = {}
-    for _, entry in ipairs(types) do
-        if entry.classification.mod == "mekanism" or entry.classification.mod == "mi" then
-            table.insert(filtered, entry)
-        end
-    end
-    self._machines = filtered
+    -- Keep all discovered machine-capable peripherals.
+    -- MachineActivity already filters to activity-capable types (plus MI fallback),
+    -- so mod-name filtering here can incorrectly drop MI variants.
+    self._machines = MachineActivity.buildTypeList("all")
     return self._machines
 end
 
