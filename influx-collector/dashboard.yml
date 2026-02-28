@@ -458,6 +458,13 @@ spec:
                   |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
                   |> filter(fn: (r) => r._measurement == "ae_crafting_job")
                   |> pivot(rowKey: ["_time", "item", "cpu", "node"], columnKey: ["_field"], valueColumn: "_value")
+                  |> map(fn: (r) => ({r with
+                      item: if exists r.item then string(v: r.item) else "unknown",
+                      cpu: if exists r.cpu then string(v: r.cpu) else "unknown",
+                      quantity: if exists r.quantity then r.quantity else 0.0,
+                      crafted: if exists r.crafted then r.crafted else 0.0,
+                      completion: if exists r.completion then r.completion else 0.0
+                  }))
                   |> sort(columns: ["_time"], desc: true)
                   |> limit(n: 50)
                   |> keep(columns: ["_time", "item", "cpu", "quantity", "crafted", "completion"])
@@ -494,7 +501,16 @@ spec:
                 from(bucket: "mc")
                   |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
                   |> filter(fn: (r) => r._measurement == "machine_type")
+                  |> filter(fn: (r) => r.mod == "mekanism" or r.mod == "mi" or r.mod == "modern_industrialization" or r.mod == "modernindustrialization")
                   |> pivot(rowKey: ["_time", "type", "mod", "node"], columnKey: ["_field"], valueColumn: "_value")
+                  |> map(fn: (r) => ({r with
+                      type: if exists r.type then string(v: r.type) else "unknown",
+                      mod: if exists r.mod then string(v: r.mod) else "unknown",
+                      node: if exists r.node then string(v: r.node) else "unknown",
+                      total_count: if exists r.total_count then r.total_count else 0.0,
+                      active_count: if exists r.active_count then r.active_count else 0.0,
+                      active_percent: if exists r.active_percent then r.active_percent else 0.0
+                  }))
                   |> group()
                   |> sort(columns: ["_time"], desc: true)
                   |> unique(column: "type")
@@ -527,8 +543,15 @@ spec:
                 from(bucket: "mc")
                   |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
                   |> filter(fn: (r) => r._measurement == "machine_activity" and r._field == "active")
+                  |> filter(fn: (r) => r.mod == "mekanism" or r.mod == "mi" or r.mod == "modern_industrialization" or r.mod == "modernindustrialization")
                   |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)
-                  |> map(fn: (r) => ({r with _value: if r._value == 1.0 then "active" else "idle"}))
+                  |> filter(fn: (r) => exists r.name and exists r.type and exists r.node)
+                  |> map(fn: (r) => ({r with
+                      _value: if r._value == 1.0 then "active" else "idle",
+                      name: string(v: r.name),
+                      type: string(v: r.type),
+                      node: string(v: r.node)
+                  }))
                   |> keep(columns: ["_time", "_value", "name", "type", "node"])
                   |> group()
           staticLegend: {}
@@ -582,8 +605,20 @@ spec:
                 from(bucket: "mc")
                   |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
                   |> filter(fn: (r) => r._measurement == "machine_activity")
+                  |> filter(fn: (r) => r.mod == "mekanism" or r.mod == "mi" or r.mod == "modern_industrialization" or r.mod == "modernindustrialization")
                   |> filter(fn: (r) => r._field == "active" or r._field == "progress_percent" or r._field == "energy_usage" or r._field == "energy_percent" or r._field == "formed")
                   |> pivot(rowKey: ["_time", "name", "type", "node"], columnKey: ["_field"], valueColumn: "_value")
+                  |> map(fn: (r) => ({r with
+                      mod: if exists r.mod then string(v: r.mod) else "unknown",
+                      node: if exists r.node then string(v: r.node) else "unknown",
+                      name: if exists r.name then string(v: r.name) else "unknown",
+                      type: if exists r.type then string(v: r.type) else "unknown",
+                      active: if exists r.active then r.active else 0.0,
+                      progress_percent: if exists r.progress_percent then r.progress_percent else 0.0,
+                      energy_usage: if exists r.energy_usage then r.energy_usage else 0.0,
+                      energy_percent: if exists r.energy_percent then r.energy_percent else 0.0,
+                      formed: if exists r.formed then r.formed else 0.0
+                  }))
                   |> group()
                   |> sort(columns: ["_time"], desc: true)
                   |> unique(column: "name")
