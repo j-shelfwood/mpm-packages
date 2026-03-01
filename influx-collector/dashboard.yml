@@ -559,7 +559,7 @@ spec:
                       mod: if exists r.mod then string(v: r.mod) else "unknown",
                       type: string(v: r.type),
                       node: string(v: r.node),
-                      _value: if r._value > 0.0 then "active" else "idle"
+                      _value: if r._value > 0.0 then "A_active" else "Z_idle"
                   }))
                   |> keep(columns: ["_time", "_value", "type", "mod", "node"])
           staticLegend: {}
