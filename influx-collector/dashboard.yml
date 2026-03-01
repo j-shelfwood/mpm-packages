@@ -536,11 +536,11 @@ spec:
         # This makes bottlenecks visible by type while still including Mekanism + MI together.
 
         - colors:
-            - hex: '#4ED8A0'
-              name: active
-              type: scale
             - hex: '#545667'
               name: idle
+              type: scale
+            - hex: '#4ED8A0'
+              name: active
               type: scale
           fillColumns:
             - _value
@@ -561,6 +561,7 @@ spec:
                       node: string(v: r.node),
                       _value: if r._value > 0.0 then "A_active" else "Z_idle"
                   }))
+                  |> sort(columns: ["_value"], desc: true)
                   |> keep(columns: ["_time", "_value", "type", "mod", "node"])
           staticLegend: {}
           width: 12
