@@ -123,7 +123,7 @@ local ACTIVITY_STRATEGIES = {
     { method = "getCraftingInformation", detect = function(p)
         local info = readValue(p, "getCraftingInformation")
         if type(info) ~= "table" then
-            return false, {}
+            return nil, {}
         end
         if type(info.isActive) == "boolean" then
             return info.isActive, {}
@@ -136,7 +136,8 @@ local ACTIVITY_STRATEGIES = {
             progress = info.craftingProgress
         end
         if type(progress) ~= "number" then
-            return false, {}
+            -- Unknown shape; allow fallback to isBusy/isActive strategies.
+            return nil, {}
         end
         local total = info.maxProgress
         if type(total) ~= "number" then
@@ -159,7 +160,7 @@ local ACTIVITY_STRATEGIES = {
         if type(busy) == "boolean" then
             return busy, {}
         end
-        return false, {}
+        return nil, {}
     end },
 
     -- Generic machine activity flags (some MI integrations expose these)
@@ -168,14 +169,14 @@ local ACTIVITY_STRATEGIES = {
         if type(active) == "boolean" then
             return active, {}
         end
-        return false, {}
+        return nil, {}
     end },
     { method = "isRunning", detect = function(p)
         local active = readValue(p, "isRunning")
         if type(active) == "boolean" then
             return active, {}
         end
-        return false, {}
+        return nil, {}
     end },
 
     -- Mekanism Processing (recipe progress)
@@ -187,7 +188,7 @@ local ACTIVITY_STRATEGIES = {
                 progress = readValue(p, "getRecipeProgress")
             end
             if type(progress) ~= "number" then
-                return false, {}
+                return nil, {}
             end
             local total = 0
             if type(p.getTicksRequired) == "function" then
@@ -210,7 +211,7 @@ local ACTIVITY_STRATEGIES = {
         detect = function(p)
             local progress = readValue(p, "getProgress")
             if type(progress) ~= "number" then
-                return false, {}
+                return nil, {}
             end
             local total = readValue(p, "getMaxProgress")
             if type(total) ~= "number" then
@@ -231,7 +232,7 @@ local ACTIVITY_STRATEGIES = {
         method = "getEnergyUsage",
         detect = function(p)
             local usage = readValue(p, "getEnergyUsage")
-            if type(usage) ~= "number" then return false, {} end
+            if type(usage) ~= "number" then return nil, {} end
             return (usage or 0) > 0, { usage = usage }
         end
     },
@@ -241,7 +242,7 @@ local ACTIVITY_STRATEGIES = {
         method = "getProductionRate",
         detect = function(p)
             local rate = readValue(p, "getProductionRate")
-            if type(rate) ~= "number" then return false, {} end
+            if type(rate) ~= "number" then return nil, {} end
             return (rate or 0) > 0, { rate = rate }
         end
     },
@@ -251,21 +252,21 @@ local ACTIVITY_STRATEGIES = {
         method = "isFormed",
         detect = function(p)
             local formedOk, formed = pcall(p.isFormed)
-            if not formedOk then return false, {} end
+            if not formedOk then return nil, {} end
             if not formed then return false, { formed = false } end
 
             -- Check type-specific activity
             if p.getBoilRate then
                 local rate = readValue(p, "getBoilRate")
-                if type(rate) ~= "number" then return false, { formed = true } end
+                if type(rate) ~= "number" then return nil, { formed = true } end
                 return (rate or 0) > 0, { formed = true, rate = rate }
             elseif p.getStatus then
                 local status = readValue(p, "getStatus")
-                if type(status) ~= "boolean" then return false, { formed = true } end
+                if type(status) ~= "boolean" then return nil, { formed = true } end
                 return status == true, { formed = true, status = status }
             elseif p.isIgnited then
                 local ignited = readValue(p, "isIgnited")
-                if type(ignited) ~= "boolean" then return false, { formed = true } end
+                if type(ignited) ~= "boolean" then return nil, { formed = true } end
                 return ignited and true or false, { formed = true, ignited = ignited }
             end
 
@@ -375,7 +376,7 @@ function MachineActivity.getActivity(p)
     for _, strategy in ipairs(ACTIVITY_STRATEGIES) do
         if type(p[strategy.method]) == "function" then
             local ok, active, data = pcall(strategy.detect, p)
-            if ok then
+            if ok and active ~= nil then
                 return active, data or {}
             end
         end
