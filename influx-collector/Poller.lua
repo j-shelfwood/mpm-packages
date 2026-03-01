@@ -1,5 +1,6 @@
 local MachineActivity = mpm('peripherals/MachineActivity')
 local EnergyInterface = mpm('peripherals/EnergyInterface')
+local Peripherals = mpm('utils/Peripherals')
 
 local Poller = {}
 Poller.__index = Poller
@@ -53,6 +54,7 @@ function Poller.new(config, influx, discovery)
     self.nextDetectorAt   = 0
     self.nextAeAt         = 0
     self.nextInventoryAt  = 0
+    self.nextMachineDiagAt = 0
     return self
 end
 
@@ -100,6 +102,11 @@ end
 function Poller:collectMachines()
     local startMs = nowMs()
     local timestamp = nowMs()
+    local diagIntervalMs = (self.config.machine_diag_interval_s or 30) * 1000
+    local diagDue = timestamp >= (self.nextMachineDiagAt or 0)
+    if diagDue then
+        self.nextMachineDiagAt = timestamp + diagIntervalMs
+    end
     local machineTypes = self.discovery:getMachines()
     self.present.machines = #machineTypes > 0
     if not self.present.machines then
@@ -146,6 +153,80 @@ function Poller:collectMachines()
                 type     = entry.type,
                 name     = machine.name
             }, fields, timestamp)
+
+            -- Diagnostic stream (throttled) to inspect method exposure/runtime values
+            -- for MI activity detection issues in production.
+            if diagDue and entry.classification.mod == "modern_industrialization" then
+                local p = machine.peripheral
+                local methods = nil
+                if p and type(p.getMethods) == "function" then
+                    local okMethods, list = pcall(p.getMethods)
+                    if okMethods and type(list) == "table" then
+                        methods = list
+                    end
+                end
+                if not methods then
+                    local okMethods, list = pcall(Peripherals.getMethods, machine.name)
+                    if okMethods and type(list) == "table" then
+                        methods = list
+                    end
+                end
+                local methodSet = {}
+                if type(methods) == "table" then
+                    for _, m in ipairs(methods) do
+                        methodSet[m] = true
+                    end
+                end
+
+                local hasIsBusy = methodSet.isBusy or (p and type(p.isBusy) == "function") or false
+                local hasCraftInfo = methodSet.getCraftingInformation or (p and type(p.getCraftingInformation) == "function") or false
+                local hasProgress = methodSet.getProgress or (p and type(p.getProgress) == "function") or false
+                local hasRecipeProgress = methodSet.getRecipeProgress or (p and type(p.getRecipeProgress) == "function") or false
+                local hasIsActive = methodSet.isActive or (p and type(p.isActive) == "function") or false
+                local hasIsRunning = methodSet.isRunning or (p and type(p.isRunning) == "function") or false
+
+                local busyValue = -1
+                if hasIsBusy and p and type(p.isBusy) == "function" then
+                    local okBusy, busy = pcall(p.isBusy)
+                    if okBusy and type(busy) == "boolean" then
+                        busyValue = busy and 1 or 0
+                    end
+                end
+
+                local infoNonEmpty = -1
+                local infoProgress = 0.0
+                local infoCurrentRecipeCost = 0.0
+                if hasCraftInfo and p and type(p.getCraftingInformation) == "function" then
+                    local okInfo, info = pcall(p.getCraftingInformation)
+                    if okInfo and type(info) == "table" then
+                        infoNonEmpty = (next(info) ~= nil) and 1 or 0
+                        if type(info.progress) == "number" then infoProgress = info.progress end
+                        if type(info.currentRecipeCost) == "number" then infoCurrentRecipeCost = info.currentRecipeCost end
+                    end
+                end
+
+                self.influx:add("machine_activity_diag", {
+                    node = self.config.node,
+                    mod = entry.classification.mod,
+                    type = entry.type,
+                    name = machine.name
+                }, {
+                    is_remote = (p and p._isRemote) and 1 or 0,
+                    has_isBusy = hasIsBusy and 1 or 0,
+                    has_getCraftingInformation = hasCraftInfo and 1 or 0,
+                    has_getProgress = hasProgress and 1 or 0,
+                    has_getRecipeProgress = hasRecipeProgress and 1 or 0,
+                    has_isActive = hasIsActive and 1 or 0,
+                    has_isRunning = hasIsRunning and 1 or 0,
+                    busy_value = busyValue,
+                    craft_info_nonempty = infoNonEmpty,
+                    craft_info_progress = infoProgress,
+                    craft_info_current_recipe_cost = infoCurrentRecipeCost,
+                    detected_active = active and 1 or 0,
+                    detected_has_progress = type(data.progress) == "number" and 1 or 0,
+                    detected_has_usage = type(data.usage) == "number" and 1 or 0
+                }, timestamp)
+            end
 
             if idx % 10 == 0 then sleep(0) end
         end
