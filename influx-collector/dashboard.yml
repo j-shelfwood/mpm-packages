@@ -523,7 +523,7 @@ spec:
                       active_count: if exists r.active_count then r.active_count else 0.0,
                       active_percent: if exists r.active_percent then r.active_percent else 0.0
                   }))
-                  |> sort(columns: ["mod", "type", "node"])
+                  |> sort(columns: ["active_count", "active_percent", "type"], desc: true)
                   |> keep(columns: ["type", "mod", "node", "total_count", "active_count", "active_percent"])
           staticLegend: {}
           width: 6
@@ -566,12 +566,11 @@ spec:
           staticLegend: {}
           width: 12
           xColumn: _time
-          yLabelColumnSeparator: ' / '
+          yAxisLabel: Machines
+          yLabelColumnSeparator: ' · '
           yLabelColumns:
-            - mod
             - type
             - name
-            - node
           ySeriesColumns:
             - mod
             - type
