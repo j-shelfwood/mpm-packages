@@ -542,6 +542,8 @@ spec:
             - hex: '#545667'
               name: idle
               type: scale
+          fillColumns:
+            - _value
           height: 6
           kind: Mosaic
           name: Machine Activity Grid
@@ -562,6 +564,16 @@ spec:
                   |> keep(columns: ["_time", "_value", "type", "mod", "node"])
           staticLegend: {}
           width: 12
+          xColumn: _time
+          yLabelColumnSeparator: ' / '
+          yLabelColumns:
+            - mod
+            - type
+            - node
+          ySeriesColumns:
+            - mod
+            - type
+            - node
           yPos: 19
 
         # ── Row 7: Machine validation table (y=25, height=6) ────────────────────

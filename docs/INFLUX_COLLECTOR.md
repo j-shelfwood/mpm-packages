@@ -8,6 +8,16 @@ mpm install influx-collector
 mpm run influx-collector
 ```
 
+## Dashboard Apply Note
+When applying `influx-collector/dashboard.yml` to InfluxDB 2.x, the Mosaic cell
+("Machine Activity Grid") may end up with `fillColumns=null` and `xColumn=""`.
+That makes the panel non-renderable in the UI.
+
+After `influx apply`, run:
+```bash
+./influx-collector/fix-mosaic-view.sh <admin_token> https://influx.shelfwood.co 105583c23aef5000
+```
+
 ## Terminal Dashboard
 The collector runs an event-driven terminal dashboard showing collection cadence, flush status, and peripheral counts.
 - Triggered by `collector_event` or `collector_dirty` events
