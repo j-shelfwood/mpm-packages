@@ -63,6 +63,11 @@ local SUBSCRIBE_METHODS = {
     getEnergyUsage = true,
     getRecipeProgress = true,
     getProductionRate = true,
+    isBusy = true,
+    isActive = true,
+    isRunning = true,
+    getCraftingInformation = true,
+    getProgress = true,
 }
 
 local SUBSCRIBE_INTERVAL_MS = 1000

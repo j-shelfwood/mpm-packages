@@ -89,6 +89,13 @@ local function readValue(p, methodName, args)
         if type(cached) == "table" then
             return cached[1]
         end
+        -- Fallback for remote methods without active subscriptions (for example
+        -- MI activity methods like isBusy/getCraftingInformation). This keeps
+        -- activity detection correct even when no cached snapshot exists yet.
+        local okDirect, direct = pcall(p[methodName], table.unpack(args or {}))
+        if okDirect then
+            return direct
+        end
         return nil
     end
 
