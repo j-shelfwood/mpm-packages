@@ -226,6 +226,41 @@ function RemoteProxy.create(client, hostId, name, pType, methods, key, displayNa
         return nil
     end
 
+    -- Force a synchronous remote call and refresh cache immediately.
+    -- Used by activity detectors when stale cache can cause false-idle states.
+    function proxy.callFresh(methodName, args, timeout)
+        if not ensureConnected() then
+            return nil, "disconnected"
+        end
+        local callArgs = args or {}
+        local callTimeout = timeout or HEAVY_METHOD_TIMEOUT[methodName] or DEFAULT_TIMEOUT
+        local results, err, meta = client:call(proxy._hostId, remoteName, methodName, callArgs, callTimeout)
+        if err then
+            proxy._failureCount = proxy._failureCount + 1
+            proxy._lastFailureTime = os.epoch("utc")
+            if proxy._failureCount >= MAX_CONSECUTIVE_FAILURES then
+                proxy._connected = false
+            end
+            return nil, err
+        end
+        proxy._failureCount = 0
+
+        local key = cacheKey(methodName, callArgs)
+        proxy._cache[key] = {
+            results = results or {},
+            timestamp = os.epoch("utc"),
+            meta = meta,
+            resultHash = meta and meta.resultHash or nil
+        }
+        proxy._pending[key] = nil
+        proxy._nextRefreshAt[key] = nil
+
+        if results and #results > 0 then
+            return results[1], nil
+        end
+        return nil, nil
+    end
+
     function proxy.getActivitySnapshot()
         return proxy._activity
     end

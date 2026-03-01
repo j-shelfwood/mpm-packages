@@ -10,6 +10,16 @@ local discoveryCacheAt = 0
 local DISCOVERY_CACHE_TTL_MS = 5000
 local WATCH_INTERVAL_MS = 1200
 local MOD_MI = "modern_industrialization"
+local FRESH_REMOTE_ACTIVITY_METHODS = {
+    isBusy = true,
+    getCraftingInformation = true,
+    isActive = true,
+    isRunning = true,
+    getProgress = true,
+    getRecipeProgress = true,
+    getEnergyUsage = true,
+    getProductionRate = true
+}
 
 -- Common Modern Industrialization machine type names seen without mod prefixes.
 -- These are treated as MI for dashboard grouping even when peripheral providers
@@ -82,6 +92,13 @@ local function readValue(p, methodName, args)
     end
 
     if p._isRemote and type(p.getCached) == "function" then
+        -- Activity-critical remote reads should bypass stale cache snapshots.
+        if FRESH_REMOTE_ACTIVITY_METHODS[methodName] and type(p.callFresh) == "function" then
+            local fresh, _ = p.callFresh(methodName, args or {})
+            if fresh ~= nil then
+                return fresh
+            end
+        end
         if type(p.ensureSubscription) == "function" then
             p.ensureSubscription(methodName, args or {})
         end
