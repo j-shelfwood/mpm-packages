@@ -125,6 +125,9 @@ local ACTIVITY_STRATEGIES = {
         if type(info) ~= "table" then
             return nil, {}
         end
+        -- UPW MI plugin returns an empty map when idle and a non-empty map only
+        -- while an active recipe exists. Use this as a primary activity signal.
+        local hasInfo = next(info) ~= nil
         if type(info.isActive) == "boolean" then
             return info.isActive, {}
         end
@@ -135,7 +138,20 @@ local ACTIVITY_STRATEGIES = {
         if type(progress) ~= "number" then
             progress = info.craftingProgress
         end
+        local usage = info.currentRecipeCost
+        if type(usage) ~= "number" then
+            usage = info.baseRecipeCost
+        end
+
         if type(progress) ~= "number" then
+            -- If we got any crafting payload at all, mark as active (MI behavior).
+            if hasInfo then
+                local data = {}
+                if type(usage) == "number" then
+                    data.usage = usage
+                end
+                return true, data
+            end
             -- Unknown shape; allow fallback to isBusy/isActive strategies.
             return nil, {}
         end
@@ -146,12 +162,16 @@ local ACTIVITY_STRATEGIES = {
         if type(total) ~= "number" or total <= 0 then
             total = 1
         end
-        local active = progress > 0 and progress < total
-        return active, {
+        local active = hasInfo or (progress > 0 and progress < total)
+        local data = {
             progress = progress,
             total = total,
             percent = total > 0 and (progress / total * 100) or 0
         }
+        if type(usage) == "number" then
+            data.usage = usage
+        end
+        return active, data
     end },
 
     -- Modern Industrialization / Generic
