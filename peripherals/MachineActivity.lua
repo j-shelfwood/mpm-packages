@@ -389,7 +389,12 @@ function MachineActivity.getActivity(p)
     if p._isRemote and type(p.getActivitySnapshot) == "function" then
         local snapshot = p.getActivitySnapshot()
         if snapshot then
-            return snapshot.active and true or false, snapshot.data or {}
+            -- Remote hosts can publish stale/older activity snapshots.
+            -- Trust positive snapshots immediately, but allow local strategy
+            -- evaluation to override a false idle snapshot.
+            if snapshot.active then
+                return true, snapshot.data or {}
+            end
         end
     end
 
