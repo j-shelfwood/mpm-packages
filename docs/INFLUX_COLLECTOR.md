@@ -19,12 +19,9 @@ The collector runs an event-driven terminal dashboard showing collection cadence
 - URL inputs must include `http://` or `https://` (invalid inputs are rejected at setup).
 
 ## Configuration
-The collector reads config from three locations (lowest to highest priority):
-1. `/influx-collector.config`
-2. `/influx-collector.env`
-3. `settings` API (`influx.collector.*`)
-
-On first run it prompts for URL/org/bucket/token and writes all three.
+The collector uses `/influx-collector.env` as the single source of truth.
+Legacy `/influx-collector.config` and `settings` API values are only read as fallback when no env file exists.
+On first run it prompts for URL/org/bucket/token and writes the env file.
 
 ### Env File Keys
 ```

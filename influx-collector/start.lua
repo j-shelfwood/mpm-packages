@@ -15,16 +15,14 @@ if not config.token or config.token == "" then
     if synced then
         synced.node = config.node or synced.node
         synced.share_token = config.share_token or synced.share_token
-        Config.saveFile(synced)
         Config.saveEnv(synced)
-        Config.saveSettings(synced)
         config = synced
     end
 end
 
 config = Config.ensure()
 if not config.token or config.token == "" then
-    error("InfluxDB token missing. Edit /influx-collector.config and add token.")
+    error("InfluxDB token missing. Edit /influx-collector.env and add token.")
 end
 
 local influx = Influx.new(config)

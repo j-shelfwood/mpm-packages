@@ -34,8 +34,24 @@ local DEFAULTS = {
     max_buffer_lines = 5000
 }
 
+local function trim(value)
+    value = tostring(value or "")
+    return (value:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
 local function normalizeUrl(url)
-    if not url or url == "" then return url end
+    url = trim(url)
+    if url == "" then
+        return url
+    end
+    -- Accept UI/API URLs and normalize to host root expected by Influx.write URL builder.
+    -- Examples:
+    --   https://influx.shelfwood.co/orgs/...
+    --   https://influx.shelfwood.co/api/v2
+    --   https://influx.shelfwood.co/api/v2/write?...
+    url = url:gsub("/api/v2/write.*$", "")
+    url = url:gsub("/api/v2.*$", "")
+    url = url:gsub("/orgs.*$", "")
     return url:gsub("/+$", "")
 end
 
@@ -56,10 +72,6 @@ local function merge(base, overrides)
         end
     end
     return base
-end
-
-local function trim(value)
-    return (value:gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
 local function parseEnvValue(value)
@@ -237,21 +249,24 @@ function Config.prompt()
         max_buffer_lines = DEFAULTS.max_buffer_lines
     }
 
-    Config.saveFile(config)
     Config.saveEnv(config)
-    Config.saveSettings(config)
     return config
 end
 
 function Config.loadMerged()
     local config = merge({}, DEFAULTS)
-    local fileConfig = Config.loadFile()
     local envConfig = Config.loadEnv()
-    local settingsConfig = Config.loadSettings()
 
-    config = merge(config, fileConfig)
+    -- ENV is the authoritative source. Legacy config/settings are migration fallback only.
+    local fileConfig = nil
+    local settingsConfig = nil
+    if not envConfig then
+        fileConfig = Config.loadFile()
+        settingsConfig = Config.loadSettings()
+        config = merge(config, fileConfig)
+        config = merge(config, settingsConfig)
+    end
     config = merge(config, envConfig)
-    config = merge(config, settingsConfig)
     if config.share_token == nil then
         config.share_token = DEFAULTS.share_token
     end
@@ -277,6 +292,7 @@ function Config.ensure()
     if not config.url or config.url == "" then
         config.url = DEFAULTS.url
     end
+    config.url = normalizeUrl(config.url)
     if not isValidUrl(config.url) then
         config.url = DEFAULTS.url
     end
@@ -290,7 +306,6 @@ function Config.ensure()
     end
 
     config.node = config.node or defaultNode()
-    config.url = normalizeUrl(config.url)
     if config.share_token == nil then
         config.share_token = DEFAULTS.share_token
     end
@@ -300,14 +315,8 @@ function Config.ensure()
     end
     local shareTokenChanged = config.share_token ~= shareToken
 
-    if not hadFile or shareTokenChanged then
-        Config.saveFile(config)
-    end
     if not hadEnv or shareTokenChanged then
         Config.saveEnv(config)
-    end
-    if not hadSettings or shareTokenChanged then
-        Config.saveSettings(config)
     end
 
     return config
