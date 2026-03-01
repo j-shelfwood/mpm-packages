@@ -553,15 +553,16 @@ spec:
                   |> filter(fn: (r) => r._measurement == "machine_activity" and r._field == "active")
                   |> filter(fn: (r) => exists r.name and exists r.type and exists r.node)
                   |> filter(fn: (r) => r.type != "me_bridge")
-                  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)
+                  -- Use max instead of last so short active bursts are not shown as idle
+                  -- when the last sample in a window happens to be 0.
+                  |> aggregateWindow(every: v.windowPeriod, fn: max, createEmpty: false)
                   |> map(fn: (r) => ({r with
                       mod: if exists r.mod then string(v: r.mod) else "unknown",
                       type: string(v: r.type),
                       name: string(v: r.name),
                       node: string(v: r.node),
-                      _value: if r._value > 0.0 then "A_active" else "Z_idle"
+                      _value: if r._value > 0.0 then 1.0 else 0.0
                   }))
-                  |> sort(columns: ["_value"], desc: true)
                   |> keep(columns: ["_time", "_value", "name", "type", "mod", "node"])
           staticLegend: {}
           width: 12
