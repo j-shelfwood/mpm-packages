@@ -40,7 +40,7 @@
 #   Row 3 (y=4,  h=5): Power Generation vs Consumption (line, 8-wide) | Energy Storage % (line, 4-wide)
 #   Row 4 (y=9,  h=5): AE Items Total over time (line, 6-wide) | AE Energy Usage & Input (line, 6-wide)
 #   Row 5 (y=14, h=5): Active Crafting Jobs (table, 6-wide) | Machine Types (table, 6-wide)
-#   Row 6 (y=19, h=6): Machine Activity Grid (table, 12-wide) — latest active/idle state per machine
+#   Row 6 (y=19, h=6): Machine Activity Grid (mosaic, 12-wide) — machine-type active/idle tiles over time
 #   Row 7 (y=25, h=6): Machine Details (table, 12-wide) — latest active/progress/energy per machine
 #
 # NOTE: `ae_crafting_job` (Active Crafting Jobs table) only contains rows while AE2 crafting
@@ -531,59 +531,36 @@ spec:
           xPos: 6
           yPos: 14
 
-        # ── Row 6: Machine activity table (y=19, height=6) ──────────────────────
-        # Robust table fallback (avoids Mosaic visualization schema failures).
-        # One row per machine with latest active state.
+        # ── Row 6: Machine type activity mosaic (y=19, height=6) ───────────────
+        # One row per machine type; tile lights up when any machine of that type is active.
+        # This makes bottlenecks visible by type while still including Mekanism + MI together.
 
-        - fieldOptions:
-            - displayName: Time
-              fieldName: _time
-              visible: true
-            - displayName: Node
-              fieldName: node
-              visible: true
-            - displayName: Mod
-              fieldName: mod
-              visible: true
-            - displayName: Type
-              fieldName: type
-              visible: true
-            - displayName: Name
-              fieldName: name
-              visible: true
-            - displayName: Active
-              fieldName: active
-              visible: true
-          colors:
+        - colors:
             - hex: '#4ED8A0'
-              name: mint
-              type: text
+              name: active
+              type: scale
+            - hex: '#545667'
+              name: idle
+              type: scale
           height: 6
-          kind: Table
+          kind: Mosaic
           name: Machine Activity Grid
           queries:
             - query: |-
                 from(bucket: "mc")
                   |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
-                  |> filter(fn: (r) => r._measurement == "machine_activity" and r._field == "active")
+                  |> filter(fn: (r) => r._measurement == "machine_type" and r._field == "active_count")
+                  |> filter(fn: (r) => exists r.type and exists r.node)
                   |> filter(fn: (r) => r.type != "me_bridge")
-                  |> filter(fn: (r) => exists r.name and exists r.type and exists r.node)
+                  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)
                   |> map(fn: (r) => ({r with
                       mod: if exists r.mod then string(v: r.mod) else "unknown",
-                      name: string(v: r.name),
                       type: string(v: r.type),
                       node: string(v: r.node),
-                      active: if r._value == 1.0 then 1.0 else 0.0
+                      _value: if r._value > 0.0 then "active" else "idle"
                   }))
-                  |> group(columns: ["node", "mod", "type", "name"])
-                  |> sort(columns: ["_time"], desc: true)
-                  |> limit(n: 1)
-                  |> group()
-                  |> sort(columns: ["mod", "type", "name"])
-                  |> keep(columns: ["_time", "node", "mod", "type", "name", "active"])
+                  |> keep(columns: ["_time", "_value", "type", "mod", "node"])
           staticLegend: {}
-          tableOptions:
-            verticalTimeAxis: true
           width: 12
           yPos: 19
 
