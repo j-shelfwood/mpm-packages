@@ -49,6 +49,9 @@ function Poller.new(config, influx, discovery)
     }
     self.lastMachinesActiveAt = 0
     self.lastDetectorsActiveAt = 0
+    -- Energy cache for MI activity inference: keyed by machine name → last EU reading
+    -- MI machines have no activity method; a declining energy reading means processing.
+    self._miEnergyCache = {}
     self.nextMachineAt    = 0
     self.nextEnergyAt     = 0
     self.nextDetectorAt   = 0
@@ -127,6 +130,22 @@ function Poller:collectMachines()
 
         for idx, machine in ipairs(entry.machines) do
             local active, data = MachineActivity.getActivity(machine.peripheral)
+
+            -- Energy raw values (available on all MI machines via CC GenericPeripheral)
+            local energyEu, energyCapEu = MachineActivity.getEnergyRaw(machine.peripheral)
+
+            -- For MI machines with no activity method, infer active state from energy delta.
+            -- If stored EU decreased since last poll the machine consumed energy → active.
+            local isMiMod = entry.classification.mod == "modern_industrialization"
+            if isMiMod and not active and type(energyEu) == "number" then
+                local prev = self._miEnergyCache[machine.name]
+                if type(prev) == "number" and energyEu < prev then
+                    active = true
+                    data = data or {}
+                end
+                self._miEnergyCache[machine.name] = energyEu
+            end
+
             if active then
                 activeDetected = true
                 activeCount = activeCount + 1
@@ -139,6 +158,10 @@ function Poller:collectMachines()
             if type(data.percent) == "number" then fields.progress_percent = data.percent end
             if type(data.rate) == "number" then fields.production_rate = data.rate end
             if type(data.usage) == "number" then fields.energy_usage = data.usage end
+
+            -- Raw EU fields (always emitted when available)
+            if type(energyEu) == "number" then fields.energy_eu = energyEu end
+            if type(energyCapEu) == "number" then fields.energy_eu_capacity = energyCapEu end
 
             local energyPercent = MachineActivity.getEnergyPercent(machine.peripheral)
             if type(energyPercent) == "number" then fields.energy_percent = energyPercent * 100 end
@@ -184,6 +207,8 @@ function Poller:collectMachines()
                 local hasRecipeProgress = methodSet.getRecipeProgress or (p and type(p.getRecipeProgress) == "function") or false
                 local hasIsActive = methodSet.isActive or (p and type(p.isActive) == "function") or false
                 local hasIsRunning = methodSet.isRunning or (p and type(p.isRunning) == "function") or false
+                local hasGetEnergy = methodSet.getEnergy or (p and type(p.getEnergy) == "function") or false
+                local hasGetEnergyCapacity = methodSet.getEnergyCapacity or (p and type(p.getEnergyCapacity) == "function") or false
 
                 local busyValue = -1
                 if hasIsBusy and p and type(p.isBusy) == "function" then
@@ -218,13 +243,17 @@ function Poller:collectMachines()
                     has_getRecipeProgress = hasRecipeProgress and 1 or 0,
                     has_isActive = hasIsActive and 1 or 0,
                     has_isRunning = hasIsRunning and 1 or 0,
+                    has_getEnergy = hasGetEnergy and 1 or 0,
+                    has_getEnergyCapacity = hasGetEnergyCapacity and 1 or 0,
                     busy_value = busyValue,
                     craft_info_nonempty = infoNonEmpty,
                     craft_info_progress = infoProgress,
                     craft_info_current_recipe_cost = infoCurrentRecipeCost,
                     detected_active = active and 1 or 0,
                     detected_has_progress = type(data.progress) == "number" and 1 or 0,
-                    detected_has_usage = type(data.usage) == "number" and 1 or 0
+                    detected_has_usage = type(data.usage) == "number" and 1 or 0,
+                    energy_eu = type(energyEu) == "number" and energyEu or -1,
+                    energy_eu_capacity = type(energyCapEu) == "number" and energyCapEu or -1
                 }, timestamp)
             end
 

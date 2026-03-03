@@ -427,16 +427,33 @@ function MachineActivity.getActivity(p)
     return false, {}
 end
 
+-- Returns energy stored (EU) and capacity (EU) for a peripheral.
+-- Tries Mekanism-style methods first, then CC:Tweaked GenericPeripheral names
+-- (which is what MI machines expose: getEnergy / getEnergyCapacity).
+-- Returns: energy (number|nil), capacity (number|nil)
+function MachineActivity.getEnergyRaw(p)
+    if not p then return nil, nil end
+    local energy   = readValue(p, "getEnergy")
+    local capacity = readValue(p, "getMaxEnergy")
+    if type(capacity) ~= "number" then
+        -- CC GenericPeripheral wraps IEnergyStorage as getEnergyCapacity (NeoForge FE name)
+        capacity = readValue(p, "getEnergyCapacity")
+    end
+    if type(energy) == "number" and type(capacity) == "number" then
+        return energy, capacity
+    end
+    return nil, nil
+end
+
 function MachineActivity.getEnergyPercent(p)
     if not p then return nil end
     local pct = readValue(p, "getEnergyFilledPercentage")
     if type(pct) == "number" then
         return pct
     end
-    local energy = readValue(p, "getEnergy")
-    local maxEnergy = readValue(p, "getMaxEnergy")
-    if type(energy) == "number" and type(maxEnergy) == "number" and maxEnergy > 0 then
-        return energy / maxEnergy
+    local energy, capacity = MachineActivity.getEnergyRaw(p)
+    if type(energy) == "number" and type(capacity) == "number" and capacity > 0 then
+        return energy / capacity
     end
     return nil
 end
