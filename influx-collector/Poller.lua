@@ -49,15 +49,13 @@ function Poller.new(config, influx, discovery)
     }
     self.lastMachinesActiveAt = 0
     self.lastDetectorsActiveAt = 0
-    -- Energy cache for MI activity inference: keyed by machine name → last EU reading
-    -- MI machines have no activity method; a declining energy reading means processing.
-    self._miEnergyCache = {}
     self.nextMachineAt    = 0
     self.nextEnergyAt     = 0
     self.nextDetectorAt   = 0
     self.nextAeAt         = 0
     self.nextInventoryAt  = 0
     self.nextMachineDiagAt = 0
+    self.nextMiSlotAt     = 0
     return self
 end
 
@@ -80,6 +78,7 @@ function Poller:getSchedule()
         nextDetectorAt  = self.nextDetectorAt,
         nextAeAt        = self.nextAeAt,
         nextInventoryAt = self.nextInventoryAt,
+        nextMiSlotAt    = self.nextMiSlotAt,
         machineBurst    = self:isMachineBurstActive(),
         detectorBurst   = self:isDetectorBurstActive(),
         present         = self.present,
@@ -105,8 +104,9 @@ end
 function Poller:collectMachines()
     local startMs = nowMs()
     local timestamp = nowMs()
+    local diagEnabled = self.config.machine_diag_enabled == true
     local diagIntervalMs = (self.config.machine_diag_interval_s or 30) * 1000
-    local diagDue = timestamp >= (self.nextMachineDiagAt or 0)
+    local diagDue = diagEnabled and timestamp >= (self.nextMachineDiagAt or 0)
     if diagDue then
         self.nextMachineDiagAt = timestamp + diagIntervalMs
     end
@@ -134,18 +134,6 @@ function Poller:collectMachines()
             -- Energy raw values (available on all MI machines via CC GenericPeripheral)
             local energyEu, energyCapEu = MachineActivity.getEnergyRaw(machine.peripheral)
 
-            -- For MI machines with no activity method, infer active state from energy delta.
-            -- If stored EU decreased since last poll the machine consumed energy → active.
-            local isMiMod = entry.classification.mod == "modern_industrialization"
-            if isMiMod and not active and type(energyEu) == "number" then
-                local prev = self._miEnergyCache[machine.name]
-                if type(prev) == "number" and energyEu < prev then
-                    active = true
-                    data = data or {}
-                end
-                self._miEnergyCache[machine.name] = energyEu
-            end
-
             if active then
                 activeDetected = true
                 activeCount = activeCount + 1
@@ -168,6 +156,19 @@ function Poller:collectMachines()
 
             local formed = MachineActivity.getFormedState(machine.peripheral)
             if type(formed) == "boolean" then fields.formed = formed and 1 or 0 end
+
+            -- For MI machines: derive inferred_active from energy + slot occupancy.
+            -- No activity methods exist on MI peripherals (verified via jar scan).
+            -- A machine is "likely active" when it has energy stored AND input slots occupied.
+            if entry.classification.mod == "modern_industrialization" then
+                local slotData = MachineActivity.getItemSlots(machine.peripheral)
+                local hasInputItems = slotData and slotData.occupied > 0
+                local hasEnergy = type(energyEu) == "number" and energyEu > 0
+                fields.inferred_active = (hasInputItems and hasEnergy) and 1 or 0
+                -- Cache slot data per machine for use by collectMISlots()
+                if not self._miSlotCache then self._miSlotCache = {} end
+                self._miSlotCache[machine.name] = { slotData = slotData, type = entry.type, timestamp = timestamp }
+            end
 
             self.influx:add("machine_activity", {
                 node     = self.config.node,
@@ -209,6 +210,9 @@ function Poller:collectMachines()
                 local hasIsRunning = methodSet.isRunning or (p and type(p.isRunning) == "function") or false
                 local hasGetEnergy = methodSet.getEnergy or (p and type(p.getEnergy) == "function") or false
                 local hasGetEnergyCapacity = methodSet.getEnergyCapacity or (p and type(p.getEnergyCapacity) == "function") or false
+                local hasTanks = methodSet.tanks or (p and type(p.tanks) == "function") or false
+                local hasList = methodSet.list or (p and type(p.list) == "function") or false
+                local hasSize = methodSet.size or (p and type(p.size) == "function") or false
 
                 local busyValue = -1
                 if hasIsBusy and p and type(p.isBusy) == "function" then
@@ -245,6 +249,9 @@ function Poller:collectMachines()
                     has_isRunning = hasIsRunning and 1 or 0,
                     has_getEnergy = hasGetEnergy and 1 or 0,
                     has_getEnergyCapacity = hasGetEnergyCapacity and 1 or 0,
+                    has_tanks = hasTanks and 1 or 0,
+                    has_list = hasList and 1 or 0,
+                    has_size = hasSize and 1 or 0,
                     busy_value = busyValue,
                     craft_info_nonempty = infoNonEmpty,
                     craft_info_progress = infoProgress,
@@ -303,6 +310,77 @@ function Poller:collectMachines()
         active_count = activeCount
     }
     self:emit("machines", self.stats.machines)
+end
+
+-- Slow-path MI slot/tank snapshot. Runs on mi_slot_interval_s (default 30s).
+-- Writes mi_machine_fluid (per non-empty tank) and mi_machine_slot / mi_machine_slot_summary.
+-- Reuses slot data already fetched during collectMachines() where available (same cycle).
+function Poller:collectMISlots()
+    local timestamp = nowMs()
+    local machineTypes = self.discovery:getMachines()
+
+    for _, entry in ipairs(machineTypes) do
+        if entry.classification.mod ~= "modern_industrialization" then goto continue end
+
+        for idx, machine in ipairs(entry.machines) do
+            -- Fluid tanks
+            local tanks = MachineActivity.getTanks(machine.peripheral)
+            if tanks then
+                for _, tank in ipairs(tanks) do
+                    self.influx:add("mi_machine_fluid", {
+                        node  = self.config.node,
+                        type  = entry.type,
+                        name  = machine.name,
+                        fluid = tank.name
+                    }, {
+                        amount   = tank.amount,
+                        capacity = tank.capacity,
+                        percent  = tank.capacity > 0 and (tank.amount / tank.capacity * 100) or 0
+                    }, timestamp)
+                end
+            end
+
+            -- Item slots — use cache from collectMachines() if fresh (same second), else re-query
+            local cached = self._miSlotCache and self._miSlotCache[machine.name]
+            local slotData
+            if cached and (timestamp - cached.timestamp) < 1500 then
+                slotData = cached.slotData
+            else
+                slotData = MachineActivity.getItemSlots(machine.peripheral)
+            end
+
+            if slotData then
+                -- Per-slot detail: one line per occupied slot
+                for slot, item in pairs(slotData.items) do
+                    self.influx:add("mi_machine_slot", {
+                        node = self.config.node,
+                        type = entry.type,
+                        name = machine.name,
+                        item = item.name
+                    }, {
+                        count = item.count,
+                        slot  = slot
+                    }, timestamp)
+                end
+                -- Summary: total slots and occupied count
+                self.influx:add("mi_machine_slot_summary", {
+                    node = self.config.node,
+                    type = entry.type,
+                    name = machine.name
+                }, {
+                    slots    = slotData.slots,
+                    occupied = slotData.occupied
+                }, timestamp)
+            end
+
+            if idx % 5 == 0 then sleep(0) end
+        end
+
+        ::continue::
+    end
+
+    -- Clear cache after slow pass to avoid stale data accumulating
+    self._miSlotCache = nil
 end
 
 function Poller:collectEnergyDetectors()
@@ -709,6 +787,15 @@ function Poller:run()
             else
                 self.nextInventoryAt = now + ((self.config.inventory_interval_s or 600) * 1000)
             end
+        end
+
+        if now >= self.nextMiSlotAt then
+            -- Only run if machines are present (discovered at least once)
+            if self.present.machines ~= false then
+                self:collectMISlots()
+            end
+            local interval = (self.config.mi_slot_interval_s or 30) * 1000
+            self.nextMiSlotAt = now + interval
         end
 
         self.influx:flushIfDue()

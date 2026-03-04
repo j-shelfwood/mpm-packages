@@ -22,6 +22,11 @@ local DEFAULTS = {
     machine_interval_s = 5,
     machine_burst_interval_s = 1,
     machine_burst_window_s = 10,
+    -- MI slot/tank collection runs on its own slower timer (list() is O(machines×slots))
+    mi_slot_interval_s = 30,
+    -- Diagnostic method-probe stream; disable once peripheral methods are known
+    machine_diag_enabled = false,
+    machine_diag_interval_s = 30,
     energy_interval_s = 5,
     energy_detector_interval_s = 5,
     energy_detector_burst_interval_s = 1,
@@ -236,6 +241,9 @@ function Config.prompt()
         machine_interval_s = DEFAULTS.machine_interval_s,
         machine_burst_interval_s = DEFAULTS.machine_burst_interval_s,
         machine_burst_window_s = DEFAULTS.machine_burst_window_s,
+        mi_slot_interval_s = DEFAULTS.mi_slot_interval_s,
+        machine_diag_enabled = DEFAULTS.machine_diag_enabled,
+        machine_diag_interval_s = DEFAULTS.machine_diag_interval_s,
         energy_interval_s = DEFAULTS.energy_interval_s,
         energy_detector_interval_s = DEFAULTS.energy_detector_interval_s,
         energy_detector_burst_interval_s = DEFAULTS.energy_detector_burst_interval_s,

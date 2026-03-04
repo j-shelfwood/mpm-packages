@@ -467,6 +467,61 @@ function MachineActivity.getFormedState(p)
     return nil
 end
 
+-- Get fluid tank contents via CC GenericPeripheral IFluidHandler wrapper.
+-- Returns an array of { name, amount, capacity } tables, or nil if not supported.
+-- MI machines expose this via tanks() from the IFluidHandler NeoForge capability.
+function MachineActivity.getTanks(p)
+    if not p or type(p.tanks) ~= "function" then return nil end
+    local ok, result = pcall(p.tanks)
+    if not ok or type(result) ~= "table" then return nil end
+    -- Normalize each tank entry: CC returns { name, amount, capacity } or { fluid, amount, capacity }
+    local tanks = {}
+    for _, tank in ipairs(result) do
+        if type(tank) == "table" then
+            local name = tank.name or tank.fluid or "unknown"
+            local amount = type(tank.amount) == "number" and tank.amount or 0
+            local capacity = type(tank.capacity) == "number" and tank.capacity or 0
+            if name ~= "empty" and amount > 0 then
+                table.insert(tanks, { name = name, amount = amount, capacity = capacity })
+            end
+        end
+    end
+    return tanks
+end
+
+-- Get item slot contents via CC GenericPeripheral IItemHandler wrapper.
+-- Returns { slots = N, occupied = N, items = { [slotN] = {name, count, ...} } }, or nil.
+-- MI machines expose list() and size() from the IItemHandler NeoForge capability.
+function MachineActivity.getItemSlots(p)
+    if not p then return nil end
+
+    -- Need both list() and size() for meaningful data
+    local hasList = type(p.list) == "function"
+    local hasSize = type(p.size) == "function"
+    if not hasList then return nil end
+
+    local sizeOk, slots = hasSize and pcall(p.size) or false, 0
+    if not sizeOk or type(slots) ~= "number" then slots = 0 end
+
+    local listOk, items = pcall(p.list)
+    if not listOk or type(items) ~= "table" then return nil end
+
+    -- items is a sparse table: { [slotIndex] = { name, count, displayName, ... } }
+    local occupied = 0
+    local normalized = {}
+    for slot, item in pairs(items) do
+        if type(item) == "table" and type(item.name) == "string" then
+            occupied = occupied + 1
+            normalized[slot] = {
+                name  = item.name,
+                count = type(item.count) == "number" and item.count or 1
+            }
+        end
+    end
+
+    return { slots = slots, occupied = occupied, items = normalized }
+end
+
 -- Classify a peripheral type
 -- Returns: { mod = "mekanism"|MOD_MI|"unknown", category = string, label = string, color = color }
 function MachineActivity.classify(peripheralType, peripheralName, peripheralObj)

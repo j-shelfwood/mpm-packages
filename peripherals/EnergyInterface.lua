@@ -14,6 +14,26 @@ local EXTRA_ENERGY_TYPES = {
     "entangloporter"
 }
 
+-- Peripheral type prefixes that indicate a processing machine, not dedicated energy storage.
+-- CC GenericPeripheral exposes getEnergy/getEnergyCapacity on ALL blocks with IEnergyStorage,
+-- including MI machines. We must exclude these or energy_total counts machine buffers as storage.
+local MACHINE_MOD_PREFIXES = {
+    "modern_industrialization",
+    "modernindustrialization",
+    -- Add others here if they expose IEnergyStorage but aren't dedicated storage blocks
+}
+
+local function isMachineLike(typeName)
+    if not typeName then return false end
+    local lower = typeName:lower()
+    for _, prefix in ipairs(MACHINE_MOD_PREFIXES) do
+        if lower:match("^" .. prefix .. ":") or lower:match("^" .. prefix .. "$") then
+            return true
+        end
+    end
+    return false
+end
+
 -- Known mod prefixes for classification
 local MOD_PREFIXES = {
     ["mekanism"] = { label = "Mekanism", color = colors.cyan },
@@ -100,6 +120,9 @@ function EnergyInterface.findAll()
         local p = Peripherals.wrap(name)
 
         local isStorage = hasEnergyStorageType or isLikelyStorageType(primaryType, name) or isExplicitEnergyType(primaryType)
+        -- Exclude processing machines that expose IEnergyStorage but aren't dedicated storage.
+        -- Without this, MI machines inflate energy_total with their small machine buffers.
+        if isStorage and isMachineLike(primaryType) then isStorage = false end
         if isStorage and hasEnergyMethods(p) then
             table.insert(storages, {
                 peripheral = p,
