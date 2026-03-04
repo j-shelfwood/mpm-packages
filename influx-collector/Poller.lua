@@ -164,7 +164,15 @@ function Poller:collectMachines()
                 local slotData = MachineActivity.getItemSlots(machine.peripheral)
                 local hasInputItems = slotData and slotData.occupied > 0
                 local hasEnergy = type(energyEu) == "number" and energyEu > 0
-                fields.inferred_active = (hasInputItems and hasEnergy) and 1 or 0
+                local inferredActive = (hasInputItems and hasEnergy) and 1 or 0
+                fields.inferred_active = inferredActive
+                -- Roll inferred_active into the node-level summary counters so
+                -- machine_summary.active_machines includes MI alongside Mekanism.
+                if inferredActive == 1 and not active then
+                    activeDetected = true
+                    activeCount = activeCount + 1
+                    typeActive = typeActive + 1
+                end
                 -- Cache slot data per machine for use by collectMISlots()
                 if not self._miSlotCache then self._miSlotCache = {} end
                 self._miSlotCache[machine.name] = { slotData = slotData, type = entry.type, timestamp = timestamp }
