@@ -500,7 +500,10 @@ function MachineActivity.getItemSlots(p)
     local hasSize = type(p.size) == "function"
     if not hasList then return nil end
 
-    local sizeOk, slots = hasSize and pcall(p.size) or false, 0
+    local sizeOk, slots
+    if hasSize then
+        sizeOk, slots = pcall(p.size)
+    end
     if not sizeOk or type(slots) ~= "number" then slots = 0 end
 
     local listOk, items = pcall(p.list)
