@@ -56,6 +56,9 @@ function Poller.new(config, influx, discovery)
     self.nextInventoryAt  = 0
     self.nextMachineDiagAt = 0
     self.nextMiSlotAt     = 0
+    -- Per-job state for progress estimation: keyed by cpu_index string.
+    -- Tracks { startMs, countAtStart } so we can estimate completion via item-count delta.
+    self.aeJobState = {}
     return self
 end
 
@@ -589,6 +592,17 @@ function Poller:collectAE()
         end
     end
 
+    -- Build a quick item-count lookup from the current items snapshot for job-start tracking
+    local itemCountMap = {}
+    for _, item in ipairs(items) do
+        if type(item.registryName) == "string" then
+            itemCountMap[item.registryName] = item.count or 0
+        end
+    end
+
+    -- Track which cpu_index slots are currently active so we can prune stale state
+    local activeCpuIndexes = {}
+
     local jobCount = 0
     for i, cpu in ipairs(cpus) do
         local job = type(cpu.craftingJob) == "table" and cpu.craftingJob or nil
@@ -596,20 +610,65 @@ function Poller:collectAE()
             local res = type(job.resource) == "table" and job.resource or {}
             local itemName = (type(res.name) == "string" and res.name ~= "") and res.name or "unknown"
             local cpuName = (type(cpu.name) == "string" and cpu.name ~= "") and cpu.name or "unnamed"
-            -- Merge progress from getCraftingTasks() if available for this item
+            local qty = type(job.quantity) == "number" and job.quantity or 0
+            local idxKey = tostring(i)
+
+            -- Merge progress from getCraftingTasks() if available (bridge-submitted jobs)
             local progress = taskProgress[itemName] or {}
+
+            -- Per-job state: initialise on first poll for this cpu slot
+            if not self.aeJobState[idxKey] then
+                self.aeJobState[idxKey] = {
+                    startMs      = startMs,
+                    countAtStart = itemCountMap[itemName] or 0,
+                    item         = itemName,
+                }
+            elseif self.aeJobState[idxKey].item ~= itemName then
+                -- Different item on same CPU slot — new job started, reset state
+                self.aeJobState[idxKey] = {
+                    startMs      = startMs,
+                    countAtStart = itemCountMap[itemName] or 0,
+                    item         = itemName,
+                }
+            end
+
+            local state = self.aeJobState[idxKey]
+            activeCpuIndexes[idxKey] = true
+
+            -- Estimate completion from item-count delta when bridge progress unavailable
+            local estimatedCompletion = progress.completion or 0
+            local estimatedCrafted    = progress.crafted or 0
+            local countNow = itemCountMap[itemName] or 0
+            local delta = math.max(0, countNow - state.countAtStart)
+            -- Only use delta estimate if we have no real progress and qty > 0
+            if estimatedCompletion == 0 and qty > 0 then
+                estimatedCrafted    = math.min(qty, delta)
+                estimatedCompletion = math.min(99, (delta / qty) * 100)
+            end
+
             self.influx:add("ae_crafting_job", {
                 node      = node,
                 source    = src,
                 item      = itemName,
                 cpu       = cpuName,
-                cpu_index = tostring(i)
+                cpu_index = idxKey
             }, {
-                quantity   = type(job.quantity) == "number" and job.quantity or 0,
-                crafted    = progress.crafted or 0,
-                completion = progress.completion or 0
+                quantity        = qty,
+                crafted         = estimatedCrafted,
+                completion      = estimatedCompletion,
+                job_start_ms    = state.startMs,
+                count_at_start  = state.countAtStart,
+                count_now       = countNow,
+                is_estimated    = (progress.completion == nil or progress.completion == 0) and 1 or 0,
             }, startMs)
             jobCount = jobCount + 1
+        end
+    end
+
+    -- Prune state for CPU slots that are no longer busy
+    for idxKey in pairs(self.aeJobState) do
+        if not activeCpuIndexes[idxKey] then
+            self.aeJobState[idxKey] = nil
         end
     end
 
