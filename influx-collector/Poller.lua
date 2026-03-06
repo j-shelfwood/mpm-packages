@@ -567,23 +567,29 @@ function Poller:collectAE()
         }, startMs)
     end
 
-    -- Active crafting tasks — per-item detail
-    local tasks = ae:getCraftingTasks() or {}
-    for _, task in ipairs(tasks) do
-        local res = type(task.resource) == "table" and task.resource or {}
-        local itemName = res.name or "unknown"
-        local cpuName = (type(task.cpu) == "table" and type(task.cpu.name) == "string" and task.cpu.name ~= "")
-                         and task.cpu.name or "unknown"
-        self.influx:add("ae_crafting_job", {
-            node   = node,
-            source = src,
-            item   = itemName,
-            cpu    = cpuName
-        }, {
-            quantity   = type(task.quantity) == "number" and task.quantity or 0,
-            crafted    = type(task.crafted) == "number" and task.crafted or 0,
-            completion = type(task.completion) == "number" and task.completion * 100 or 0
-        }, startMs)
+    -- Active crafting tasks — extracted from getCraftingCPUs() craftingJob field.
+    -- getCraftingTasks() only returns bridge-submitted jobs (via craftItem()), so it
+    -- misses player-terminal crafts. getCraftingCPUs() with recursive=false includes
+    -- craftingJob on every busy CPU regardless of origin.
+    local jobCount = 0
+    for _, cpu in ipairs(cpus) do
+        local job = type(cpu.craftingJob) == "table" and cpu.craftingJob or nil
+        if job then
+            local res = type(job.resource) == "table" and job.resource or {}
+            local itemName = (type(res.name) == "string" and res.name ~= "") and res.name or "unknown"
+            local cpuName = (type(cpu.name) == "string" and cpu.name ~= "") and cpu.name or "unnamed"
+            self.influx:add("ae_crafting_job", {
+                node   = node,
+                source = src,
+                item   = itemName,
+                cpu    = cpuName
+            }, {
+                quantity   = type(job.quantity) == "number" and job.quantity or 0,
+                crafted    = type(job.crafted) == "number" and job.crafted or 0,
+                completion = type(job.completion) == "number" and job.completion * 100 or 0
+            }, startMs)
+            jobCount = jobCount + 1
+        end
     end
 
     -- Crafting task count summary
@@ -591,7 +597,7 @@ function Poller:collectAE()
         node   = node,
         source = src
     }, {
-        count = #tasks
+        count = jobCount
     }, startMs)
 
     -- AE network summary
