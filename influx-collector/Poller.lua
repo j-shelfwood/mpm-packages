@@ -568,26 +568,46 @@ function Poller:collectAE()
         }, startMs)
     end
 
-    -- Active crafting tasks — extracted from getCraftingCPUs() craftingJob field.
-    -- getCraftingTasks() only returns bridge-submitted jobs (via craftItem()), so it
-    -- misses player-terminal crafts. getCraftingCPUs() with recursive=false includes
-    -- craftingJob on every busy CPU regardless of origin.
+    -- Active crafting tasks — primary source: getCraftingCPUs() craftingJob field.
+    -- This covers ALL jobs including player-terminal crafts. However AP's parseCraftingJob
+    -- passes cpu=null in this path, so completion/crafted are always 0.
+    --
+    -- Secondary source: getCraftingTasks() for bridge-submitted jobs only — these DO
+    -- have real completion/crafted values. Build a lookup by item name and merge.
+    local taskProgress = {}
+    local okTasks, tasks = pcall(ae.getCraftingTasks, ae)
+    if okTasks and type(tasks) == "table" then
+        for _, t in ipairs(tasks) do
+            local tRes = type(t.resource) == "table" and t.resource or {}
+            local tName = (type(tRes.name) == "string" and tRes.name ~= "") and tRes.name or nil
+            if tName then
+                taskProgress[tName] = {
+                    crafted    = type(t.crafted) == "number" and t.crafted or 0,
+                    completion = type(t.completion) == "number" and t.completion * 100 or 0
+                }
+            end
+        end
+    end
+
     local jobCount = 0
-    for _, cpu in ipairs(cpus) do
+    for i, cpu in ipairs(cpus) do
         local job = type(cpu.craftingJob) == "table" and cpu.craftingJob or nil
         if job then
             local res = type(job.resource) == "table" and job.resource or {}
             local itemName = (type(res.name) == "string" and res.name ~= "") and res.name or "unknown"
             local cpuName = (type(cpu.name) == "string" and cpu.name ~= "") and cpu.name or "unnamed"
+            -- Merge progress from getCraftingTasks() if available for this item
+            local progress = taskProgress[itemName] or {}
             self.influx:add("ae_crafting_job", {
-                node   = node,
-                source = src,
-                item   = itemName,
-                cpu    = cpuName
+                node      = node,
+                source    = src,
+                item      = itemName,
+                cpu       = cpuName,
+                cpu_index = tostring(i)
             }, {
                 quantity   = type(job.quantity) == "number" and job.quantity or 0,
-                crafted    = type(job.crafted) == "number" and job.crafted or 0,
-                completion = type(job.completion) == "number" and job.completion * 100 or 0
+                crafted    = progress.crafted or 0,
+                completion = progress.completion or 0
             }, startMs)
             jobCount = jobCount + 1
         end
