@@ -541,17 +541,18 @@ function Poller:collectAE()
         if cpu.isBusy then cpuBusy = cpuBusy + 1 end
     end
 
-    -- Per-CPU detail
-    for _, cpu in ipairs(cpus) do
+    -- Per-CPU detail — include 1-based index tag so unnamed CPUs remain distinct series
+    for i, cpu in ipairs(cpus) do
         local cpuName = (type(cpu.name) == "string" and cpu.name ~= "") and cpu.name or "unnamed"
         self.influx:add("ae_cpu", {
-            node   = node,
-            source = src,
-            cpu    = cpuName
+            node      = node,
+            source    = src,
+            cpu       = cpuName,
+            cpu_index = tostring(i)
         }, {
-            storage      = type(cpu.storage) == "number" and cpu.storage or 0,
+            storage       = type(cpu.storage) == "number" and cpu.storage or 0,
             co_processors = type(cpu.coProcessors) == "number" and cpu.coProcessors or 0,
-            is_busy      = cpu.isBusy and 1 or 0
+            is_busy       = cpu.isBusy and 1 or 0
         }, startMs)
     end
 
@@ -678,7 +679,7 @@ function Poller:collectAE()
         online     = conn.isOnline,
         cpu_total  = cpuTotal,
         cpu_busy   = cpuBusy,
-        task_count = #tasks
+        task_count = jobCount
     }
     self:emit("ae", self.stats.ae)
     return true, duration
