@@ -159,12 +159,14 @@ function Poller:collectMachines()
 
             -- For MI machines: derive inferred_active from energy + slot occupancy.
             -- No activity methods exist on MI peripherals (verified via jar scan).
-            -- A machine is "likely active" when it has energy stored AND input slots occupied.
+            -- Electric machines: "likely active" when energy stored AND input slots occupied.
+            -- Steam machines (steel_* prefix): no IEnergyStorage exposed, use slots alone.
             if entry.classification.mod == "modern_industrialization" then
                 local slotData = MachineActivity.getItemSlots(machine.peripheral)
                 local hasInputItems = slotData and slotData.occupied > 0
                 local hasEnergy = type(energyEu) == "number" and energyEu > 0
-                local inferredActive = (hasInputItems and hasEnergy) and 1 or 0
+                local isSteam = entry.type:find("steel_", 1, true) ~= nil
+                local inferredActive = (hasInputItems and (hasEnergy or isSteam)) and 1 or 0
                 fields.inferred_active = inferredActive
                 -- Roll inferred_active into the node-level summary counters so
                 -- machine_summary.active_machines includes MI alongside Mekanism.
