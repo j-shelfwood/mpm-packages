@@ -68,5 +68,9 @@
     "name": "influx-collector",
     "description": "InfluxDB telemetry collector for CC:Tweaked nodes",
     "dependencies": ["peripherals", "utils"]
+  },
+  {
+    "name": "cc-music",
+    "description": "Stream YouTube music in-game — self-hosted, no API keys required"
   }
 ]

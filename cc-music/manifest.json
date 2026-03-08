@@ -1,0 +1,8 @@
+{
+  "name": "cc-music",
+  "description": "Stream YouTube music in-game — self-hosted, no API keys required",
+  "files": [
+    "start.lua",
+    "music.lua"
+  ]
+}
