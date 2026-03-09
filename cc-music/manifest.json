@@ -1,6 +1,6 @@
 {
   "name": "cc-music",
-  "description": "Stream YouTube music in-game — self-hosted, no API keys required",
+  "description": "Stream YouTube music in-game — self-hosted, yt-dlp + ffmpeg backend",
   "files": [
     "start.lua",
     "music.lua"
