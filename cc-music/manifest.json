@@ -4,5 +4,8 @@
   "files": [
     "start.lua",
     "music.lua"
-  ]
+  ],
+  "file_urls": {
+    "music.lua": "https://raw.githubusercontent.com/j-shelfwood/cc-music/main/music.lua"
+  }
 }
