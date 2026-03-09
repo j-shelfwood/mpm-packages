@@ -52,18 +52,19 @@ local shuffle       = false
 local volume        = 1.5
 
 -- Internal playback state
+local CHUNK_SIZE        = 16 * 1024  -- bytes per audio read
+local dfpwm             = require("cc.audio.dfpwm")
 local playing_id        = nil
 local last_download_url = nil
 local playing_status    = 0
 local is_loading        = false
 local is_error          = false
 local player_handle     = nil
-local chunk_start       = nil
-local chunk_size        = nil
-local decoder           = require("cc.audio.dfpwm").make_decoder()
+local decoder           = dfpwm.make_decoder()  -- reset per track to clear filter state
 local needs_next_chunk  = 0
 local audio_buffer      = nil
 local audio_offset      = 0   -- byte offset for segmented download
+local audio_seg_offset  = 0   -- offset of the segment currently being fetched (cache key)
 local audio_has_more    = false  -- server signalled more segments follow
 
 -- Search
@@ -162,6 +163,8 @@ local CTRL_ROW   = 7
 local VOL_ROW    = 9
 local SEP_ROW    = 10
 local QUEUE_ROW  = 11
+local LOOP_COL   = 16  -- fixed start column for loop button
+-- SHUF_COL is dynamic: LOOP_COL + len(loop_label) + 1
 
 local function drawNowPlaying()
     term.setBackgroundColor(colors.black)
@@ -206,10 +209,11 @@ local function drawNowPlaying()
     -- Loop button (3 states)
     local loop_labels = {[0]=" Loop ",[1]=" Loop Q ",[2]=" Loop 1 "}
     local loop_active = looping ~= 0
-    button(16, CTRL_ROW, loop_labels[looping], loop_active)
+    local shuf_col = LOOP_COL + #loop_labels[looping] + 1
+    button(LOOP_COL, CTRL_ROW, loop_labels[looping], loop_active)
 
     -- Shuffle button
-    button(16 + #loop_labels[looping] + 1, CTRL_ROW, " Shuf ", shuffle)
+    button(shuf_col, CTRL_ROW, " Shuf ", shuffle)
 
     -- Row 8: blank
     tfill(1, 8, W, colors.black, colors.black)
@@ -491,17 +495,17 @@ local function playNow(item_or_playlist)
 end
 
 local function skipTrack()
+    if not now_playing and #queue == 0 then return end
     is_error = false
     if playing then stopSpeakers() end
     if #queue > 0 then
-        if looping == 1 then table.insert(queue, now_playing) end
+        if looping == 1 and now_playing then table.insert(queue, now_playing) end
         now_playing = table.remove(queue, 1)
         playing_id  = nil
     else
         now_playing = nil
         playing     = false
         is_loading  = false
-        is_error    = false
         playing_id  = nil
     end
     queueEvent("audio_update")
@@ -535,14 +539,18 @@ local function handleNowPlayingClick(x, y)
         elseif x >= 9 and x <= 14 then
             skipTrack()
 
-        -- Loop (cols 16-23ish — " Loop Q " is 9 chars)
-        elseif x >= 16 and x <= 24 then
-            looping = (looping + 1) % 3
-
-        -- Shuffle (after loop button)
-        elseif x >= 26 and x <= 32 then
-            shuffle = not shuffle
-            if shuffle and #queue > 1 then shuffleTable(queue) end
+        -- Loop button: LOOP_COL to LOOP_COL + label_len - 1
+        else
+            local loop_labels = {[0]=" Loop ",[1]=" Loop Q ",[2]=" Loop 1 "}
+            local loop_end  = LOOP_COL + #loop_labels[looping] - 1
+            local shuf_col  = loop_end + 2
+            local shuf_end  = shuf_col + #" Shuf " - 1
+            if x >= LOOP_COL and x <= loop_end then
+                looping = (looping + 1) % 3
+            elseif x >= shuf_col and x <= shuf_end then
+                shuffle = not shuffle
+                if shuffle and #queue > 1 then shuffleTable(queue) end
+            end
         end
 
     elseif y == VOL_ROW then
@@ -747,9 +755,121 @@ local function uiLoop()
     end
 end
 
+-- ─── Segment cache ─────────────────────────────────────────────────────────────
+--
+-- Stores raw DFPWM segment files on the computer's local filesystem.
+-- Layout:
+--   .cc-music/<video_id>/<offset>        -- raw binary segment
+--   .cc-music/<video_id>/<offset>.meta   -- "1" if X-More, next offset on second line
+--   .cc-music/index                      -- newline-separated video IDs, oldest first
+--
+-- Max MAX_CACHED_TRACKS tracks kept; oldest evicted when limit exceeded.
+-- Each track can be up to ~10 segments (≈4.5MB) but we don't cap per-track size.
+
+local CACHE_DIR        = ".cc-music"
+local MAX_CACHED_TRACKS = 10
+
+local function cachePath(id, offset)
+    return CACHE_DIR .. "/" .. id .. "/" .. offset
+end
+
+local function cacheMetaPath(id, offset)
+    return cachePath(id, offset) .. ".meta"
+end
+
+local function cacheReadIndex()
+    local f = fs.open(CACHE_DIR .. "/index", "r")
+    if not f then return {} end
+    local ids = {}
+    local line = f.readLine()
+    while line do
+        if #line > 0 then ids[#ids + 1] = line end
+        line = f.readLine()
+    end
+    f.close()
+    return ids
+end
+
+local function cacheWriteIndex(ids)
+    fs.makeDir(CACHE_DIR)
+    local f = fs.open(CACHE_DIR .. "/index", "w")
+    if not f then return end
+    for _, id in ipairs(ids) do f.writeLine(id) end
+    f.close()
+end
+
+local function cacheTouchTrack(id)
+    -- Move id to the end (most-recently-used), evict oldest if over limit
+    local ids = cacheReadIndex()
+    -- Remove existing entry
+    local new = {}
+    for _, v in ipairs(ids) do
+        if v ~= id then new[#new + 1] = v end
+    end
+    new[#new + 1] = id
+    -- Evict oldest entries if over limit
+    while #new > MAX_CACHED_TRACKS do
+        local evict = table.remove(new, 1)
+        if fs.exists(CACHE_DIR .. "/" .. evict) then
+            fs.delete(CACHE_DIR .. "/" .. evict)
+        end
+    end
+    cacheWriteIndex(new)
+end
+
+local function cacheHasSegment(id, offset)
+    return fs.exists(cachePath(id, offset))
+end
+
+local function cacheReadMeta(id, offset)
+    local f = fs.open(cacheMetaPath(id, offset), "r")
+    if not f then return false, offset end
+    local has_more   = f.readLine() == "1"
+    local next_off   = tonumber(f.readLine()) or offset
+    f.close()
+    return has_more, next_off
+end
+
+local function cacheWriteSegment(id, offset, data, has_more, next_offset)
+    fs.makeDir(CACHE_DIR .. "/" .. id)
+    local f = fs.open(cachePath(id, offset), "wb")
+    if not f then return end
+    f.write(data)
+    f.close()
+    local mf = fs.open(cacheMetaPath(id, offset), "w")
+    if not mf then return end
+    mf.writeLine(has_more and "1" or "0")
+    mf.writeLine(tostring(next_offset))
+    mf.close()
+    cacheTouchTrack(id)
+end
+
+local function cacheOpenSegment(id, offset)
+    -- Returns a file handle compatible with player_handle (.read / .close)
+    return fs.open(cachePath(id, offset), "rb")
+end
+
 -- ─── Audio loop ────────────────────────────────────────────────────────────────
 
 local function requestSegment(id, offset)
+    audio_seg_offset = offset
+    -- Serve from cache if available
+    if cacheHasSegment(id, offset) then
+        local fh = cacheOpenSegment(id, offset)
+        if fh then
+            local has_more, next_off = cacheReadMeta(id, offset)
+            audio_has_more = has_more
+            audio_offset   = next_off
+            is_loading     = false
+            player_handle  = fh
+            playing_status = 1
+            cacheTouchTrack(id)
+            signalRedraw()
+            queueEvent("audio_update")
+            return
+        end
+        -- Cache file unreadable — fall through to HTTP
+    end
     local url = api_base_url .. "?v=" .. version
                 .. "&id=" .. textutils.urlEncode(id)
                 .. "&offset=" .. offset
@@ -765,9 +885,11 @@ local function audioLoop()
             if playing_id ~= this_id then
                 playing_id       = this_id
                 audio_offset     = 0
+                audio_seg_offset = 0
                 audio_has_more   = false
                 playing_status   = 0
                 needs_next_chunk = 1
+                decoder          = dfpwm.make_decoder()  -- fresh state per track
                 requestSegment(playing_id, 0)
                 is_loading = true
                 signalRedraw()
@@ -775,7 +897,7 @@ local function audioLoop()
 
             elseif playing_status == 1 and needs_next_chunk == 1 then
                 while true do
-                    local chunk = player_handle.read(chunk_size)
+                    local chunk = player_handle.read(CHUNK_SIZE)
 
                     if not chunk then
                         -- Segment exhausted
@@ -784,10 +906,8 @@ local function audioLoop()
 
                         if audio_has_more and playing and playing_id == this_id then
                             -- More segments: fetch next, stay on same track
-                            playing_status = 0
+                            playing_status   = 0
                             needs_next_chunk = 1
-                            chunk_start = nil
-                            chunk_size  = nil
                             requestSegment(playing_id, audio_offset)
                             is_loading = true
                             signalRedraw()
@@ -796,34 +916,27 @@ local function audioLoop()
 
                         -- Track truly ended
                         if looping == 2 or (looping == 1 and #queue == 0) then
-                            playing_id = nil  -- replay same song
+                            playing_id   = nil  -- replay same song
                             audio_offset = 0
                         elseif looping == 1 and #queue > 0 then
                             table.insert(queue, now_playing)
-                            now_playing = table.remove(queue, 1)
-                            playing_id  = nil
+                            now_playing  = table.remove(queue, 1)
+                            playing_id   = nil
                             audio_offset = 0
                         elseif #queue > 0 then
-                            now_playing = table.remove(queue, 1)
-                            playing_id  = nil
+                            now_playing  = table.remove(queue, 1)
+                            playing_id   = nil
                             audio_offset = 0
                         else
-                            now_playing = nil
-                            playing     = false
-                            playing_id  = nil
+                            now_playing  = nil
+                            playing      = false
+                            playing_id   = nil
                             audio_offset = 0
-                            is_loading  = false
-                            is_error    = false
+                            is_loading   = false
+                            is_error     = false
                         end
                         signalRedraw()
                         break
-                    end
-
-                    -- Prepend 4-byte header on first chunk
-                    if chunk_start then
-                        chunk       = chunk_start .. chunk
-                        chunk_start = nil
-                        chunk_size  = chunk_size + 4
                     end
 
                     audio_buffer = decoder(chunk)
@@ -861,7 +974,10 @@ local function audioLoop()
 
                     local ok, _ = pcall(parallel.waitForAll, table.unpack(fns))
                     if not ok then
-                        needs_next_chunk = 2
+                        -- Speaker error — stop playback cleanly
+                        playing          = false
+                        playing_id       = nil
+                        needs_next_chunk = 0
                         is_error         = true
                         signalRedraw()
                         break
@@ -890,16 +1006,30 @@ local function httpLoop()
                     handle.close()
                     search_page = 0
                     signalRedraw()
-                end
-
-                if url == last_download_url then
-                    local headers = handle.getResponseHeaders()
-                    audio_has_more = (headers and headers["X-More"] == "1")
-                    audio_offset   = tonumber(headers and headers["X-Next-Offset"]) or audio_offset
+                elseif url == last_download_url then
+                    local headers     = handle.getResponseHeaders()
+                    local has_more    = (headers and headers["X-More"] == "1")
+                    local next_offset = tonumber(headers and headers["X-Next-Offset"]) or audio_offset
+                    -- Read all bytes so we can write to cache; HTTP handles can't be re-read
+                    local data = handle.readAll()
+                    handle.close()
+                    cacheWriteSegment(playing_id, audio_seg_offset, data, has_more, next_offset)
+                    local fh = cacheOpenSegment(playing_id, audio_seg_offset)
+                    if not fh then
+                        -- Cache write failed (disk full?) — fall back to in-memory string handle
+                        fh = { _data = data, _pos = 1,
+                               read  = function(self, n)
+                                   if self._pos > #self._data then return nil end
+                                   local s = self._data:sub(self._pos, self._pos + n - 1)
+                                   self._pos = self._pos + #s
+                                   return #s > 0 and s or nil
+                               end,
+                               close = function() end }
+                    end
+                    audio_has_more = has_more
+                    audio_offset   = next_offset
                     is_loading     = false
-                    player_handle  = handle
-                    chunk_start    = handle.read(4)
-                    chunk_size     = 16 * 1024 - 4
+                    player_handle  = fh
                     playing_status = 1
                     signalRedraw()
                     queueEvent("audio_update")
@@ -911,8 +1041,7 @@ local function httpLoop()
                 if url == last_search_url then
                     search_error = true
                     signalRedraw()
-                end
-                if url == last_download_url then
+                elseif url == last_download_url then
                     is_loading = false
                     is_error   = true
                     playing    = false
