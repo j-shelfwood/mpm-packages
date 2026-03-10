@@ -3,6 +3,8 @@
   "description": "Stream YouTube music in-game — self-hosted, yt-dlp + ffmpeg backend",
   "files": [
     "start.lua",
-    "music.lua"
+    "music.lua",
+    "ui.lua",
+    "audio.lua"
   ]
 }
