@@ -32,6 +32,7 @@ local DEFAULTS = {
     energy_detector_burst_interval_s = 1,
     energy_detector_burst_window_s = 10,
     ae_interval_s = 60,
+    ae_item_interval_s = 300,
     ae_slow_interval_s = 600,
     ae_slow_threshold_ms = 5000,
     inventory_interval_s = 600,

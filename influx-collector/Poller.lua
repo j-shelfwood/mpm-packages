@@ -53,6 +53,7 @@ function Poller.new(config, influx, discovery)
     self.nextEnergyAt     = 0
     self.nextDetectorAt   = 0
     self.nextAeAt         = 0
+    self.nextAeItemAt     = 0
     self.nextInventoryAt  = 0
     self.nextMachineDiagAt = 0
     self.nextMiSlotAt     = 0
@@ -78,6 +79,7 @@ function Poller:getSchedule()
         nextEnergyAt    = self.nextEnergyAt,
         nextDetectorAt  = self.nextDetectorAt,
         nextAeAt        = self.nextAeAt,
+        nextAeItemAt    = self.nextAeItemAt,
         nextInventoryAt = self.nextInventoryAt,
         nextMiSlotAt    = self.nextMiSlotAt,
         machineBurst    = self:isMachineBurstActive(),
@@ -496,7 +498,7 @@ function Poller:collectEnergy()
     self:emit("energy", self.stats.energy)
 end
 
-function Poller:collectAE()
+function Poller:collectAE(writeItems)
     local ae = self.discovery:getAE()
     local disconnected = {
         items = 0, fluids = 0, chemicals = 0, duration_ms = 0,
@@ -660,34 +662,35 @@ function Poller:collectAE()
 
     self.influx:add("ae_summary", { node = node, source = src }, summaryFields, startMs)
 
-    -- All items (top N by count for ordering, but all are written)
-    sortByField(items, "count")
-    for i = 1, #items do
-        local item = items[i]
-        self.influx:add("ae_item", {
-            node = node,
-            item = item.registryName
-        }, { count = item.count }, startMs)
-        if i % 10 == 0 then sleep(0) end
-    end
-
-    -- All fluids
-    for i, fluid in ipairs(fluids) do
-        self.influx:add("ae_fluid", {
-            node  = node,
-            fluid = fluid.registryName
-        }, { amount = fluid.amount }, startMs)
-        if i % 10 == 0 then sleep(0) end
-    end
-
-    -- All chemicals
-    if ae:hasChemicalSupport() and #chemicals > 0 then
-        for i, chem in ipairs(chemicals) do
-            self.influx:add("ae_chemical", {
-                node     = node,
-                chemical = chem.registryName
-            }, { amount = chem.amount }, startMs)
+    -- Per-item/fluid/chemical series — written on their own slower timer (ae_item_interval_s)
+    -- to reduce TSM series churn on high-cardinality networks.
+    if writeItems then
+        sortByField(items, "count")
+        for i = 1, #items do
+            local item = items[i]
+            self.influx:add("ae_item", {
+                node = node,
+                item = item.registryName
+            }, { count = item.count }, startMs)
             if i % 10 == 0 then sleep(0) end
+        end
+
+        for i, fluid in ipairs(fluids) do
+            self.influx:add("ae_fluid", {
+                node  = node,
+                fluid = fluid.registryName
+            }, { amount = fluid.amount }, startMs)
+            if i % 10 == 0 then sleep(0) end
+        end
+
+        if ae:hasChemicalSupport() and #chemicals > 0 then
+            for i, chem in ipairs(chemicals) do
+                self.influx:add("ae_chemical", {
+                    node     = node,
+                    chemical = chem.registryName
+                }, { amount = chem.amount }, startMs)
+                if i % 10 == 0 then sleep(0) end
+            end
         end
     end
 
@@ -807,13 +810,21 @@ function Poller:run()
         end
 
         if now >= self.nextAeAt then
-            local ok, duration = self:collectAE()
+            local writeItems = now >= self.nextAeItemAt
+            local ok, duration = self:collectAE(writeItems)
             if not self.present.ae then
-                self.nextAeAt = now + ABSENT_RECHECK_MS
+                self.nextAeAt     = now + ABSENT_RECHECK_MS
+                self.nextAeItemAt = now + ABSENT_RECHECK_MS
             elseif ok and duration > (self.config.ae_slow_threshold_ms or 5000) then
                 self.nextAeAt = now + ((self.config.ae_slow_interval_s or 600) * 1000)
+                if writeItems then
+                    self.nextAeItemAt = now + ((self.config.ae_item_interval_s or 300) * 1000)
+                end
             else
                 self.nextAeAt = now + ((self.config.ae_interval_s or 60) * 1000)
+                if writeItems then
+                    self.nextAeItemAt = now + ((self.config.ae_item_interval_s or 300) * 1000)
+                end
             end
         end
 
