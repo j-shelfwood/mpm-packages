@@ -490,14 +490,16 @@ function MachineActivity.getTanks(p)
 end
 
 -- Get item slot contents via CC GenericPeripheral IItemHandler wrapper.
--- Returns { slots = N, occupied = N, items = { [slotN] = {name, count, ...} } }, or nil.
--- MI machines expose list() and size() from the IItemHandler NeoForge capability.
+-- Returns { slots = N, occupied = N, items = { [slotN] = {name, count, displayName?} } }, or nil.
+-- MI machines expose list(), size(), and getItemDetail(slot) from the IItemHandler NeoForge capability.
+-- getItemDetail(slot) is called for each occupied slot to enrich results with displayName.
 function MachineActivity.getItemSlots(p)
     if not p then return nil end
 
-    -- Need both list() and size() for meaningful data
+    -- Need at least list() for meaningful data
     local hasList = type(p.list) == "function"
     local hasSize = type(p.size) == "function"
+    local hasDetail = type(p.getItemDetail) == "function"
     if not hasList then return nil end
 
     local sizeOk, slots
@@ -515,10 +517,20 @@ function MachineActivity.getItemSlots(p)
     for slot, item in pairs(items) do
         if type(item) == "table" and type(item.name) == "string" then
             occupied = occupied + 1
-            normalized[slot] = {
+            local entry = {
                 name  = item.name,
                 count = type(item.count) == "number" and item.count or 1
             }
+            -- Enrich with displayName via getItemDetail(slot) — takes a 1-based integer.
+            -- list() returns only {name, count, nbt}; getItemDetail returns the full stack
+            -- including displayName which is useful for the dashboard to show what's crafting.
+            if hasDetail then
+                local okD, detail = pcall(p.getItemDetail, slot)
+                if okD and type(detail) == "table" and type(detail.displayName) == "string" then
+                    entry.displayName = detail.displayName
+                end
+            end
+            normalized[slot] = entry
         end
     end
 

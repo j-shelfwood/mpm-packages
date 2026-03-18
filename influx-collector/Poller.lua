@@ -364,16 +364,38 @@ function Poller:collectMISlots()
 
             if slotData then
                 -- Per-slot detail: one line per occupied slot
+                local firstInputSlot = nil
                 for slot, item in pairs(slotData.items) do
+                    local fields = {
+                        count = item.count,
+                        slot  = slot
+                    }
+                    if type(item.displayName) == "string" then
+                        fields.display_name = item.displayName
+                    end
                     self.influx:add("mi_machine_slot", {
                         node = self.config.node,
                         type = entry.type,
                         name = machine.name,
                         item = item.name
-                    }, {
-                        count = item.count,
-                        slot  = slot
-                    }, timestamp)
+                    }, fields, timestamp)
+                    -- Track first occupied slot for mi_machine_input
+                    if firstInputSlot == nil or slot < firstInputSlot.slot then
+                        firstInputSlot = { slot = slot, item = item }
+                    end
+                end
+                -- Write mi_machine_input for the first occupied slot (what the machine is processing)
+                if firstInputSlot then
+                    local inputFields = { count = firstInputSlot.item.count }
+                    if type(firstInputSlot.item.displayName) == "string" then
+                        inputFields.display_name = firstInputSlot.item.displayName
+                    end
+                    self.influx:add("mi_machine_input", {
+                        node = self.config.node,
+                        type = entry.type,
+                        name = machine.name,
+                        item = firstInputSlot.item.name
+                    }, inputFields, timestamp)
                 end
                 -- Summary: total slots and occupied count
                 self.influx:add("mi_machine_slot_summary", {
