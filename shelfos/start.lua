@@ -25,10 +25,18 @@ if mode == "pocket" then
     return
 else
     -- Unified kernel mode (works with or without monitors)
-    local Kernel = mpm('shelfos/core/Kernel')
-    local kernel = Kernel.new()
+    while true do
+        local Kernel = mpm('shelfos/core/Kernel')
+        local kernel = Kernel.new()
 
-    if kernel:boot() then
-        kernel:run()
+        if kernel:boot() then
+            local ok, err = pcall(kernel.run, kernel)
+            if not ok then
+                print("[ShelfOS] Fatal error: " .. tostring(err))
+            end
+        end
+
+        print("[ShelfOS] Restarting in 3 seconds...")
+        os.sleep(3)
     end
 end
