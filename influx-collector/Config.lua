@@ -20,7 +20,7 @@ local DEFAULTS = {
     node = defaultNode(),
     share_token = true,
     machine_interval_s = 15,
-    machine_burst_interval_s = 5,
+    machine_burst_interval_s = 15,  -- same as baseline; burst mode disabled (factories always active)
     machine_burst_window_s = 30,
     -- MI slot/tank collection runs on its own slower timer (list() is O(machines×slots))
     mi_slot_interval_s = 30,
@@ -29,7 +29,7 @@ local DEFAULTS = {
     machine_diag_interval_s = 30,
     energy_interval_s = 15,
     energy_detector_interval_s = 15,
-    energy_detector_burst_interval_s = 5,
+    energy_detector_burst_interval_s = 15,  -- same as baseline; burst mode disabled
     energy_detector_burst_window_s = 30,
     ae_interval_s = 60,
     ae_item_interval_s = 300,
