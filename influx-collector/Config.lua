@@ -19,24 +19,24 @@ local DEFAULTS = {
     token = "",
     node = defaultNode(),
     share_token = true,
-    machine_interval_s = 5,
-    machine_burst_interval_s = 1,
-    machine_burst_window_s = 10,
+    machine_interval_s = 15,
+    machine_burst_interval_s = 5,
+    machine_burst_window_s = 30,
     -- MI slot/tank collection runs on its own slower timer (list() is O(machines×slots))
     mi_slot_interval_s = 30,
     -- Diagnostic method-probe stream; disable once peripheral methods are known
     machine_diag_enabled = false,
     machine_diag_interval_s = 30,
-    energy_interval_s = 5,
-    energy_detector_interval_s = 5,
-    energy_detector_burst_interval_s = 1,
-    energy_detector_burst_window_s = 10,
+    energy_interval_s = 15,
+    energy_detector_interval_s = 15,
+    energy_detector_burst_interval_s = 5,
+    energy_detector_burst_window_s = 30,
     ae_interval_s = 60,
     ae_item_interval_s = 300,
     ae_slow_interval_s = 600,
     ae_slow_threshold_ms = 5000,
     inventory_interval_s = 600,
-    flush_interval_s = 5,
+    flush_interval_s = 10,
     max_buffer_lines = 5000
 }
 
