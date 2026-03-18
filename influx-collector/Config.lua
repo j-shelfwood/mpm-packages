@@ -12,6 +12,26 @@ local function defaultNode()
     return "cc-" .. tostring(os.getComputerID())
 end
 
+-- Keys that are code-controlled only — stripped from any persisted config so
+-- updating the package always picks up new values without per-computer changes.
+local CODE_CONTROLLED_KEYS = {
+    "machine_interval_s", "machine_burst_interval_s", "machine_burst_window_s",
+    "mi_slot_interval_s", "machine_diag_enabled", "machine_diag_interval_s",
+    "energy_interval_s", "energy_detector_interval_s",
+    "energy_detector_burst_interval_s", "energy_detector_burst_window_s",
+    "ae_interval_s", "ae_item_interval_s", "ae_slow_interval_s",
+    "ae_slow_threshold_ms", "inventory_interval_s",
+    "flush_interval_s", "max_buffer_lines",
+}
+
+local function stripCodeControlledKeys(data)
+    if type(data) ~= "table" then return data end
+    for _, key in ipairs(CODE_CONTROLLED_KEYS) do
+        data[key] = nil
+    end
+    return data
+end
+
 local DEFAULTS = {
     url = "https://influx.shelfwood.co",
     org = "shelfwood",
@@ -272,8 +292,8 @@ function Config.loadMerged()
     if not envConfig then
         fileConfig = Config.loadFile()
         settingsConfig = Config.loadSettings()
-        config = merge(config, fileConfig)
-        config = merge(config, settingsConfig)
+        config = merge(config, stripCodeControlledKeys(fileConfig))
+        config = merge(config, stripCodeControlledKeys(settingsConfig))
     end
     config = merge(config, envConfig)
     if config.share_token == nil then
